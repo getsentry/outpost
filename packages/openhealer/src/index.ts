@@ -1,4 +1,4 @@
-// opencode-webhooks: receives GitHub webhooks (and optional Cloudflare
+// openhealer: receives GitHub webhooks (and optional Cloudflare
 // email worker forwards) and dispatches to OpenCode agents via the
 // in-process SDK client. Uses Hono for routing, Sentry for
 // observability (traces, structured logs, error tracking).
@@ -24,11 +24,11 @@ export type {
 } from "./types"
 
 export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
-  console.log("[opencode-webhooks] plugin loading...")
+  console.log("[openhealer] plugin loading...")
 
   const g = globalThis as { __webhookServerStarted?: boolean }
   if (g.__webhookServerStarted) {
-    console.log("[opencode-webhooks] server already running, skipping duplicate init")
+    console.log("[openhealer] server already running, skipping duplicate init")
     return {}
   }
   g.__webhookServerStarted = true
@@ -36,7 +36,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
   try {
     if (typeof Bun === "undefined") {
       throw new Error(
-        "opencode-webhooks requires Bun (uses Bun.serve, Bun.spawn, Bun.file). Install Bun >=1.2.0: https://bun.sh",
+        "openhealer requires Bun (uses Bun.serve, Bun.spawn, Bun.file). Install Bun >=1.2.0: https://bun.sh",
       )
     }
 
@@ -51,20 +51,20 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
           return Number.isFinite(rate) ? rate : 0.1
         })(),
       })
-      console.log("[opencode-webhooks] Sentry initialized (logs + traces enabled)")
+      console.log("[openhealer] Sentry initialized (logs + traces enabled)")
     }
 
     const guard = globalThis as { __ghWebhookGuard?: boolean }
     if (!guard.__ghWebhookGuard) {
       process.on("unhandledRejection", (err) => {
-        console.error("[opencode-webhooks] unhandledRejection:", err)
+        console.error("[openhealer] unhandledRejection:", err)
         Sentry.captureException(err)
       })
       guard.__ghWebhookGuard = true
     }
 
     const cfg = await readWebhookConfig()
-    console.log(`[opencode-webhooks] config loaded from ${configPath()}`)
+    console.log(`[openhealer] config loaded from ${configPath()}`)
 
     const port = cfg.port ?? Number(process.env.WEBHOOK_PORT ?? "5050")
     const secret = cfg.secret ?? process.env.GITHUB_WEBHOOK_SECRET ?? ""
@@ -76,11 +76,11 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
 
     const botLogin = await resolveBotLogin()
     if (botLogin) {
-      console.log(`[opencode-webhooks] bot identity: ${botLogin}`)
+      console.log(`[openhealer] bot identity: ${botLogin}`)
       Sentry.setTag("bot.login", botLogin)
     } else {
       console.warn(
-        `[opencode-webhooks] WARNING: could not resolve bot identity via 'gh api user' -- $BOT_LOGIN in ignore_authors will not be substituted.`,
+        `[openhealer] WARNING: could not resolve bot identity via 'gh api user' -- $BOT_LOGIN in ignore_authors will not be substituted.`,
       )
     }
 
@@ -90,18 +90,18 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
 
     if (triggers.length === 0) {
       console.log(
-        `[opencode-webhooks] no triggers configured (looked at ${configPath()}) -- listener disabled`,
+        `[openhealer] no triggers configured (looked at ${configPath()}) -- listener disabled`,
       )
       return {}
     }
     if (githubTriggerCount > 0 && !secret) {
       console.warn(
-        `[opencode-webhooks] WARNING: no GitHub HMAC secret configured -- /webhooks/github will reject with 503`,
+        `[openhealer] WARNING: no GitHub HMAC secret configured -- /webhooks/github will reject with 503`,
       )
     }
     if (emailTriggerCount > 0 && !emailSecret) {
       console.warn(
-        `[opencode-webhooks] WARNING: no email HMAC secret configured -- /webhooks/email will reject with 503`,
+        `[openhealer] WARNING: no email HMAC secret configured -- /webhooks/email will reject with 503`,
       )
     }
 
@@ -113,7 +113,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     const dbPath = process.env.LIFECYCLE_DB_PATH
       ?? join(homedir(), "dev", ".opencode", "lifecycle.db")
     const store = openLifecycleStore(dbPath)
-    console.log(`[opencode-webhooks] lifecycle store opened at ${dbPath}`)
+    console.log(`[openhealer] lifecycle store opened at ${dbPath}`)
 
     const pipeline = makePipeline({
       client: ctx.client,
@@ -134,7 +134,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
       botLogin,
     })
 
-    console.log(`[opencode-webhooks] starting Bun.serve on port ${port}...`)
+    console.log(`[openhealer] starting Bun.serve on port ${port}...`)
     const server = Bun.serve({
       port,
       hostname: "0.0.0.0",
@@ -142,7 +142,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     })
 
     console.log(
-      `[opencode-webhooks] listening on http://0.0.0.0:${server.port} (triggers: github=${githubTriggerCount}, email=${emailTriggerCount})`,
+      `[openhealer] listening on http://0.0.0.0:${server.port} (triggers: github=${githubTriggerCount}, email=${emailTriggerCount})`,
     )
 
     let stopping = false
@@ -150,7 +150,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
       if (stopping) return
       stopping = true
       console.log(
-        `[opencode-webhooks] received ${sig}, closing listener (in-flight: ${drainCounter.inFlight()})`,
+        `[openhealer] received ${sig}, closing listener (in-flight: ${drainCounter.inFlight()})`,
       )
       server.stop(true)
       const drainTimeoutMs = 25_000
@@ -161,10 +161,10 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
             setTimeout(() => reject(new Error("drain timeout")), drainTimeoutMs),
           ),
         ])
-        console.log(`[opencode-webhooks] all dispatches drained`)
+        console.log(`[openhealer] all dispatches drained`)
       } catch {
         console.warn(
-          `[opencode-webhooks] drain timeout after ${drainTimeoutMs}ms -- ${drainCounter.inFlight()} dispatch(es) still in flight`,
+          `[openhealer] drain timeout after ${drainTimeoutMs}ms -- ${drainCounter.inFlight()} dispatch(es) still in flight`,
         )
       }
       store.close()
@@ -176,7 +176,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     return {}
   } catch (err) {
     g.__webhookServerStarted = false
-    console.error("[opencode-webhooks] FATAL: plugin failed to start:", err)
+    console.error("[openhealer] FATAL: plugin failed to start:", err)
     throw err
   }
 }

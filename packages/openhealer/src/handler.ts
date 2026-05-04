@@ -38,12 +38,12 @@ export function createApp(opts: {
 
   app.onError((err, c) => {
     Sentry.captureException(err)
-    console.error("[opencode-webhooks] unhandled route error:", err)
+    console.error("[openhealer] unhandled route error:", err)
     return c.json({ error: "internal server error" }, 500)
   })
 
   app.get("/healthz", (c) => {
-    return c.json({ ok: true, plugin: "opencode-webhooks" })
+    return c.json({ ok: true, plugin: "openhealer" })
   })
 
   // Sentry middleware: isolate each request into its own scope.
