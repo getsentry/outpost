@@ -1,0 +1,40 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release (or "auto")
+        required: false
+      force:
+        description: Force a release even when there are release-blockers
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    name: Release a new version
+    permissions:
+      contents: write
+      id-token: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Pack openhealer
+        run: |
+          cd packages/openhealer
+          bun install --frozen-lockfile
+          bun pm pack --destination ../../
+
+      - uses: getsentry/craft@v2
+        with:
+          version: ${{ inputs.version }}
+          force: ${{ inputs.force }}
+          publish_repo: self
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-// Cloudflare Email Worker: dumb pipe in front of opencode-webhooks.
+// Cloudflare Email Worker: dumb pipe in front of openhealer.
 //
 // Pipeline per inbound email:
 //   1. If sender is not FORWARD_TO and not in ALLOWED_EMAILS:
