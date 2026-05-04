@@ -33,10 +33,11 @@ and index, while sharing the object store.
      BRANCH=$(gh pr view <number> --json headRefName --jq .headRefName)
      ```
 
-3. **Create a worktree** for the branch:
+3. **Create or reuse a worktree** for the branch:
    ```sh
    WORKTREE=~/dev/<owner>/<repo>-wt/<branch>
    ```
+   - If `$WORKTREE` already exists, just `cd "$WORKTREE"` and skip to step 4.
    - **New branch** (issue):
      ```sh
      DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
@@ -45,8 +46,7 @@ and index, while sharing the object store.
    - **Existing branch** (PR checkout):
      ```sh
      git fetch origin "<branch>:<branch>" 2>/dev/null || true
-     git worktree add "$WORKTREE" "<branch>" 2>/dev/null \
-       || (cd "$WORKTREE" && git checkout "<branch>")
+     git worktree add "$WORKTREE" "<branch>"
      ```
 
 4. **Work in the worktree** — all subsequent commands run from `$WORKTREE`:
@@ -65,4 +65,3 @@ and index, while sharing the object store.
   worktrees depend on the shared objects.
 - The worktree directory pattern `~/dev/<owner>/<repo>-wt/<branch>` keeps
   worktrees adjacent to the main clone without nesting inside it.
-- If the worktree already exists for that branch, just `cd` into it.
