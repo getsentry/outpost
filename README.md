@@ -82,13 +82,13 @@ that route all supported GitHub events to the unified `github-agent`:
 | `email-event` | `email.*` (any email notification) | `ignore_authors: [$BOT_LOGIN]` | `github-agent` |
 
 The agent receives the **raw webhook payload** and decides what to do.
-It triages the event and spawns sub-agents (via the `task` tool) for
-the actual work:
+It triages the event and loads the appropriate skills to execute the
+work directly:
 
-- **Issue assigned** → sub-agent loads `repo-setup` + `resolve-issue` → draft PR
-- **PR needs review** → sub-agent loads `repo-setup` + `review-pr` → review or self-fix
-- **CI failed** → sub-agent loads `repo-setup` + `fix-ci` → smallest fix + comment
-- **Comment/review on PR** → sub-agent loads `repo-setup` + `respond-to-comment` → triage + reply/fix
+- **Issue assigned** → loads `repo-setup` + `resolve-issue` → draft PR
+- **PR needs review** → loads `repo-setup` + `review-pr` → review or self-fix
+- **CI failed** → loads `repo-setup` + `fix-ci` → smallest fix + comment
+- **Comment/review on PR** → loads `repo-setup` + `respond-to-comment` → triage + reply/fix
 
 ### Session affinity
 
