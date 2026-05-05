@@ -75,7 +75,17 @@ export function evaluateAndDispatch(opts: {
 
   const entityKey = extractEntityKey(opts.event, opts.payload)
 
-  for (const t of findMatching(opts.triggers, opts.event, opts.action)) {
+  const matched = findMatching(opts.triggers, opts.event, opts.action)
+  if (matched.length === 0) {
+    Sentry.logger.warn("trigger.no_match", {
+      event: opts.event,
+      action: opts.action,
+      delivery_id: opts.deliveryId,
+      trigger_count: opts.triggers.length,
+    })
+  }
+
+  for (const t of matched) {
     const reason = evaluateIgnoreAuthors(t.ignore_authors, opts.sender)
     if (reason) {
       skipped.push({ name: t.name, reason })

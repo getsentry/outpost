@@ -61,8 +61,9 @@ Skip conditions (no sub-agent needed):
 - I'm not involved (not assignee, author, reviewer, or assignee on the entity)
 - `issue_comment` on an issue where I'm **not** an assignee and
   `payload.issue.pull_request` doesn't exist — skip if not my issue
-- `pull_request_review` with empty `payload.review.body`
-- Approval with a short body (<=80 chars, no questions/code refs) — just a thumbs-up
+- `pull_request_review` with `state=approved` and empty body — just
+  a thumbs-up. But do NOT skip `changes_requested` or `commented`
+  reviews even if the body is empty (they may have inline comments)
 - `check_suite` / `workflow_run` where conclusion isn't `failure` or `pull_requests` is empty
 
 ## Delegating work

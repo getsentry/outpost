@@ -165,6 +165,11 @@ export function makePipeline(opts: {
     })
 
     await semaphore.acquire()
+    // Start the abort timer after acquiring the semaphore so time
+    // spent waiting for a concurrency slot doesn't count against
+    // the dispatch timeout budget.
+    entry.abortTimer = setTimeout(() => entry.abort.abort(), timeoutMs)
+    entry.abortTimer.unref?.()
     try {
       await Sentry.startSpan(
         {
@@ -281,6 +286,11 @@ export function makePipeline(opts: {
     persistEntity(entityKey, entry.sessionId, trigger.agent)
 
     await semaphore.acquire()
+    // Start the abort timer after acquiring the semaphore so time
+    // spent waiting for a concurrency slot doesn't count against
+    // the dispatch timeout budget.
+    entry.abortTimer = setTimeout(() => entry.abort.abort(), timeoutMs)
+    entry.abortTimer.unref?.()
     try {
       await Sentry.startSpan(
         {
@@ -432,10 +442,21 @@ export function makePipeline(opts: {
         event_count: events.length,
         status,
         error: formatError(err),
+        queued_events_salvaged: entry.queue.length,
       })
       reportError(entry, err, events[0].deliveryId, events[0].matchedEvent, events[0].trigger)
-      entry.queue.length = 0
+      // Salvage remaining queued events instead of discarding them.
+      const orphaned = entry.queue.splice(0)
       cleanup(entry)
+      for (const ev of orphaned) {
+        Sentry.logger.warn("dispatch.salvaged", {
+          entity_key: entry.entityKey,
+          delivery_id: ev.deliveryId,
+          trigger_name: ev.trigger.name,
+          event: ev.matchedEvent,
+        })
+        void fireAndForget(ev.trigger, ev.prompt, ev.deliveryId, ev.matchedEvent)
+      }
       return
     } finally {
       semaphore.release()
@@ -473,10 +494,22 @@ export function makePipeline(opts: {
       matched_event: matchedEvent,
       status,
       error: formatError(err),
+      queued_events_salvaged: entry.queue.length,
     })
     reportError(entry, err, deliveryId, matchedEvent, trigger)
-    entry.queue.length = 0
+    // Salvage queued events: re-dispatch each as fire-and-forget so
+    // they are not permanently lost when the session fails.
+    const orphaned = entry.queue.splice(0)
     cleanup(entry)
+    for (const ev of orphaned) {
+      Sentry.logger.warn("dispatch.salvaged", {
+        entity_key: entry.entityKey,
+        delivery_id: ev.deliveryId,
+        trigger_name: ev.trigger.name,
+        event: ev.matchedEvent,
+      })
+      void fireAndForget(ev.trigger, ev.prompt, ev.deliveryId, ev.matchedEvent)
+    }
   }
 
   function reportError(
@@ -635,9 +668,9 @@ export function makePipeline(opts: {
       //    after restart or when a PR event arrives for an issue session).
       const persisted = store.resolveSession(entityKey.key)
       if (persisted) {
+        // Abort timer is started inside resumeAndPrompt after semaphore
+        // acquisition so queued dispatches don't timeout while waiting.
         const abort = new AbortController()
-        const abortTimer = setTimeout(() => abort.abort(), timeoutMs)
-        abortTimer.unref?.()
         const entry: SessionEntry = {
           sessionId: persisted.session_id,
           entityKey: entityKey.key,
@@ -645,7 +678,7 @@ export function makePipeline(opts: {
           busy: true,
           queue: [],
           abort,
-          abortTimer,
+          abortTimer: null as unknown as ReturnType<typeof setTimeout>,
           batchTimer: null,
           idleTimer: null,
         }
@@ -662,9 +695,9 @@ export function makePipeline(opts: {
       }
 
       // 3. No existing session — create a new one.
+      // Abort timer is started inside createAndPrompt after semaphore
+      // acquisition so queued dispatches don't timeout while waiting.
       const abort = new AbortController()
-      const abortTimer = setTimeout(() => abort.abort(), timeoutMs)
-      abortTimer.unref?.()
       const entry: SessionEntry = {
         sessionId: "",
         entityKey: entityKey.key,
@@ -672,7 +705,7 @@ export function makePipeline(opts: {
         busy: true,
         queue: [],
         abort,
-        abortTimer,
+        abortTimer: null as unknown as ReturnType<typeof setTimeout>,
         batchTimer: null,
         idleTimer: null,
       }
