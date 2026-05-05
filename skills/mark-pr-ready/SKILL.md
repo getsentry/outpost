@@ -65,10 +65,9 @@ and self-review found no remaining issues.
    done
    ```
 
-5. Post a comment summarizing the promotion:
-   ```sh
-   gh pr comment <N> --body "Marked ready for review. CI is green and self-review is clean."
-   ```
+5. Post a short comment noting the PR is ready. Mention what CI
+   checks passed and that self-review found no issues. Write it
+   naturally — vary the wording, don't use a canned phrase.
 
 ## Notes
 

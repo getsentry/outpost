@@ -23,4 +23,8 @@ Review a PR the bot is involved in. Load `repo-setup` first.
    - **Findings on others' PR**: post `--request-changes` or
      `--comment` review via `gh pr review`. Don't push to their branch.
 
+Write review comments like a senior dev — direct, specific, no
+filler. "this will panic on nil" not "I noticed that this could
+potentially cause a nil pointer dereference."
+
 Don't approve trivially. Don't merge.

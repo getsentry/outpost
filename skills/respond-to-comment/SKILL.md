@@ -33,4 +33,7 @@ stop: `SKIPPED: own comment`.
 Reply to inline comments via the thread API. Reply to top-level
 comments via `gh pr comment`.
 
+Keep replies concise and natural — write like a teammate, not a
+support bot. No filler phrases, no emoji unless the thread uses them.
+
 Don't push to others' branches. Don't force-push. Don't merge.
