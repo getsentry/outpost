@@ -1,4 +1,4 @@
-// Cloudflare Email Worker: dumb pipe in front of openhealer.
+// Cloudflare Email Worker: dumb pipe in front of lantern.
 //
 // Pipeline per inbound email:
 //   1. If sender is not FORWARD_TO and not in ALLOWED_EMAILS:

@@ -7,6 +7,6 @@
   "dependencies": {
     "@opencode-ai/plugin": "^1.14.30",
     "@loreai/opencode": "latest",
-    "openhealer": "file:./packages/openhealer"
+    "lantern": "file:./packages/lantern"
   }
 }

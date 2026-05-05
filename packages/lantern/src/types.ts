@@ -1,4 +1,4 @@
-// Shared types for the openhealer plugin.
+// Shared types for the lantern plugin.
 
 export type TriggerSource = "github_webhook" | "email"
 
