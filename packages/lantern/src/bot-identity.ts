@@ -18,14 +18,14 @@ export async function resolveBotLogin(): Promise<string | null> {
     clearTimeout(timer)
     if (exitCode !== 0) {
       console.warn(
-        `[openhealer] gh api user exit=${exitCode} stderr=${stderr.trim().slice(0, 200)}`,
+        `[lantern] gh api user exit=${exitCode} stderr=${stderr.trim().slice(0, 200)}`,
       )
       return null
     }
     const login = stdout.trim()
     return login.length > 0 ? login : null
   } catch (err) {
-    console.warn("[openhealer] resolveBotLogin failed:", err)
+    console.warn("[lantern] resolveBotLogin failed:", err)
     return null
   }
 }

@@ -12,9 +12,22 @@ artifactProvider:
     artifacts:
       CI: npm-tarball
 targets:
-  # Publish the openhealer package to npm.
+  # Publish the lantern package to npm.
   - name: npm
     access: public
     oidc: true
-    includeNames: /^openhealer-\d.*\.tgz$/
+    includeNames: /^lantern-\d.*\.tgz$/
+  # Re-tag the Docker image (built+pushed earlier in the workflow) with
+  # the release version. The source image is tagged with the git SHA;
+  # craft copies it to the versioned tag and :latest.
+  - name: docker
+    id: versioned
+    source: ghcr.io/mathuraditya724/my-opencode
+    target: ghcr.io/mathuraditya724/my-opencode
+  - name: docker
+    id: latest
+    source: ghcr.io/mathuraditya724/my-opencode
+    target:
+      image: ghcr.io/mathuraditya724/my-opencode
+      format: "{{{image}}}:latest"
   - name: github
