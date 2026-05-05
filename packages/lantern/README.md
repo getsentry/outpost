@@ -1,4 +1,4 @@
-# lantern
+# 🏮 lantern
 
 OpenCode plugin: receive GitHub webhooks (or Cloudflare-forwarded GitHub notification emails) and dispatch them to OpenCode agent sessions running in the same process.
 
