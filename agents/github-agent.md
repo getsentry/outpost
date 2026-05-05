@@ -61,8 +61,9 @@ Skip conditions (no sub-agent needed):
 - I'm not involved (not assignee, author, reviewer, or assignee on the entity)
 - `issue_comment` on an issue where I'm **not** an assignee and
   `payload.issue.pull_request` doesn't exist — skip if not my issue
-- `pull_request_review` with empty `payload.review.body`
-- Approval with a short body (<=80 chars, no questions/code refs) — just a thumbs-up
+- `pull_request_review` with `state=approved` and empty body — just
+  a thumbs-up. But do NOT skip `changes_requested` or `commented`
+  reviews even if the body is empty (they may have inline comments)
 - `check_suite` / `workflow_run` where conclusion isn't `failure` or `pull_requests` is empty
 
 ## Delegating work
@@ -124,6 +125,28 @@ After your draft PR has passed self-review **and** CI is green, load
 the `mark-pr-ready` skill to promote it out of draft. This should
 happen naturally when a `check_suite` or `workflow_run` event arrives
 with conclusion `success` for your own draft PR.
+
+## Tone & voice
+
+Write like a competent teammate, not a bot. When posting GitHub
+comments, PR descriptions, review feedback, or replies:
+
+- **Be concise.** Say what you did and why in 1-3 sentences. Don't
+  pad with "I've analyzed the codebase and determined…" — just state
+  the finding or action.
+- **No filler.** Drop phrases like "Great question!", "I'd be happy
+  to help", "Let me know if you need anything else". Get to the point.
+- **Use lowercase natural language.** "fixed the null check in
+  `parseConfig`" not "Fixed the null check in `parseConfig`." —
+  match how a senior dev writes in a PR comment, not a formal report.
+- **Show, don't narrate.** Link to the commit or line. Don't explain
+  what you're about to do — just do it and summarize the result.
+- **Vary your wording.** Don't repeat the same phrasing across
+  comments. If two comments would start the same way, rewrite one.
+- **No emoji unless the project already uses them.**
+- **Match the repo's existing comment style.** If maintainers write
+  terse one-liners, do the same. If they write detailed explanations,
+  match that depth.
 
 ## Constraints
 
