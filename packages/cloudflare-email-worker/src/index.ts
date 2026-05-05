@@ -4,46 +4,38 @@
 //   1. If sender is not FORWARD_TO and not in ALLOWED_EMAILS:
 //      message.forward(FORWARD_TO). Skipped when the sender IS one of
 //      those addresses to prevent a loop / re-send.
-//   2. If message.from is in ALLOWED_SENDERS, matches FORWARD_TO, or
-//      is in ALLOWED_EMAILS: read the raw RFC822 message, extract
-//      plain-text and HTML body parts, build a JSON event with headers
-//      + body, HMAC-sign it, and POST to WEBHOOK_URL.
+//   2. If message.from matches a pattern in the D1 allowed_senders
+//      table, matches FORWARD_TO, or is in ALLOWED_EMAILS: read the
+//      raw RFC822 message, extract plain-text and HTML body parts,
+//      build a JSON event with headers + body, HMAC-sign it, and POST
+//      to WEBHOOK_URL.
 //   3. On 5xx from the webhook, throw so Cloudflare retries the email.
 //      4xx is permanent (signature rejected, dedup hit, etc.) -- accept.
+//
+// The allowed_senders table is managed via the fetch() handler:
+//   GET  /senders          — list (pagination + search)
+//   POST /senders          — create a pattern
+//   DELETE /senders/:pattern — remove a pattern
+// All endpoints require Bearer <EMAIL_WEBHOOK_SECRET>.
 
-// Sender allowlist for the webhook gate. Strings starting and ending
-// with "/" are treated as case-insensitive regex; everything else is
-// case-insensitive exact match against the bare address parsed out of
-// the From header.
-const ALLOWED_SENDERS: readonly string[] = [
-  "notifications@github.com",
-  "/^.*@github\\.com$/",
+// Seed patterns inserted into D1 on first run. Once in the DB they
+// are ordinary rows — deletable via the API like any other entry.
+const SEED_SENDERS: readonly { pattern: string; kind: "exact" | "regex" }[] = [
+  { pattern: "notifications@github.com", kind: "exact" },
+  { pattern: "/^.*@github\\.com$/", kind: "regex" },
 ]
 
 export interface Env {
   WEBHOOK_URL: string
   EMAIL_WEBHOOK_SECRET: string
-  // Optional. If set, every inbound email is forwarded here verbatim
-  // (DKIM-preserving via Cloudflare's message.forward()). The address
-  // must be verified in Cloudflare Email Routing first.
-  //
-  // Emails FROM this address are auto-allowed for the webhook (replies
-  // from the operator's inbox trigger the agent) and are NOT forwarded
-  // back (prevents loop).
+  DB: D1Database
   FORWARD_TO?: string
-  // Optional. Comma-separated list of email addresses that are treated
-  // exactly like FORWARD_TO: emails from these senders are NOT
-  // forwarded back and are auto-allowed through the webhook gate.
-  // Useful for additional operator inboxes that should reach the agent
-  // without being re-sent. Set via `wrangler secret put ALLOWED_EMAILS`.
   ALLOWED_EMAILS?: string
 }
 
 type Pattern =
   | { kind: "exact"; value: string }
   | { kind: "regex"; re: RegExp }
-
-const COMPILED_PATTERNS: Pattern[] = compilePatterns(ALLOWED_SENDERS)
 
 export default {
   async email(message, env, _ctx) {
@@ -52,8 +44,6 @@ export default {
     const forwardTo = extractAddress(env.FORWARD_TO ?? "").toLowerCase()
     const isFromForwardTo = forwardTo !== "" && senderAddr === forwardTo
 
-    // Parse ALLOWED_EMAILS: comma-separated addresses treated like
-    // FORWARD_TO (no re-send, auto-allowed for webhook).
     const allowedEmails = parseAllowedEmails(env.ALLOWED_EMAILS)
     const isFromAllowedEmail = allowedEmails.has(senderAddr)
 
@@ -69,13 +59,13 @@ export default {
       }
     }
 
-    // 2. Webhook gate: allowlisted senders, FORWARD_TO replies, or
-    //    ALLOWED_EMAILS addresses.
-    if (!isFromForwardTo && !isFromAllowedEmail && !matchesAnyPattern(message.from, COMPILED_PATTERNS)) {
-      console.log(
-        `webhook skipped: from=${message.from} (not in allowlist)`,
-      )
-      return
+    // 2. Webhook gate: query D1 for allowlisted patterns.
+    if (!isFromForwardTo && !isFromAllowedEmail) {
+      const patterns = await loadPatterns(env.DB)
+      if (!matchesAnyPattern(message.from, patterns)) {
+        console.log(`webhook skipped: from=${message.from} (not in allowlist)`)
+        return
+      }
     }
 
     // 3. Read the raw RFC822 message and extract body parts.
@@ -126,7 +116,198 @@ export default {
       }
     }
   },
+
+  async fetch(request, env, _ctx) {
+    const url = new URL(request.url)
+
+    // Health check — no auth required.
+    if (request.method === "GET" && url.pathname === "/healthz") {
+      return Response.json({ ok: true })
+    }
+
+    // Bearer auth for all /senders routes.
+    const authHeader = request.headers.get("authorization") ?? ""
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : ""
+    if (!token || !env.EMAIL_WEBHOOK_SECRET || token !== env.EMAIL_WEBHOOK_SECRET) {
+      return Response.json({ error: "unauthorized" }, { status: 401 })
+    }
+
+    // POST /seed — one-time seed of default patterns.
+    if (request.method === "POST" && url.pathname === "/seed") {
+      return handleSeed(env.DB)
+    }
+
+    // GET /senders — list with pagination and search.
+    if (request.method === "GET" && url.pathname === "/senders") {
+      return handleListSenders(env.DB, url)
+    }
+
+    // POST /senders — create a pattern.
+    if (request.method === "POST" && url.pathname === "/senders") {
+      return handleCreateSender(env.DB, request)
+    }
+
+    // DELETE /senders/:pattern
+    if (request.method === "DELETE" && url.pathname.startsWith("/senders/")) {
+      const pattern = decodeURIComponent(url.pathname.slice("/senders/".length))
+      return handleDeleteSender(env.DB, pattern)
+    }
+
+    return Response.json({ error: "not found" }, { status: 404 })
+  },
 } satisfies ExportedHandler<Env>
+
+// --- D1 allowlist ---
+
+async function loadPatterns(db: D1Database): Promise<Pattern[]> {
+  const { results } = await db
+    .prepare("SELECT pattern, kind FROM allowed_senders")
+    .all<{ pattern: string; kind: string }>()
+  return compileRows(results)
+}
+
+function compileRows(rows: { pattern: string; kind: string }[]): Pattern[] {
+  const out: Pattern[] = []
+  for (const row of rows) {
+    if (row.kind === "regex") {
+      const body = row.pattern.startsWith("/") && row.pattern.endsWith("/")
+        ? row.pattern.slice(1, -1)
+        : row.pattern
+      try {
+        out.push({ kind: "regex", re: new RegExp(body, "i") })
+      } catch {
+        console.error(`invalid regex in allowed_senders: ${row.pattern}`)
+      }
+    } else {
+      out.push({ kind: "exact", value: row.pattern.toLowerCase() })
+    }
+  }
+  return out
+}
+
+async function handleSeed(db: D1Database): Promise<Response> {
+  let inserted = 0
+  for (const s of SEED_SENDERS) {
+    const { meta } = await db
+      .prepare(
+        "INSERT INTO allowed_senders (pattern, kind) VALUES (?, ?) ON CONFLICT (pattern) DO NOTHING",
+      )
+      .bind(s.pattern, s.kind)
+      .run()
+    if (meta.changes > 0) inserted++
+  }
+  return Response.json({ seeded: inserted })
+}
+
+async function handleListSenders(
+  db: D1Database,
+  url: URL,
+): Promise<Response> {
+  const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 1), 200)
+  const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10) || 0, 0)
+  const search = url.searchParams.get("search") ?? ""
+
+  let query: string
+  let countQuery: string
+  const binds: unknown[] = []
+  const countBinds: unknown[] = []
+
+  if (search) {
+    query = "SELECT pattern, kind, created_at FROM allowed_senders WHERE pattern LIKE ? ESCAPE '\\' ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    countQuery = "SELECT COUNT(*) as total FROM allowed_senders WHERE pattern LIKE ? ESCAPE '\\'"
+    const like = `%${search.replace(/[%_\\]/g, "\\$&")}%`
+    binds.push(like, limit, offset)
+    countBinds.push(like)
+  } else {
+    query = "SELECT pattern, kind, created_at FROM allowed_senders ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    countQuery = "SELECT COUNT(*) as total FROM allowed_senders"
+    binds.push(limit, offset)
+  }
+
+  const [data, count] = await Promise.all([
+    db.prepare(query).bind(...binds).all<{ pattern: string; kind: string; created_at: string }>(),
+    db.prepare(countQuery).bind(...countBinds).first<{ total: number }>(),
+  ])
+
+  return Response.json({
+    senders: data.results,
+    total: count?.total ?? 0,
+    limit,
+    offset,
+  })
+}
+
+async function handleCreateSender(
+  db: D1Database,
+  request: Request,
+): Promise<Response> {
+  let body: { pattern?: string; kind?: string }
+  try {
+    body = await request.json()
+  } catch {
+    return Response.json({ error: "invalid JSON" }, { status: 400 })
+  }
+
+  const pattern = typeof body.pattern === "string" ? body.pattern.trim() : ""
+  if (!pattern) {
+    return Response.json({ error: "pattern is required" }, { status: 400 })
+  }
+
+  // Auto-detect kind if not provided: /.../ → regex, otherwise exact.
+  let kind = typeof body.kind === "string" ? body.kind : ""
+  if (!kind) {
+    kind = pattern.startsWith("/") && pattern.endsWith("/") && pattern.length >= 2
+      ? "regex"
+      : "exact"
+  }
+  if (kind !== "exact" && kind !== "regex") {
+    return Response.json({ error: "kind must be 'exact' or 'regex'" }, { status: 400 })
+  }
+
+  if (kind === "regex") {
+    const re = pattern.startsWith("/") && pattern.endsWith("/")
+      ? pattern.slice(1, -1)
+      : pattern
+    try {
+      new RegExp(re, "i")
+    } catch {
+      return Response.json({ error: "invalid regex pattern" }, { status: 400 })
+    }
+  }
+
+  try {
+    await db
+      .prepare("INSERT INTO allowed_senders (pattern, kind) VALUES (?, ?)")
+      .bind(pattern, kind)
+      .run()
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("UNIQUE")) {
+      return Response.json({ error: "pattern already exists" }, { status: 409 })
+    }
+    throw err
+  }
+
+  return Response.json({ created: { pattern, kind } }, { status: 201 })
+}
+
+async function handleDeleteSender(
+  db: D1Database,
+  pattern: string,
+): Promise<Response> {
+  if (!pattern) {
+    return Response.json({ error: "pattern is required" }, { status: 400 })
+  }
+
+  const { meta } = await db
+    .prepare("DELETE FROM allowed_senders WHERE pattern = ?")
+    .bind(pattern)
+    .run()
+
+  if (meta.changes === 0) {
+    return Response.json({ error: "not found" }, { status: 404 })
+  }
+  return Response.json({ deleted: pattern })
+}
 
 // --- RFC822 body extraction ---
 
@@ -267,19 +448,6 @@ function decodeTransferEncoding(body: string, encoding: string | null): string {
 }
 
 // --- Utilities ---
-
-function compilePatterns(raw: readonly string[]): Pattern[] {
-  const out: Pattern[] = []
-  for (const s of raw) {
-    if (s.length === 0) continue
-    if (s.length >= 2 && s.startsWith("/") && s.endsWith("/")) {
-      out.push({ kind: "regex", re: new RegExp(s.slice(1, -1), "i") })
-      continue
-    }
-    out.push({ kind: "exact", value: s.toLowerCase() })
-  }
-  return out
-}
 
 function matchesAnyPattern(from: string, patterns: Pattern[]): boolean {
   if (patterns.length === 0) return false
