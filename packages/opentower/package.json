@@ -1,6 +1,6 @@
 {
-  "name": "openhealer",
-  "version": "0.1.0",
+  "name": "opentower",
+  "version": "0.1.3",
   "type": "module",
   "license": "MIT",
   "description": "OpenCode plugin: receive GitHub webhooks and dispatch them to OpenCode agent sessions",
@@ -15,7 +15,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "echo 'openhealer ships raw TS — no build step needed'"
+    "build": "echo 'opentower ships raw TS — no build step needed'"
   },
   "dependencies": {
     "hono": "^4.0.0",
@@ -40,7 +40,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/MathurAditya724/my-opencode.git",
-    "directory": "packages/openhealer"
+    "directory": "packages/opentower"
   },
   "publishConfig": {
     "access": "public"

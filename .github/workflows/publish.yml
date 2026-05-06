@@ -1,0 +1,107 @@
+# Publish workflow: triggered when the "accepted" label is added to a
+# craft-created publish issue (e.g. "publish: owner/repo@0.1.0").
+#
+# Runs `craft publish` which:
+#   1. Publishes opentower to npm (OIDC auth)
+#   2. Re-tags the Docker image with the release version + :latest
+#   3. Creates a GitHub Release with auto-generated changelog
+name: Publish
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  publish:
+    if: github.event.label.name == 'accepted' && github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+    name: Publish release
+    environment: production
+    permissions:
+      contents: write
+      id-token: write
+      issues: write
+      packages: write
+    timeout-minutes: 15
+    steps:
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
+      - name: Parse publish request
+        id: inputs
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          # Title format: "publish: owner/repo@VERSION"
+          VERSION=$(echo "$ISSUE_TITLE" | grep -oP '@\K[^\s]+$')
+          if [[ -z "$VERSION" ]]; then
+            echo "::error::Could not parse version from issue title: $ISSUE_TITLE"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: release/${{ steps.inputs.outputs.version }}
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Set git user
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      # registry-url is required for npm OIDC trusted publishing — without
+      # it, setup-node doesn't configure the authenticated .npmrc and
+      # `npm publish` errors with ENEEDAUTH even though the workflow has
+      # `id-token: write` permission.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+
+      # Docker login is required for the docker retag targets in .craft.yml.
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Craft
+        run: |
+          CRAFT_URL=$(curl -fsSL https://api.github.com/repos/getsentry/craft/releases/latest \
+            | jq -r '.assets[] | select(.name == "craft") | .browser_download_url')
+          sudo curl -fsSL -o /usr/local/bin/craft "$CRAFT_URL"
+          sudo chmod +x /usr/local/bin/craft
+
+      - name: Publish
+        run: craft publish "${{ steps.inputs.outputs.version }}" --no-input --no-status-check
+        env:
+          # GITHUB_TOKEN is the workflow token (packages:write for ghcr.io Docker retag).
+          # GITHUB_API_TOKEN is the App token (contents:write for GitHub Release + branch merge).
+          # Craft uses GITHUB_API_TOKEN for API calls when set, and falls back to
+          # GITHUB_TOKEN for ghcr.io Docker auth.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_API_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      - name: Close issue on success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue close "${{ github.event.issue.number }}" \
+            --comment "Published **${{ steps.inputs.outputs.version }}** successfully.
+          [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
+      - name: Comment on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ github.event.issue.number }}" \
+            --body "Publish failed. [View workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          gh issue edit "${{ github.event.issue.number }}" --remove-label accepted
