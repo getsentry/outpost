@@ -5,15 +5,35 @@ terraform {
       source  = "coder/coder"
       version = "~> 2.0"
     }
-    docker = {
-      source  = "kreuzwerker/docker"
-      version = "~> 3.0"
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.35"
     }
   }
 }
 
-provider "docker" {}
 provider "coder" {}
+
+variable "use_kubeconfig" {
+  type        = bool
+  description = <<-EOF
+  Use host kubeconfig? (true/false)
+
+  Set to false when the Coder host itself runs as a Pod on the same cluster.
+  Set to true when the Coder host is external and ~/.kube/config is available.
+  EOF
+  default     = false
+}
+
+variable "namespace" {
+  type        = string
+  description = "Kubernetes namespace to create workspaces in (must already exist)."
+  default     = "coder"
+}
+
+provider "kubernetes" {
+  config_path = var.use_kubeconfig ? "~/.kube/config" : null
+}
 
 data "coder_provisioner" "me" {}
 data "coder_workspace" "me" {}
@@ -78,8 +98,30 @@ data "coder_parameter" "webhook_port" {
 
 # --- Persistent volume for ~/dev ---
 
-resource "docker_volume" "dev" {
-  name = "opencode-${data.coder_workspace.me.id}-dev"
+resource "kubernetes_persistent_volume_claim_v1" "dev" {
+  metadata {
+    name      = "opencode-${data.coder_workspace.me.id}-dev"
+    namespace = var.namespace
+    labels = {
+      "app.kubernetes.io/name"     = "opencode-pvc"
+      "app.kubernetes.io/instance" = "opencode-pvc-${data.coder_workspace.me.id}"
+      "app.kubernetes.io/part-of"  = "coder"
+      "com.coder.resource"         = "true"
+      "com.coder.workspace.id"     = data.coder_workspace.me.id
+      "com.coder.workspace.name"   = data.coder_workspace.me.name
+      "com.coder.user.id"          = data.coder_workspace_owner.me.id
+      "com.coder.user.username"    = data.coder_workspace_owner.me.name
+    }
+  }
+  wait_until_bound = false
+  spec {
+    access_modes = ["ReadWriteOnce"]
+    resources {
+      requests = {
+        storage = "10Gi"
+      }
+    }
+  }
   lifecycle {
     ignore_changes = all
   }
@@ -145,54 +187,156 @@ resource "coder_app" "opencode" {
   }
 }
 
-# --- Docker container ---
+# --- Kubernetes deployment ---
 
-resource "docker_image" "opencode" {
-  name = var.docker_image
-}
-
-resource "docker_container" "workspace" {
-  count    = data.coder_workspace.me.start_count
-  image    = docker_image.opencode.image_id
-  name     = "opencode-${data.coder_workspace_owner.me.name}-${lower(data.coder_workspace.me.name)}"
-  hostname = data.coder_workspace.me.name
-  dns      = ["1.1.1.1", "8.8.8.8"]
-
-  # The image ENTRYPOINT is [tini -- docker-entrypoint.sh]. docker-entrypoint.sh
-  # ends with `exec "$@"`, so it sets up git/gh identity then execs whatever
-  # CMD we pass. We pass the Coder init_script (which registers the agent and
-  # runs startup_script) followed by `opencode web` as the long-lived process.
-  # Using `command` (Docker CMD) keeps tini+entrypoint intact for signal
-  # forwarding and proper PID1 behaviour.
-  command = [
-    "sh", "-c",
-    "sh -c \"$CODER_AGENT_INIT_SCRIPT\" & exec opencode web --hostname 0.0.0.0 --port 4096",
+resource "kubernetes_deployment_v1" "workspace" {
+  count = data.coder_workspace.me.start_count
+  depends_on = [
+    kubernetes_persistent_volume_claim_v1.dev
   ]
+  wait_for_rollout = false
 
-  env = [
-    "CODER_AGENT_TOKEN=${coder_agent.main.token}",
-    "CODER_AGENT_INIT_SCRIPT=${coder_agent.main.init_script}",
-    "GH_TOKEN=${data.coder_parameter.gh_token.value}",
-    "ANTHROPIC_API_KEY=${data.coder_parameter.anthropic_api_key.value}",
-    "OPENAI_API_KEY=${data.coder_parameter.openai_api_key.value}",
-    "GITHUB_WEBHOOK_SECRET=${data.coder_parameter.github_webhook_secret.value}",
-    "WEBHOOK_PORT=${data.coder_parameter.webhook_port.value}",
-    "PORT=4096",
-  ]
-
-  # Persistent dev volume — survives workspace stop/start.
-  volumes {
-    container_path = "/home/developer/dev"
-    volume_name    = docker_volume.dev.name
-    read_only      = false
+  metadata {
+    name      = "opencode-${data.coder_workspace.me.id}"
+    namespace = var.namespace
+    labels = {
+      "app.kubernetes.io/name"     = "opencode-workspace"
+      "app.kubernetes.io/instance" = "opencode-workspace-${data.coder_workspace.me.id}"
+      "app.kubernetes.io/part-of"  = "coder"
+      "com.coder.resource"         = "true"
+      "com.coder.workspace.id"     = data.coder_workspace.me.id
+      "com.coder.workspace.name"   = data.coder_workspace.me.name
+      "com.coder.user.id"          = data.coder_workspace_owner.me.id
+      "com.coder.user.username"    = data.coder_workspace_owner.me.name
+    }
   }
 
-  # Docker socket — enables docker compose inside the workspace.
-  volumes {
-    host_path      = "/var/run/docker.sock"
-    container_path = "/var/run/docker.sock"
-  }
+  spec {
+    replicas = 1
+    selector {
+      match_labels = {
+        "app.kubernetes.io/name"     = "opencode-workspace"
+        "app.kubernetes.io/instance" = "opencode-workspace-${data.coder_workspace.me.id}"
+      }
+    }
+    strategy {
+      type = "Recreate"
+    }
 
-  # 4 GiB RAM limit. Adjust based on your Docker host capacity.
-  memory = 4096
+    template {
+      metadata {
+        labels = {
+          "app.kubernetes.io/name"     = "opencode-workspace"
+          "app.kubernetes.io/instance" = "opencode-workspace-${data.coder_workspace.me.id}"
+          "app.kubernetes.io/part-of"  = "coder"
+          "com.coder.resource"         = "true"
+          "com.coder.workspace.id"     = data.coder_workspace.me.id
+          "com.coder.workspace.name"   = data.coder_workspace.me.name
+          "com.coder.user.id"          = data.coder_workspace_owner.me.id
+          "com.coder.user.username"    = data.coder_workspace_owner.me.name
+        }
+      }
+
+      spec {
+        # The image runs as uid/gid 1000 (developer).
+        security_context {
+          run_as_user  = 1000
+          run_as_group = 1000
+          fs_group     = 1000
+        }
+
+        container {
+          name              = "opencode"
+          image             = var.docker_image
+          image_pull_policy = "Always"
+
+          # The image ENTRYPOINT is [tini -- docker-entrypoint.sh] which
+          # sets up git/gh identity then execs CMD. We override CMD to
+          # background the Coder agent init script and run opencode web
+          # as the main process.
+          command = ["sh", "-c"]
+          args = [
+            "sh -c \"$CODER_AGENT_INIT_SCRIPT\" & exec opencode web --hostname 0.0.0.0 --port 4096",
+          ]
+
+          env {
+            name  = "CODER_AGENT_TOKEN"
+            value = coder_agent.main.token
+          }
+          env {
+            name  = "CODER_AGENT_INIT_SCRIPT"
+            value = coder_agent.main.init_script
+          }
+          env {
+            name  = "GH_TOKEN"
+            value = data.coder_parameter.gh_token.value
+          }
+          env {
+            name  = "ANTHROPIC_API_KEY"
+            value = data.coder_parameter.anthropic_api_key.value
+          }
+          env {
+            name  = "OPENAI_API_KEY"
+            value = data.coder_parameter.openai_api_key.value
+          }
+          env {
+            name  = "GITHUB_WEBHOOK_SECRET"
+            value = data.coder_parameter.github_webhook_secret.value
+          }
+          env {
+            name  = "WEBHOOK_PORT"
+            value = tostring(data.coder_parameter.webhook_port.value)
+          }
+          env {
+            name  = "PORT"
+            value = "4096"
+          }
+
+          resources {
+            requests = {
+              "cpu"    = "500m"
+              "memory" = "1Gi"
+            }
+            limits = {
+              "cpu"    = "4"
+              "memory" = "4Gi"
+            }
+          }
+
+          volume_mount {
+            name       = "dev"
+            mount_path = "/home/developer/dev"
+            read_only  = false
+          }
+        }
+
+        volume {
+          name = "dev"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim_v1.dev.metadata.0.name
+            read_only  = false
+          }
+        }
+
+        # Spread workspace pods across nodes.
+        affinity {
+          pod_anti_affinity {
+            preferred_during_scheduling_ignored_during_execution {
+              weight = 1
+              pod_affinity_term {
+                topology_key = "kubernetes.io/hostname"
+                label_selector {
+                  match_expressions {
+                    key      = "app.kubernetes.io/name"
+                    operator = "In"
+                    values   = ["opencode-workspace"]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
