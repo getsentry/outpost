@@ -256,13 +256,17 @@ resource "kubernetes_deployment_v1" "workspace" {
           image             = var.docker_image
           image_pull_policy = "Always"
 
-          # Debug: test network connectivity from pod to Coder server.
-          # Check both external URL and internal service URL.
-          command = ["/bin/sh"]
-          args = [
-            "-c",
-            "echo 'Testing network...' >&2; curl -sv --max-time 5 https://coder.sentry.dev/healthz >&2 2>&1; echo 'Internal:' >&2; curl -sv --max-time 5 http://coder.coder-prod.svc.cluster.local/healthz >&2 2>&1; echo 'Done' >&2; sleep 3600",
-          ]
+          # Official Coder Kubernetes template pattern:
+          # command overrides Docker ENTRYPOINT, running init_script directly
+          # via "sh -c". The init_script downloads the correct coder agent
+          # binary from the server and execs it. CODER_AGENT_TOKEN is the
+          # only required env var — CODER_AGENT_URL is baked into init_script
+          # by the Coder provider at apply time.
+          command = ["sh", "-c", coder_agent.main.init_script]
+          env {
+            name  = "CODER_AGENT_TOKEN"
+            value = coder_agent.main.token
+          }
           env {
             name  = "GH_TOKEN"
             value = data.coder_parameter.gh_token.value
