@@ -6,3 +6,7 @@
 # data). Anything we want to share publicly belongs in repo-root files
 # (README, AGENTS.md, etc.), not here.
 .opencode/
+
+.terraform
+
+.DS_Store
