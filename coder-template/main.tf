@@ -172,7 +172,7 @@ resource "coder_app" "opencode" {
   slug         = "opencode"
   display_name = "OpenCode"
   url          = "http://localhost:4096"
-  icon         = "/icon/code.svg"
+  icon         = "/icon/jetbrains-toolbox.svg"
   subdomain    = true
   share        = "owner"
 
@@ -189,7 +189,7 @@ resource "coder_app" "opentower" {
   slug         = "opentower"
   display_name = "OpenTower"
   url          = "http://localhost:5050"
-  icon         = "/icon/webhook.svg"
+  icon         = "/icon/kiro.svg"
   subdomain    = true
   share        = "owner"
 
