@@ -267,16 +267,17 @@ resource "kubernetes_deployment_v1" "workspace" {
           # coder_script.opencode resource after the agent connects.
           args = [
             "sh", "-c",
-            "printenv CODER_AGENT_INIT_SCRIPT > /tmp/coder-init.sh && chmod +x /tmp/coder-init.sh && sed -i 's|CODER_AGENT_URL=\"\"|CODER_AGENT_URL=\"'\"$CODER_AGENT_URL\"'\"|' /tmp/coder-init.sh && sed -i 's|BINARY_URL=bin/|BINARY_URL='\"$CODER_AGENT_URL\"'bin/|' /tmp/coder-init.sh && exec /tmp/coder-init.sh",
+            join("\n", [
+              "cat > /tmp/coder-init.sh << 'CODER_INIT_EOF'",
+              coder_agent.main.init_script,
+              "CODER_INIT_EOF",
+              "chmod +x /tmp/coder-init.sh",
+              "export ACCESS_URL=\"https://coder.sentry.dev/\"",
+              "export CODER_AGENT_AUTH=\"token\"",
+              "export CODER_AGENT_TOKEN=\"$${CODER_AGENT_TOKEN}\"",
+              "exec /tmp/coder-init.sh",
+            ]),
           ]
-          env {
-            name  = "CODER_AGENT_INIT_SCRIPT"
-            value = coder_agent.main.init_script
-          }
-          env {
-            name  = "CODER_AGENT_URL"
-            value = "https://coder.sentry.dev"
-          }
           env {
             name  = "CODER_AGENT_TOKEN"
             value = coder_agent.main.token
