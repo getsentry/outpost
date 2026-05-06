@@ -3,9 +3,9 @@
 Cloudflare Email Worker that sits in front of the [`opentower`](../opentower/) plugin. It does two things per inbound email:
 
 1. **Always forwards** the email verbatim to `FORWARD_TO` (your real inbox), if the env var is set. DKIM is preserved via Cloudflare's `message.forward()`.
-2. **If the sender is in `ALLOWED_SENDERS`**, it builds a small JSON event from the headers (`from`, `to`, `subject`, `message_id`, `in_reply_to`, `references`, `list_id`, `x_github_reason`, `x_github_sender`), HMAC-signs it, and POSTs it to `WEBHOOK_URL` (the plugin's `/webhooks/email` endpoint).
+2. **If the sender matches the D1 `allowed_senders` table**, it builds a JSON event from the email headers and body, HMAC-signs it, and POSTs it to `WEBHOOK_URL` (the plugin's `/webhooks/email` endpoint). The allowlist is managed at runtime via the worker's HTTP API (`GET/POST/DELETE /senders`).
 
-The worker is a **dumb pipe** — no header parsing, no body inspection, no allowlist beyond the simple From-address gate. The plugin owns identity resolution (Message-ID → owner/repo/issue#), GitHub API fetches, dedup, and dispatch.
+The worker is a **dumb pipe** — the plugin owns identity resolution, dedup, and dispatch.
 
 ## Why
 
@@ -20,7 +20,7 @@ GitHub  ──email──▶  gh@yourdomain.com
                          ▼
                     Email Worker (dumb pipe)
                        ├─ message.forward(FORWARD_TO)        ──▶ your real inbox (always)
-                       └─ if From ∈ ALLOWED_SENDERS:
+                       └─ if From ∈ D1 allowed_senders:
                               POST {from, to, subject,
                                     message_id, in_reply_to,
                                     references, list_id,
@@ -65,7 +65,13 @@ GitHub  ──email──▶  gh@yourdomain.com
 
    Variables set in the dashboard are bound at runtime the same way the local `.env` values are. Code (`env.WEBHOOK_URL`, `env.FORWARD_TO`) is identical across environments.
 
-   The `ALLOWED_SENDERS` allowlist lives in `src/index.ts` as a top-level TypeScript const (PR-reviewed code, not config). Exact strings are case-insensitive matches; `/regex/` patterns are case-insensitive regex. Compiled once at module load. A malformed regex literal will throw at module init and the worker won't start — fix the literal and redeploy.
+   The sender allowlist is stored in the D1 `allowed_senders` table and managed at runtime via the worker's HTTP API (bearer-auth protected with `EMAIL_WEBHOOK_SECRET`):
+   - `GET /senders` — list (with pagination and search)
+   - `POST /senders` — add a pattern (`{"pattern": "...", "kind": "exact"|"regex"}`)
+   - `DELETE /senders/:pattern` — remove a pattern
+   - `POST /seed` — insert the default seed patterns (`notifications@github.com` + `/^.*@github\.com$/`)
+
+   Exact strings are case-insensitive matches; `/regex/` patterns are case-insensitive regex.
 
    Logs are enabled in `wrangler.json` via `observability.logs.enabled` so you can `wrangler tail` and see structured output in the dashboard.
 
@@ -113,7 +119,7 @@ GitHub  ──email──▶  gh@yourdomain.com
 |---|---|
 | `FORWARD_TO` unset | Skipped, no error. Webhook still fires for allowlisted senders. |
 | `FORWARD_TO` set but unverified | `message.forward()` throws — caught and logged; webhook still fires. Verify the address in Cloudflare Email Routing → Destination addresses. |
-| Sender not in `ALLOWED_SENDERS` | Forward still happens. Webhook is skipped (logged at info). |
+| Sender not in D1 allowlist | Forward still happens. Webhook is skipped (logged at info). |
 | Plugin returns 5xx | Cloudflare retries the email later. Forward already happened, so retries don't double-forward. |
 | Plugin returns 4xx (bad signature, dedup, etc.) | Logged, accepted (no retry). Forward already happened. |
 
@@ -122,10 +128,9 @@ GitHub  ──email──▶  gh@yourdomain.com
 | Layer | What it does |
 |---|---|
 | Cloudflare Email Routing | Rejects mail that fails SPF/DKIM/DMARC at the edge before it ever reaches the worker. |
-| Worker `ALLOWED_SENDERS` | Drops any From not in the allowlist (defense vs. spoofs that pass DMARC because the attacker controls `*.github.com`-adjacent domains). |
+| D1 `allowed_senders` table | Drops any From not in the allowlist (defense vs. spoofs that pass DMARC because the attacker controls `*.github.com`-adjacent domains). |
 | `EMAIL_WEBHOOK_SECRET` HMAC | Authenticates the worker → plugin link. Without it, the plugin returns 503. |
-| Plugin re-checks `email_allowed_senders` | Same allowlist applied server-side as defense in depth (and lets you tighten without redeploying the worker). |
-| Plugin never sees the body | The worker only sends the headers it cares about — never the body. The canonical issue/PR/comment is fetched from the GitHub API instead. Eliminates prompt-injection from email content. |
+| Plugin receives full email body | The worker sends headers + body (up to 512 KB). The agent decides what to do with the content. |
 | Self-loop guard | The plugin drops emails whose `x_github_sender` matches the bot's own login. |
 
 ## Cost
