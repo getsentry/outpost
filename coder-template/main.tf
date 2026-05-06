@@ -183,14 +183,83 @@ resource "coder_app" "opencode" {
   }
 }
 
+# Opentower webhook listener — exposed via Coder's reverse proxy
+resource "coder_app" "opentower" {
+  agent_id     = coder_agent.main.id
+  slug         = "opentower"
+  display_name = "OpenTower"
+  url          = "http://localhost:5050"
+  icon         = "/icon/webhook.svg"
+  subdomain    = true
+  share        = "owner"
+
+  healthcheck {
+    url       = "http://localhost:5050/healthz"
+    interval  = 10
+    threshold = 6
+  }
+}
+
 # OpenCode server — started by the Coder agent after it connects.
-# Runs in the background so the script exits immediately; the agent
-# keeps the process supervised and its logs visible in the Coder UI.
+# The container command (sh -c init_script) bypasses docker-entrypoint.sh,
+# so this script must replicate the critical setup: volume ownership,
+# .opencode session dir, git init, and gh/git identity.
 resource "coder_script" "opencode" {
   agent_id     = coder_agent.main.id
   display_name = "OpenCode Server"
-  script       = "opencode serve --hostname 0.0.0.0 --port \"$PORT\" > /tmp/opencode.log 2>&1 &"
   run_on_start = true
+  script       = <<-EOT
+    #!/bin/sh
+    set -e
+
+    DEV_DIR="$${HOME:-/home/developer}/dev"
+
+    # Fix PVC ownership (fresh volumes land root-owned)
+    if [ ! -w "$DEV_DIR" ]; then
+      sudo chown "$(id -u):$(id -g)" "$DEV_DIR" || {
+        echo "ERROR: $DEV_DIR is not writable and chown failed." >&2
+        exit 1
+      }
+    fi
+
+    # Session/auth dir (symlinked from ~/.local/share/opencode)
+    mkdir -p "$DEV_DIR/.opencode"
+
+    # OpenCode needs a .git ancestor to anchor the worktree
+    if [ ! -d "$DEV_DIR/.git" ]; then
+      git init -q "$DEV_DIR"
+    fi
+
+    # --- Identity setup (fail-soft) ---
+    set +e
+    if [ -n "$GH_TOKEN" ]; then
+      gh auth setup-git 2>/dev/null || true
+      GH_USER_JSON=$(gh api user 2>/dev/null) || GH_USER_JSON=""
+      if [ -n "$GH_USER_JSON" ]; then
+        GH_LOGIN=$(printf '%s' "$GH_USER_JSON" | jq -r '.login // empty')
+        GH_ID=$(printf '%s' "$GH_USER_JSON" | jq -r '.id // empty')
+        GH_NAME=$(printf '%s' "$GH_USER_JSON" | jq -r '.name // .login // empty')
+        if [ -n "$GH_LOGIN" ] && [ -n "$GH_ID" ]; then
+          GH_EMAIL="$${GH_ID}+$${GH_LOGIN}@users.noreply.github.com"
+          git config --global user.name  "$GH_NAME"
+          git config --global user.email "$GH_EMAIL"
+          git -C "$DEV_DIR" config user.name  "$GH_NAME"
+          git -C "$DEV_DIR" config user.email "$GH_EMAIL"
+        fi
+      fi
+    fi
+    if ! git -C "$DEV_DIR" config --get user.email >/dev/null 2>&1; then
+      git -C "$DEV_DIR" config user.email "developer@my-opencode.local"
+      git -C "$DEV_DIR" config user.name  "Developer"
+    fi
+    set -e
+
+    cd "$DEV_DIR"
+
+    # Start OpenCode in the background so the script exits and Coder
+    # marks it as complete. The healthcheck on coder_app monitors it.
+    opencode serve --hostname 0.0.0.0 --port "$${PORT:-4096}" > /tmp/opencode.log 2>&1 &
+  EOT
 }
 
 # --- Kubernetes deployment ---
@@ -256,27 +325,16 @@ resource "kubernetes_deployment_v1" "workspace" {
           image             = var.docker_image
           image_pull_policy = "Always"
 
-          # The image ENTRYPOINT is [tini -- docker-entrypoint.sh] which
-          # sets up git/gh identity then execs "$@". We only set args
-          # (Docker CMD) so the entrypoint is preserved — tini stays as
-          # PID 1 and docker-entrypoint.sh runs before our command.
-          #
-          # The Coder agent init script runs as the foreground process so
-          # any failure is immediately visible in pod logs. OpenCode is
-          # started separately by the coder_script.opencode resource
-          # after the agent connects.
-          args = [
-            "sh", "-c",
-            "exec sh -c \"$CODER_AGENT_INIT_SCRIPT\"",
-          ]
-
+          # Official Coder Kubernetes template pattern:
+          # command overrides Docker ENTRYPOINT, running init_script directly
+          # via "sh -c". The init_script downloads the correct coder agent
+          # binary from the server and execs it. CODER_AGENT_TOKEN is the
+          # only required env var — CODER_AGENT_URL is baked into init_script
+          # by the Coder provider at apply time.
+          command = ["sh", "-c", coder_agent.main.init_script]
           env {
             name  = "CODER_AGENT_TOKEN"
             value = coder_agent.main.token
-          }
-          env {
-            name  = "CODER_AGENT_INIT_SCRIPT"
-            value = coder_agent.main.init_script
           }
           env {
             name  = "GH_TOKEN"
