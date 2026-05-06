@@ -266,7 +266,10 @@ resource "kubernetes_deployment_v1" "workspace" {
           # directly. CODER_AGENT_URL and CODER_AGENT_TOKEN are passed as
           # explicit env vars below. OpenCode is started separately by
           # coder_script.opencode after the agent connects.
-          args = ["coder", "agent"]
+          args = [
+            "sh", "-c",
+            "echo CODER_AGENT_URL=$CODER_AGENT_URL >&2; exec coder agent",
+          ]
           env {
             name  = "CODER_AGENT_URL"
             value = data.coder_workspace.me.access_url
