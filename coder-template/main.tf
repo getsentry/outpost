@@ -261,30 +261,18 @@ resource "kubernetes_deployment_v1" "workspace" {
           # (Docker CMD) so the entrypoint is preserved — tini stays as
           # PID 1 and docker-entrypoint.sh runs before our command.
           #
-          # Interpolate coder_agent.main.init_script directly at Terraform
-          # plan time using a heredoc (same pattern as Sentry's GCE
-          # startup-script). The script is a literal string in the pod
-          # spec — no runtime shell expansion. OpenCode is started
-          # separately by coder_script.opencode after the agent connects.
-          #
-          # The Coder provider bakes ACCESS_URL into the init script as
-          # a literal value at plan time. When the server's access URL
-          # isn't configured, this produces empty BINARY_URL and
-          # CODER_AGENT_URL values. After writing the script to a file,
-          # we sed-patch both lines to inject the correct URL from the
-          # container env var before exec'ing.
+          # Write the Coder agent init script to a file via printenv
+          # (avoids all shell quoting issues with heredoc or echo).
+          # Then exec it. OpenCode is started separately by the
+          # coder_script.opencode resource after the agent connects.
           args = [
             "sh", "-c",
-            join("\n", [
-              "cat > /tmp/coder-init.sh << 'CODER_INIT_EOF'",
-              coder_agent.main.init_script,
-              "CODER_INIT_EOF",
-              "chmod +x /tmp/coder-init.sh",
-              "sed -i \"s|BINARY_URL=bin/|BINARY_URL=$${CODER_AGENT_URL}bin/|\" /tmp/coder-init.sh",
-              "sed -i \"s|export CODER_AGENT_URL=\\\"\\\"$|export CODER_AGENT_URL=\\\"$${CODER_AGENT_URL}\\\"|\" /tmp/coder-init.sh",
-              "exec /tmp/coder-init.sh",
-            ]),
+            "printenv CODER_AGENT_INIT_SCRIPT > /tmp/coder-init.sh && chmod +x /tmp/coder-init.sh && sed -i 's|CODER_AGENT_URL=\"\"|CODER_AGENT_URL=\"'\"$CODER_AGENT_URL\"'\"|' /tmp/coder-init.sh && sed -i 's|BINARY_URL=bin/|BINARY_URL='\"$CODER_AGENT_URL\"'bin/|' /tmp/coder-init.sh && exec /tmp/coder-init.sh",
           ]
+          env {
+            name  = "CODER_AGENT_INIT_SCRIPT"
+            value = coder_agent.main.init_script
+          }
           env {
             name  = "CODER_AGENT_URL"
             value = "https://coder.sentry.dev"
