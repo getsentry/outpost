@@ -1,12 +1,21 @@
-// Hono app for the plugin's HTTP listener. Routes: healthz and webhook
-// ingest (one per source). Per-route logic lives under ./handlers/.
+// Hono app for the plugin's HTTP listener. Routes: healthz, webhook
+// ingest (one per source), and JSON API for the dashboard SPA.
+// Per-route logic lives under ./handlers/.
 
 import { Hono } from "hono"
+import { cors } from "hono/cors"
 import * as Sentry from "@sentry/bun"
 import type { Dedup } from "./dedup"
 import { githubWebhookHandler } from "./handlers/github"
 import { emailWebhookHandler } from "./handlers/email"
+import {
+  apiStatsHandler,
+  apiEntitiesHandler,
+  apiEntityDetailHandler,
+  apiDispatchesHandler,
+} from "./handlers/api"
 import type { Pipeline } from "./pipeline"
+import type { LifecycleStore } from "./storage"
 import type { NormalizedTrigger } from "./types"
 
 export type AppEnv = {
@@ -18,6 +27,7 @@ export type AppEnv = {
     botLogin: string | null
     githubTriggers: NormalizedTrigger[]
     emailTriggers: NormalizedTrigger[]
+    store: LifecycleStore
   }
 }
 
@@ -28,6 +38,8 @@ export function createApp(opts: {
   dedup: Dedup
   pipeline: Pipeline
   botLogin: string | null
+  store: LifecycleStore
+  apiToken: string
 }): Hono<AppEnv> {
   const githubTriggers = opts.triggers.filter(
     (t) => t.source === "github_webhook",
@@ -95,6 +107,35 @@ export function createApp(opts: {
 
   app.post("/webhooks/github", githubWebhookHandler)
   app.post("/webhooks/email", emailWebhookHandler)
+
+  // --- Dashboard JSON API ---
+
+  // CORS for the SPA (runs from a different origin).
+  app.use("/api/*", cors({
+    origin: "*",
+    allowMethods: ["GET", "OPTIONS"],
+    allowHeaders: ["Authorization", "Content-Type"],
+    maxAge: 86400,
+  }))
+
+  // Bearer token auth for /api/* routes.
+  app.use("/api/*", async (c, next) => {
+    if (!opts.apiToken) {
+      return c.json({ error: "API not configured (OPENTOWER_API_TOKEN not set)" }, 503)
+    }
+    const authHeader = c.req.header("authorization") ?? ""
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : ""
+    if (token !== opts.apiToken) {
+      return c.json({ error: "unauthorized" }, 401)
+    }
+    c.set("store", opts.store)
+    await next()
+  })
+
+  app.get("/api/stats", apiStatsHandler as never)
+  app.get("/api/entities", apiEntitiesHandler as never)
+  app.get("/api/entities/:key", apiEntityDetailHandler as never)
+  app.get("/api/dispatches", apiDispatchesHandler as never)
 
   return app
 }

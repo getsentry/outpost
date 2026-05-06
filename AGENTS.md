@@ -50,6 +50,9 @@
 <!-- lore:019df684-728f-7321-9c69-95ef1793c803 -->
 * **Config parse error silently disables all webhook processing**: Two silent failure modes that disable all webhook processing: (1) JSON syntax error in \`webhooks.json\` causes \`readWebhookConfig()\` to return \`{}\` — \`triggers.length === 0\` makes plugin return early with only a \`console.error\`, no exception; (2) In \`matchers.ts\`, if \`findMatching()\` returns empty, handler returns 200 OK \`{dispatched: \[], skipped: \[]}\` with no log, no Sentry event. Typos or wrong casing in trigger event names silently discard all matching webhooks. Detection: inspect GitHub's recent deliveries for empty \`dispatched\` arrays.
 
+<!-- lore:019dfdcc-335a-76fc-8c2c-651ebb2b8698 -->
+* **D1 regex patterns double-escape backslashes via JSON API — use /seed to fix**: The Cloudflare Worker's \`/senders\` D1 table stores regex patterns like \`/^.\*@github\\.com$/\`. If inserted via a JSON API payload, backslashes get double-escaped in transit, storing \`/^.\*@github\\\\.com$/\` — a literal \`\\\` before \`.com\`, breaking the regex. \`new RegExp(...)\` then compiles incorrectly. Fix: DELETE the bad row via URL-encoded pattern, then POST \`/seed\` to re-insert correctly. Detection: query \`/senders\` and inspect stored pattern — it should have single backslash \`\\.\` not \`\\\\.\`.
+
 <!-- lore:019ddb97-387d-7086-babf-1a0fd6cc2978 -->
 * **GitHub CLI auth lost on server restart — symlink to persistent volume**: gh CLI auth lost on Railway redeploy — tokens stored in ephemeral \`~/.config/gh/\`. Fix: set \`GH\_TOKEN\` as a Railway env var (PAT with repo/workflow/read:org scopes) — gh auto-detects it, no disk state needed. Use \`GH\_TOKEN\` not \`GITHUB\_TOKEN\`; Railway/Actions can override the latter. Symlink approach (\`ln -sfn ~/dev/.gh-config/...\`) also works but is more fragile.
 
