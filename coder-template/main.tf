@@ -277,6 +277,14 @@ resource "kubernetes_deployment_v1" "workspace" {
             ]),
           ]
           env {
+            name  = "CODER_AGENT_URL"
+            value = data.coder_workspace.me.access_url
+          }
+          env {
+            name  = "CODER_AGENT_TOKEN"
+            value = coder_agent.main.token
+          }
+          env {
             name  = "GH_TOKEN"
             value = data.coder_parameter.gh_token.value
           }
