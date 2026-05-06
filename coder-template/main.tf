@@ -261,18 +261,19 @@ resource "kubernetes_deployment_v1" "workspace" {
           # (Docker CMD) so the entrypoint is preserved — tini stays as
           # PID 1 and docker-entrypoint.sh runs before our command.
           #
-          # The Coder agent init script is passed as an env var and
-          # written to a file via printenv (not heredoc — Kubernetes
-          # serializes args as JSON, turning newlines into literal \n
-          # which breaks heredoc syntax). OpenCode is started separately
-          # by coder_script.opencode after the agent connects.
-          args = [
-            "sh", "-c",
-            "printenv CODER_AGENT_INIT_SCRIPT > /tmp/coder-init.sh && chmod +x /tmp/coder-init.sh && exec /tmp/coder-init.sh",
-          ]
+          # The image already ships /usr/bin/coder (v2.33.1), so we skip
+          # the init_script download loop entirely and run the agent
+          # directly. CODER_AGENT_URL and CODER_AGENT_TOKEN are passed as
+          # explicit env vars below. OpenCode is started separately by
+          # coder_script.opencode after the agent connects.
+          args = ["coder", "agent"]
           env {
-            name  = "CODER_AGENT_INIT_SCRIPT"
-            value = coder_agent.main.init_script
+            name  = "CODER_AGENT_URL"
+            value = data.coder_workspace.me.access_url
+          }
+          env {
+            name  = "CODER_AGENT_TOKEN"
+            value = coder_agent.main.token
           }
           env {
             name  = "GH_TOKEN"
