@@ -148,6 +148,19 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
       `UPDATE dispatches SET status = $status, completed_at = datetime('now')
        WHERE id = $id`,
     ),
+
+    getEntityDispatches: db.prepare<DispatchRow, [string]>(
+      "SELECT * FROM dispatches WHERE entity_key = ? ORDER BY created_at DESC",
+    ),
+
+    statsTotalEntities: db.prepare<{ c: number }, []>("SELECT COUNT(*) as c FROM entities"),
+    statsTotalDispatches: db.prepare<{ c: number }, []>("SELECT COUNT(*) as c FROM dispatches"),
+    statsRecent24h: db.prepare<{ c: number }, []>(
+      "SELECT COUNT(*) as c FROM dispatches WHERE created_at > datetime('now', '-1 day')",
+    ),
+    statsStatusCounts: db.prepare<{ status: string; c: number }, []>(
+      "SELECT status, COUNT(*) as c FROM dispatches GROUP BY status",
+    ),
   }
 
   // Helper to run raw SQL for dynamic queries (pagination with cursor).
@@ -272,9 +285,7 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
     },
 
     getEntityDispatches(entityKey) {
-      return db.prepare<DispatchRow, [string]>(
-        "SELECT * FROM dispatches WHERE entity_key = ? ORDER BY created_at DESC",
-      ).all(entityKey)
+      return stmts.getEntityDispatches.all(entityKey)
     },
 
     getEntityLinks(entityKey) {
@@ -295,21 +306,15 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
     },
 
     getStats() {
-      const totalEntities = db.prepare<{ c: number }, []>(
-        "SELECT COUNT(*) as c FROM entities",
-      ).get()?.c ?? 0
-      const totalDispatches = db.prepare<{ c: number }, []>(
-        "SELECT COUNT(*) as c FROM dispatches",
-      ).get()?.c ?? 0
-      const recent24h = db.prepare<{ c: number }, []>(
-        "SELECT COUNT(*) as c FROM dispatches WHERE created_at > datetime('now', '-1 day')",
-      ).get()?.c ?? 0
-      const statusRows = db.prepare<{ status: string; c: number }, []>(
-        "SELECT status, COUNT(*) as c FROM dispatches GROUP BY status",
-      ).all()
-      const statusCounts: Record<string, number> = {}
-      for (const row of statusRows) statusCounts[row.status] = row.c
-      return { total_entities: totalEntities, total_dispatches: totalDispatches, status_counts: statusCounts, recent_24h: recent24h }
+      return db.transaction(() => {
+        const totalEntities = stmts.statsTotalEntities.get()?.c ?? 0
+        const totalDispatches = stmts.statsTotalDispatches.get()?.c ?? 0
+        const recent24h = stmts.statsRecent24h.get()?.c ?? 0
+        const statusRows = stmts.statsStatusCounts.all()
+        const statusCounts: Record<string, number> = {}
+        for (const row of statusRows) statusCounts[row.status] = row.c
+        return { total_entities: totalEntities, total_dispatches: totalDispatches, status_counts: statusCounts, recent_24h: recent24h }
+      })()
     },
 
     close() {

@@ -4,16 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useQuery } from "@/hooks/use-api"
+import { timeAgo } from "@/lib/format"
 import type { ApiClient, PaginatedEntities } from "@/lib/api"
 import { ExternalLink, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react"
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso + "Z").getTime()
-  if (diff < 60_000) return "just now"
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
 
 export default function EntitiesPage() {
   const [cursor, setCursor] = useState<string | undefined>()

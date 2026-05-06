@@ -4,24 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/components/status-badge"
 import { useQuery } from "@/hooks/use-api"
+import { timeAgo, formatDuration } from "@/lib/format"
 import type { ApiClient, PaginatedDispatches } from "@/lib/api"
 import { RefreshCw, ChevronLeft, ChevronRight } from "lucide-react"
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso + "Z").getTime()
-  if (diff < 60_000) return "just now"
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
-
-function formatDuration(start: string, end: string | null): string {
-  if (!end) return "running..."
-  const ms = new Date(end + "Z").getTime() - new Date(start + "Z").getTime()
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`
-}
 
 export default function DispatchesPage() {
   const [statusFilter, setStatusFilter] = useState("")

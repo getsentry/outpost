@@ -1,53 +1,35 @@
-import { useCallback } from "react"
-import { useParams, Link } from "react-router-dom"
+import { useMemo } from "react"
+import { useParams, useNavigate, Link } from "react-router-dom"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { StatusBadge } from "@/components/status-badge"
 import { useQuery } from "@/hooks/use-api"
+import { timeAgo, formatDuration, entityGitHubUrl } from "@/lib/format"
 import type { ApiClient, EntityDetail } from "@/lib/api"
 import { ArrowLeft, ExternalLink, RefreshCw, Link as LinkIcon } from "lucide-react"
 
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso + "Z").getTime()
-  if (diff < 60_000) return "just now"
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
-
-function formatDuration(start: string, end: string | null): string {
-  if (!end) return "running..."
-  const ms = new Date(end + "Z").getTime() - new Date(start + "Z").getTime()
-  if (ms < 1000) return `${ms}ms`
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
-  return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`
-}
-
 export default function EntityDetailPage() {
   const { key } = useParams<{ key: string }>()
+  const navigate = useNavigate()
   const decodedKey = decodeURIComponent(key ?? "")
 
-  const fetcher = useCallback(
-    (c: ApiClient) => c.entity(decodedKey),
+  const fetcher = useMemo(
+    () => decodedKey ? (c: ApiClient) => c.entity(decodedKey) : null,
     [decodedKey],
   )
   const { data, loading, error, refetch } = useQuery<EntityDetail>(fetcher)
 
   if (!decodedKey) return <p>Invalid entity key</p>
 
-  const githubUrl = data
-    ? `https://github.com/${data.entity.repo}/${data.entity.kind === "pull_request" ? "pull" : "issues"}/${data.entity.number}`
-    : null
+  const githubUrl = data ? entityGitHubUrl(data.entity) : null
 
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <Link to="/">
-          <Button variant="ghost" size="icon">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
+        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
         <div className="flex-1">
           <h1 className="text-xl font-bold font-mono">{decodedKey}</h1>
         </div>
@@ -67,7 +49,6 @@ export default function EntityDetailPage() {
         </div>
       ) : data ? (
         <>
-          {/* Entity info */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Entity Info</CardTitle>
@@ -116,7 +97,6 @@ export default function EntityDetailPage() {
             </CardContent>
           </Card>
 
-          {/* Links */}
           {data.links.length > 0 && (
             <Card>
               <CardHeader>
@@ -142,7 +122,6 @@ export default function EntityDetailPage() {
             </Card>
           )}
 
-          {/* Dispatch timeline */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Dispatch Timeline ({data.dispatches.length})</CardTitle>
@@ -154,11 +133,9 @@ export default function EntityDetailPage() {
                 <div className="relative space-y-0">
                   {data.dispatches.map((d, i) => (
                     <div key={d.id} className="relative flex gap-4 pb-6">
-                      {/* Timeline line */}
                       {i < data.dispatches.length - 1 && (
                         <div className="absolute left-[11px] top-6 bottom-0 w-px bg-border" />
                       )}
-                      {/* Timeline dot */}
                       <div className="relative z-10 mt-1.5 h-[9px] w-[9px] shrink-0 rounded-full border-2 border-border bg-background" />
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">

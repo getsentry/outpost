@@ -20,16 +20,3 @@ export function loadServers(): ServerConfig[] {
 export function saveServers(servers: ServerConfig[]): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(servers))
 }
-
-export function addServer(server: Omit<ServerConfig, "id">): ServerConfig {
-  const servers = loadServers()
-  const entry: ServerConfig = { ...server, id: crypto.randomUUID() }
-  servers.push(entry)
-  saveServers(servers)
-  return entry
-}
-
-export function removeServer(id: string): void {
-  const servers = loadServers().filter((s) => s.id !== id)
-  saveServers(servers)
-}

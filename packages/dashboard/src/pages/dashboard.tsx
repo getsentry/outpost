@@ -5,21 +5,9 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { StatusBadge } from "@/components/status-badge"
 import { useQuery } from "@/hooks/use-api"
+import { timeAgo, entityGitHubUrl } from "@/lib/format"
 import type { ApiClient, StatsResult, PaginatedEntities, PaginatedDispatches } from "@/lib/api"
 import { Activity, GitPullRequest, Zap, Clock, RefreshCw, ChevronRight, ExternalLink } from "lucide-react"
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso + "Z").getTime()
-  if (diff < 60_000) return "just now"
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
-  return `${Math.floor(diff / 86_400_000)}d ago`
-}
-
-function entityGitHubUrl(entity: { repo: string; number: number; kind: string }): string {
-  const type = entity.kind === "pull_request" ? "pull" : "issues"
-  return `https://github.com/${entity.repo}/${type}/${entity.number}`
-}
 
 export default function DashboardPage() {
   const [dispatchFilter, setDispatchFilter] = useState<string>("")

@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { ApiClient } from "@/lib/api"
 import { useServers } from "./use-servers"
 
 export function useApiClient(): ApiClient | null {
   const { activeServer } = useServers()
-  if (!activeServer) return null
-  return new ApiClient(activeServer.url, activeServer.token)
+  return useMemo(
+    () => activeServer ? new ApiClient(activeServer.url, activeServer.token) : null,
+    [activeServer],
+  )
 }
 
 export function useQuery<T>(

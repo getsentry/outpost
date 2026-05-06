@@ -1,9 +1,11 @@
-import { useState, useCallback, useSyncExternalStore } from "react"
+import { useState, useCallback, useMemo, useSyncExternalStore } from "react"
 import { type ServerConfig, loadServers, saveServers } from "@/lib/servers"
 
 let listeners: Array<() => void> = []
+let cachedServers: ServerConfig[] = loadServers()
 
 function emitChange() {
+  cachedServers = loadServers()
   for (const listener of listeners) listener()
 }
 
@@ -15,7 +17,7 @@ function subscribe(listener: () => void) {
 }
 
 function getSnapshot(): ServerConfig[] {
-  return loadServers()
+  return cachedServers
 }
 
 export function useServers() {
@@ -27,7 +29,10 @@ export function useServers() {
     return all.length > 0 ? all[0].id : null
   })
 
-  const activeServer = servers.find((s) => s.id === activeId) ?? null
+  const activeServer = useMemo(
+    () => servers.find((s) => s.id === activeId) ?? null,
+    [servers, activeId],
+  )
 
   const setActiveId = useCallback((id: string | null) => {
     setActiveIdState(id)

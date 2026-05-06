@@ -4,6 +4,7 @@
 
 import { Hono } from "hono"
 import { cors } from "hono/cors"
+import { timingSafeEqual } from "node:crypto"
 import * as Sentry from "@sentry/bun"
 import type { Dedup } from "./dedup"
 import { githubWebhookHandler } from "./handlers/github"
@@ -29,6 +30,11 @@ export type AppEnv = {
     emailTriggers: NormalizedTrigger[]
     store: LifecycleStore
   }
+}
+
+function safeTokenCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b))
 }
 
 export function createApp(opts: {
@@ -102,6 +108,7 @@ export function createApp(opts: {
     c.set("botLogin", opts.botLogin)
     c.set("githubTriggers", githubTriggers)
     c.set("emailTriggers", emailTriggers)
+    c.set("store", opts.store)
     await next()
   })
 
@@ -110,7 +117,6 @@ export function createApp(opts: {
 
   // --- Dashboard JSON API ---
 
-  // CORS for the SPA (runs from a different origin).
   app.use("/api/*", cors({
     origin: "*",
     allowMethods: ["GET", "OPTIONS"],
@@ -118,24 +124,23 @@ export function createApp(opts: {
     maxAge: 86400,
   }))
 
-  // Bearer token auth for /api/* routes.
   app.use("/api/*", async (c, next) => {
     if (!opts.apiToken) {
       return c.json({ error: "API not configured (OPENTOWER_API_TOKEN not set)" }, 503)
     }
     const authHeader = c.req.header("authorization") ?? ""
     const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : ""
-    if (token !== opts.apiToken) {
+    if (!token || !safeTokenCompare(token, opts.apiToken)) {
       return c.json({ error: "unauthorized" }, 401)
     }
     c.set("store", opts.store)
     await next()
   })
 
-  app.get("/api/stats", apiStatsHandler as never)
-  app.get("/api/entities", apiEntitiesHandler as never)
-  app.get("/api/entities/:key", apiEntityDetailHandler as never)
-  app.get("/api/dispatches", apiDispatchesHandler as never)
+  app.get("/api/stats", apiStatsHandler)
+  app.get("/api/entities", apiEntitiesHandler)
+  app.get("/api/entities/:key", apiEntityDetailHandler)
+  app.get("/api/dispatches", apiDispatchesHandler)
 
   return app
 }
