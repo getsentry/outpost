@@ -256,20 +256,13 @@ resource "kubernetes_deployment_v1" "workspace" {
           image             = var.docker_image
           image_pull_policy = "Always"
 
-          # The image ENTRYPOINT is [tini -- docker-entrypoint.sh] which
-          # sets up git/gh identity then execs "$@". We only set args
-          # (Docker CMD) so the entrypoint is preserved — tini stays as
-          # PID 1 and docker-entrypoint.sh runs before our command.
-          #
-          # The image already ships /usr/bin/coder (v2.33.1), so we skip
-          # the init_script download loop entirely and run the agent
-          # directly. CODER_AGENT_URL and CODER_AGENT_TOKEN are passed as
+          # Override ENTRYPOINT (docker-entrypoint.sh) to bypass it and
+          # run coder agent directly. The image already ships /usr/bin/coder
+          # (v2.33.1). CODER_AGENT_URL and CODER_AGENT_TOKEN are passed as
           # explicit env vars below. OpenCode is started separately by
           # coder_script.opencode after the agent connects.
-          args = [
-            "sh", "-c",
-            "echo CODER_AGENT_URL=$CODER_AGENT_URL >&2; exec coder agent",
-          ]
+          command = ["/usr/bin/coder"]
+          args    = ["agent"]
           env {
             name  = "CODER_AGENT_URL"
             value = data.coder_workspace.me.access_url
