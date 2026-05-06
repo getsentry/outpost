@@ -271,16 +271,22 @@ resource "kubernetes_deployment_v1" "workspace" {
           # after the agent connects.
           args = [
             "sh", "-c",
-            "echo CODER_AGENT_URL=$CODER_AGENT_URL && echo CODER_AGENT_AUTH=$CODER_AGENT_AUTH && echo CODER_AGENT_TOKEN=$CODER_AGENT_TOKEN | head -c 20 && echo '...' && exec coder agent",
+            join("\n", [
+              "cat > /tmp/coder-init.sh << 'CODER_INIT_EOF'",
+              replace(
+                replace(
+                  coder_agent.main.init_script,
+                  "BINARY_URL=bin/",
+                  "BINARY_URL=https://coder.sentry.dev/bin/"
+                ),
+                "CODER_AGENT_URL=\"\"",
+                "CODER_AGENT_URL=\"https://coder.sentry.dev\""
+              ),
+              "CODER_INIT_EOF",
+              "chmod +x /tmp/coder-init.sh",
+              "exec /tmp/coder-init.sh",
+            ]),
           ]
-          env {
-            name  = "CODER_AGENT_URL"
-            value = "https://coder.sentry.dev"
-          }
-          env {
-            name  = "CODER_AGENT_AUTH"
-            value = "token"
-          }
           env {
             name  = "CODER_AGENT_TOKEN"
             value = coder_agent.main.token
