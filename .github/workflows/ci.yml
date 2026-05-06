@@ -1,0 +1,46 @@
+# CI workflow: runs on pushes to main and release branches.
+# On release branches, packs the opentower npm tarball and uploads it
+# as an artifact for craft to consume during `craft publish`.
+name: CI
+
+on:
+  push:
+    branches: [main, 'release/**']
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+        working-directory: packages/opentower
+
+      - name: Typecheck
+        run: bun run tsc --noEmit
+        working-directory: packages/opentower
+
+      # Pack and upload the npm tarball only on release branches.
+      # Craft's artifactProvider looks for workflow "CI" → artifact "npm-tarball".
+      - name: Pack tarball
+        if: startsWith(github.ref, 'refs/heads/release/')
+        run: |
+          mkdir -p dist-tarballs
+          cd packages/opentower
+          bun pm pack --destination ../../dist-tarballs
+          echo "--- Tarball: ---"
+          ls -la ../../dist-tarballs/
+
+      - name: Upload tarball
+        if: startsWith(github.ref, 'refs/heads/release/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: dist-tarballs/*.tgz
