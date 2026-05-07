@@ -121,7 +121,7 @@ export default function DispatchesPage() {
                       )}
                       {d.session_id?.trim() && (
                         <a
-                          href={opencodeSessionUrl(d.session_id, opencodeUrl)}
+                          href={opencodeSessionUrl(d.session_id, d.share_url, opencodeUrl)}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 font-mono text-primary hover:underline"

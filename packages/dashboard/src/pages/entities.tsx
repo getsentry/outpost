@@ -100,7 +100,7 @@ export default function EntitiesPage() {
                           </a>
                           {e.session_id?.trim() && (
                             <a
-                              href={opencodeSessionUrl(e.session_id, opencodeUrl)}
+                              href={opencodeSessionUrl(e.session_id, e.share_url, opencodeUrl)}
                               target="_blank"
                               rel="noreferrer"
                               className="text-muted-foreground hover:text-foreground"

@@ -6,6 +6,7 @@
 // Also extracts linked issue numbers from PR bodies so the lifecycle
 // store can link issue→PR for session reuse.
 
+import type { EntityResolver } from "./entity-resolver"
 import { lookup, lookupString } from "./template"
 
 export type EntityKey = {
@@ -19,14 +20,17 @@ export type EntityKey = {
   linkedIssues: number[]
 }
 
-// Extract entity key from a GitHub webhook payload.
-// Returns null for email events (raw email content, no entity structure)
-// and for webhook events that don't map to a trackable entity.
-export function extractEntityKey(event: string, payload: unknown): EntityKey | null {
-  // Email events carry raw email content -- no entity to extract.
-  // The agent decides what to do with the email.
+// Extract entity key from a GitHub webhook payload or email event.
+// Returns null for events that don't map to a trackable entity.
+// Email events use the AI entity resolver to identify the GitHub
+// entity from any email source (GitHub, Sentry, CI, etc.).
+export async function extractEntityKey(
+  event: string,
+  payload: unknown,
+  resolver?: EntityResolver | null,
+): Promise<EntityKey | null> {
   if (event.startsWith("email.")) {
-    return null
+    return resolveEmailEntity(payload, resolver)
   }
 
   const repo = lookupString(payload, "repository.full_name")
@@ -95,6 +99,40 @@ export function extractEntityKey(event: string, payload: unknown): EntityKey | n
   // The agent can inspect the payload to correlate with issues/PRs.
 
   return null
+}
+
+// Resolve email entity key using the AI resolver.
+// The resolver handles all email sources (GitHub, Sentry, CI, etc.)
+// via a single LLM call that extracts the GitHub entity reference.
+// Returns null if no resolver is configured or if the email doesn't
+// relate to a specific GitHub entity.
+async function resolveEmailEntity(payload: unknown, resolver?: EntityResolver | null): Promise<EntityKey | null> {
+  if (!resolver) return null
+  const o = payload as Record<string, unknown> | null
+  if (!o || typeof o !== "object") return null
+
+  const result = await resolver.resolve({
+    from: typeof o.from === "string" ? o.from : "",
+    to: typeof o.to === "string" ? o.to : "",
+    subject: typeof o.subject === "string" ? o.subject : "",
+    message_id: typeof o.message_id === "string" ? o.message_id : "",
+    in_reply_to: typeof o.in_reply_to === "string" ? o.in_reply_to : null,
+    references: Array.isArray(o.references) ? o.references.filter((s): s is string => typeof s === "string") : [],
+    list_id: typeof o.list_id === "string" ? o.list_id : null,
+    x_github_reason: typeof o.x_github_reason === "string" ? o.x_github_reason : null,
+    x_github_sender: typeof o.x_github_sender === "string" ? o.x_github_sender : null,
+    body_text: typeof o.body_text === "string" ? o.body_text : null,
+  })
+
+  // Discard low-confidence guesses to avoid incorrect session affinity.
+  if (!result.entity || result.confidence === "low") return null
+  return {
+    key: `${result.entity.repo}#${result.entity.number}`,
+    repo: result.entity.repo,
+    number: result.entity.number,
+    kind: result.entity.kind,
+    linkedIssues: [],
+  }
 }
 
 // Extract issue numbers from "Fixes #N", "Closes #N", "Resolves #N"

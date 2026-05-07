@@ -4,6 +4,7 @@ export type EntityRow = {
   number: number
   kind: "issue" | "pull_request"
   session_id: string
+  share_url: string | null
   agent: string
   created_at: string
   updated_at: string
@@ -13,6 +14,7 @@ export type DispatchRow = {
   id: string
   entity_key: string | null
   session_id: string | null
+  share_url: string | null
   trigger_name: string
   event: string
   delivery_id: string
