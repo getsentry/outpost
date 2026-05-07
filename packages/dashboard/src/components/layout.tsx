@@ -3,7 +3,22 @@ import { ApiClient } from "@/lib/api"
 import { type ServerFormValues, serverFormSchema } from "@/lib/schemas"
 import { cn } from "@/lib/utils"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { Check, GitPullRequest, LayoutDashboard, Loader2, Pencil, Plus, Server, Trash2, X, Zap } from "lucide-react"
+import {
+  Check,
+  GitPullRequest,
+  LayoutDashboard,
+  Loader2,
+  Monitor,
+  Moon,
+  Pencil,
+  Plus,
+  Server,
+  Sun,
+  Trash2,
+  X,
+  Zap,
+} from "lucide-react"
+import { useTheme } from "next-themes"
 import { useState } from "react"
 import { useForm } from "react-hook-form"
 import { Link, NavLink, Outlet } from "react-router-dom"
@@ -38,7 +53,7 @@ export default function Layout() {
         )}
       >
         {/* Logo */}
-        <div className="flex h-14 items-center border-b px-3">
+        <div className={cn("flex h-14 items-center border-b px-3", collapsed && "justify-center")}>
           <Link to="/" className="flex items-center gap-2 font-semibold">
             <span className="text-xl" role="img" aria-label="outpost">
               🏕️
@@ -203,6 +218,11 @@ export default function Layout() {
               </div>
             )}
           </div>
+        </div>
+
+        {/* Theme toggle */}
+        <div className="border-t px-3 py-2">
+          <ThemeToggle collapsed={collapsed} />
         </div>
 
         {/* Sidebar rail toggle — inspired by shadcn SidebarRail */}
@@ -425,5 +445,58 @@ function EditServerForm({
         </button>
       </div>
     </form>
+  )
+}
+
+function ThemeToggle({ collapsed }: { collapsed: boolean }) {
+  const { theme, setTheme } = useTheme()
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          if (theme === "dark") setTheme("light")
+          else if (theme === "light") setTheme("system")
+          else setTheme("dark")
+        }}
+        className="mx-auto flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        title={`Theme: ${theme}`}
+      >
+        {theme === "dark" ? (
+          <Moon className="h-4 w-4" />
+        ) : theme === "light" ? (
+          <Sun className="h-4 w-4" />
+        ) : (
+          <Monitor className="h-4 w-4" />
+        )}
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1 rounded-md border p-0.5">
+      {[
+        { value: "light", icon: Sun, label: "Light" },
+        { value: "dark", icon: Moon, label: "Dark" },
+        { value: "system", icon: Monitor, label: "System" },
+      ].map(({ value, icon: Icon, label }) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => setTheme(value)}
+          className={cn(
+            "flex flex-1 items-center justify-center gap-1 rounded px-2 py-1 text-xs",
+            theme === value
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+          title={label}
+        >
+          <Icon className="h-3 w-3" />
+          {label}
+        </button>
+      ))}
+    </div>
   )
 }
