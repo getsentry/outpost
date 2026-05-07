@@ -24,10 +24,13 @@ export function entityGitHubUrl(entity: { repo: string; number: number; kind: st
 }
 
 /**
- * Build a session URL relative to the configured OpenCode instance.
- * Falls back to a relative path on the current origin when no opencodeUrl is set.
+ * Return the best available URL for viewing an OpenCode session.
+ * Prefers the public share URL (from auto-share) when available.
+ * Falls back to constructing a URL from opencodeUrl + sessionId,
+ * or a relative path as a last resort.
  */
-export function opencodeSessionUrl(sessionId: string, opencodeUrl?: string): string {
+export function opencodeSessionUrl(sessionId: string, shareUrl?: string | null, opencodeUrl?: string): string {
+  if (shareUrl) return shareUrl
   const base = opencodeUrl?.replace(/\/+$/, "")
   if (base) {
     return `${base}/sessions/${encodeURIComponent(sessionId)}`

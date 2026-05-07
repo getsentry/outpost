@@ -19,6 +19,7 @@ export type EntityRow = {
   number: number
   kind: "issue" | "pull_request"
   session_id: string
+  share_url: string | null
   agent: string
   created_at: string
   updated_at: string
@@ -35,6 +36,7 @@ export type DispatchRow = {
   id: string
   entity_key: string | null
   session_id: string | null
+  share_url: string | null
   trigger_name: string
   event: string
   delivery_id: string
@@ -51,13 +53,14 @@ export type StatsResult = {
 }
 
 export type LifecycleStore = {
-  upsertEntity(row: Pick<EntityRow, "entity_key" | "repo" | "number" | "kind" | "session_id" | "agent">): void
+  upsertEntity(row: Pick<EntityRow, "entity_key" | "repo" | "number" | "kind" | "session_id" | "share_url" | "agent">): void
   deleteEntity(entityKey: string): void
   resolveSession(entityKey: string): EntityRow | null
 
   addLink(sourceKey: string, targetKey: string, relation: string): void
 
-  insertDispatch(row: Omit<DispatchRow, "created_at" | "completed_at">): void
+  insertDispatch(row: Omit<DispatchRow, "created_at" | "completed_at" | "share_url"> & { share_url?: string | null }): void
+  updateDispatchSession(id: string, sessionId: string, shareUrl: string | null): void
   completeDispatch(id: string, status: "completed" | "failed" | "timeout"): void
 
   // Query methods for the dashboard API.
@@ -84,6 +87,7 @@ CREATE TABLE IF NOT EXISTS entities (
   number     INTEGER NOT NULL,
   kind       TEXT NOT NULL CHECK(kind IN ('issue', 'pull_request')),
   session_id TEXT NOT NULL,
+  share_url  TEXT,
   agent      TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -102,6 +106,7 @@ CREATE TABLE IF NOT EXISTS dispatches (
   id           TEXT PRIMARY KEY,
   entity_key   TEXT,
   session_id   TEXT,
+  share_url    TEXT,
   trigger_name TEXT NOT NULL,
   event        TEXT NOT NULL,
   delivery_id  TEXT NOT NULL,
@@ -121,13 +126,26 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
   db.exec("PRAGMA busy_timeout = 5000")
   db.exec(SCHEMA)
 
+  // Migration: add share_url column to existing databases.
+  try {
+    db.exec("ALTER TABLE entities ADD COLUMN share_url TEXT")
+  } catch {
+    // Column already exists — ignore.
+  }
+  try {
+    db.exec("ALTER TABLE dispatches ADD COLUMN share_url TEXT")
+  } catch {
+    // Column already exists — ignore.
+  }
+
   const stmts = {
     getEntity: db.prepare<EntityRow, [string]>("SELECT * FROM entities WHERE entity_key = ?"),
     upsertEntity: db.prepare(
-      `INSERT INTO entities (entity_key, repo, number, kind, session_id, agent)
-       VALUES ($entity_key, $repo, $number, $kind, $session_id, $agent)
+      `INSERT INTO entities (entity_key, repo, number, kind, session_id, share_url, agent)
+       VALUES ($entity_key, $repo, $number, $kind, $session_id, $share_url, $agent)
        ON CONFLICT(entity_key) DO UPDATE SET
          session_id = excluded.session_id,
+         share_url  = COALESCE(excluded.share_url, entities.share_url),
          agent      = excluded.agent,
          updated_at = datetime('now')`,
     ),
@@ -141,8 +159,12 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
     getLinksByTarget: db.prepare<LinkRow, [string]>("SELECT * FROM links WHERE target_key = ?"),
 
     insertDispatch: db.prepare(
-      `INSERT INTO dispatches (id, entity_key, session_id, trigger_name, event, delivery_id, status)
-       VALUES ($id, $entity_key, $session_id, $trigger_name, $event, $delivery_id, $status)`,
+      `INSERT INTO dispatches (id, entity_key, session_id, share_url, trigger_name, event, delivery_id, status)
+       VALUES ($id, $entity_key, $session_id, $share_url, $trigger_name, $event, $delivery_id, $status)`,
+    ),
+    updateDispatchSession: db.prepare(
+      `UPDATE dispatches SET session_id = $session_id, share_url = $share_url
+       WHERE id = $id`,
     ),
     completeDispatch: db.prepare(
       `UPDATE dispatches SET status = $status, completed_at = datetime('now')
@@ -217,6 +239,7 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
         $number: row.number,
         $kind: row.kind,
         $session_id: row.session_id,
+        $share_url: row.share_url,
         $agent: row.agent,
       })
     },
@@ -263,11 +286,16 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
         $id: row.id,
         $entity_key: row.entity_key,
         $session_id: row.session_id,
+        $share_url: row.share_url ?? null,
         $trigger_name: row.trigger_name,
         $event: row.event,
         $delivery_id: row.delivery_id,
         $status: row.status,
       })
+    },
+
+    updateDispatchSession(id, sessionId, shareUrl) {
+      stmts.updateDispatchSession.run({ $id: id, $session_id: sessionId, $share_url: shareUrl })
     },
 
     completeDispatch(id, status) {

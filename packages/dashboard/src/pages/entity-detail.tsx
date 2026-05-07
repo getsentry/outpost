@@ -78,7 +78,7 @@ export default function EntityDetailPage() {
                   {data.entity.session_id?.trim() ? (
                     <dd>
                       <a
-                        href={opencodeSessionUrl(data.entity.session_id, opencodeUrl)}
+                        href={opencodeSessionUrl(data.entity.session_id, data.entity.share_url, opencodeUrl)}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1 font-mono text-sm text-primary hover:underline"
@@ -167,7 +167,7 @@ export default function EntityDetailPage() {
                           <span className="text-xs text-muted-foreground">{d.event}</span>
                           {d.session_id?.trim() && (
                             <a
-                              href={opencodeSessionUrl(d.session_id, opencodeUrl)}
+                              href={opencodeSessionUrl(d.session_id, d.share_url, opencodeUrl)}
                               target="_blank"
                               rel="noreferrer"
                               className="inline-flex items-center gap-1 text-xs text-primary hover:underline"

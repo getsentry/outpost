@@ -101,13 +101,14 @@ export function makePipeline(opts: {
   }
 
   // Persist entity→session mapping and issue→PR links to SQLite.
-  function persistEntity(entityKey: EntityKey, sessionId: string, agent: string): void {
+  function persistEntity(entityKey: EntityKey, sessionId: string, agent: string, shareUrl?: string | null): void {
     store.upsertEntity({
       entity_key: entityKey.key,
       repo: entityKey.repo,
       number: entityKey.number,
       kind: entityKey.kind,
       session_id: sessionId,
+      share_url: shareUrl ?? null,
       agent,
     })
 
@@ -191,8 +192,10 @@ export function makePipeline(opts: {
             return
           }
           entry.sessionId = sessionId
+          const shareUrl = session.data?.share?.url ?? null
 
-          persistEntity(entityKey, sessionId, trigger.agent)
+          persistEntity(entityKey, sessionId, trigger.agent, shareUrl)
+          store.updateDispatchSession(dispatchId, sessionId, shareUrl)
 
           Sentry.logger.info("dispatch.started", {
             trigger_name: trigger.name,
@@ -565,6 +568,9 @@ export function makePipeline(opts: {
             store.completeDispatch(dispatchId, "failed")
             return
           }
+
+          const shareUrl = session.data?.share?.url ?? null
+          store.updateDispatchSession(dispatchId, sessionId, shareUrl)
 
           Sentry.logger.info("dispatch.started", {
             trigger_name: trigger.name,
