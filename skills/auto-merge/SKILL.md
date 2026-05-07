@@ -22,8 +22,11 @@ that transitioned from draft.
 ## Preconditions (all must be true)
 
 1. The PR is open and marked ready for review (not draft).
-2. All required CI checks have passed.
-3. The diff is small and non-disruptive (see size gate below).
+2. The PR targets the repo's default branch.
+3. All CI checks have completed and passed.
+4. The diff is small and non-disruptive (see size gate below).
+5. No reviewer has requested changes.
+6. No unresolved review threads.
 
 If any precondition fails, stop — do not merge. Post a comment
 explaining which precondition was not met.
@@ -49,41 +52,83 @@ needs human review and list which criteria it exceeded.
 
 ## Workflow
 
-1. **Verify PR state**:
+1. **Verify PR state and target branch**:
    ```sh
-   STATE=$(gh pr view <N> --json state,isDraft --jq '"\(.state) \(.isDraft)"')
+   PR_JSON=$(gh pr view <N> --json state,isDraft,baseRefName)
+   STATE=$(echo "$PR_JSON" | jq -r '.state')
+   IS_DRAFT=$(echo "$PR_JSON" | jq -r '.isDraft')
+   BASE=$(echo "$PR_JSON" | jq -r '.baseRefName')
+   DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
    ```
-   Expect `OPEN false`. If draft or closed, stop.
+   - Expect `STATE=OPEN`, `IS_DRAFT=false`. If draft or closed, stop.
+   - Expect `BASE == DEFAULT_BRANCH`. If the PR targets a release or
+     other protected branch, stop — those need human review.
 
 2. **Verify all checks pass**:
    ```sh
-   FAILING=$(gh pr checks <N> --json name,state \
-     --jq '[.[] | select(.state != "SUCCESS" and .state != "SKIPPED" and .state != "NEUTRAL")]')
+   CHECKS=$(gh pr view <N> --json statusCheckRollup \
+     --jq '.statusCheckRollup')
    ```
-   If the output is not an empty array `[]`, stop — checks are not
-   green yet. Post a comment listing the failing checks.
+   For each check, inspect `status` and `conclusion`:
+   - If any check has `status` other than `"COMPLETED"` (e.g.
+     `"QUEUED"`, `"IN_PROGRESS"`, `"PENDING"`), stop — checks
+     haven't finished yet. Post a comment noting which checks are
+     still running.
+   - If any completed check has `conclusion` other than `"SUCCESS"`,
+     `"SKIPPED"`, or `"NEUTRAL"`, stop — checks are failing. Post a
+     comment listing the failing checks.
+
+   Quick jq filter for non-passing completed checks:
+   ```sh
+   FAILING=$(echo "$CHECKS" | jq '[.[] | select(
+     .status == "COMPLETED" and
+     .conclusion != "SUCCESS" and
+     .conclusion != "SKIPPED" and
+     .conclusion != "NEUTRAL"
+   )]')
+   ```
+   Quick jq filter for still-running checks:
+   ```sh
+   PENDING=$(echo "$CHECKS" | jq '[.[] | select(.status != "COMPLETED")]')
+   ```
 
 3. **Evaluate the size gate**:
    ```sh
-   DIFF_STAT=$(gh pr diff <N> --stat)
-   FILES_CHANGED=$(gh pr view <N> --json files --jq '.files | length')
-   ADDITIONS=$(gh pr view <N> --json additions --jq '.additions')
-   DELETIONS=$(gh pr view <N> --json deletions --jq '.deletions')
+   PR_DATA=$(gh pr view <N> --json additions,deletions,files)
+   ADDITIONS=$(echo "$PR_DATA" | jq '.additions')
+   DELETIONS=$(echo "$PR_DATA" | jq '.deletions')
    TOTAL=$((ADDITIONS + DELETIONS))
+   FILES_CHANGED=$(echo "$PR_DATA" | jq '.files | length')
    ```
    Check each criterion listed in the size gate section. Inspect the
    file list for CI/CD, lockfile, migration, auth, or public API
    changes:
    ```sh
-   gh pr view <N> --json files --jq '.files[].path'
+   echo "$PR_DATA" | jq -r '.files[].path'
    ```
 
-4. **Check for review requests or objections**:
+4. **Check for review objections and unresolved threads**:
    ```sh
-   REVIEWS=$(gh pr view <N> --json reviews --jq '[.reviews[] | select(.state == "CHANGES_REQUESTED")] | length')
+   CHANGES_REQUESTED=$(gh pr view <N> --json reviews \
+     --jq '[.reviews[] | select(.state == "CHANGES_REQUESTED")] | length')
    ```
-   If any reviewer requested changes, stop — the PR needs human
-   attention.
+   If `CHANGES_REQUESTED > 0`, stop — a reviewer has requested changes.
+
+   Check for unresolved review threads via the GraphQL API:
+   ```sh
+   UNRESOLVED=$(gh api graphql -f query='
+     query($owner: String!, $repo: String!, $pr: Int!) {
+       repository(owner: $owner, name: $repo) {
+         pullRequest(number: $pr) {
+           reviewThreads(first: 100) {
+             nodes { isResolved }
+           }
+         }
+       }
+     }' -f owner=<OWNER> -f repo=<REPO> -F pr=<N> \
+     --jq '[.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved == false)] | length')
+   ```
+   If `UNRESOLVED > 0`, stop — there are unresolved review threads.
 
 5. **Merge**:
    ```sh
@@ -93,19 +138,19 @@ needs human review and list which criteria it exceeded.
    Use `--auto` so GitHub waits for branch protection rules.
    Use `--delete-branch` to clean up the feature branch.
 
-6. **Post a short comment** confirming the merge. Mention the total
-   diff size and that all checks passed. Write it naturally — vary
-   the wording, don't use a canned phrase.
+6. **Post a short comment** confirming the merge was enabled. Mention
+   the total diff size and that all checks passed. Write it
+   naturally — vary the wording, don't use a canned phrase.
 
 ## When NOT to merge
 
 - The PR has "CHANGES_REQUESTED" reviews.
+- The PR has unresolved review threads.
 - The PR modifies security-sensitive code.
 - The PR exceeds the size gate.
 - Any required check is not green.
-- The PR targets a release or protected branch other than the default
-  branch.
-- The PR has unresolved review comments.
+- Any check is still running (not yet completed).
+- The PR targets a branch other than the repo's default branch.
 
 In all these cases, leave a comment explaining why auto-merge was
 skipped, and let a human decide.
