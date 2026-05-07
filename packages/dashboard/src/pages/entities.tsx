@@ -1,21 +1,18 @@
-import { useCallback, useState } from "react"
-import { Link } from "react-router-dom"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useQuery } from "@/hooks/use-api"
-import { timeAgo, entityGitHubUrl, opencodeSessionUrl } from "@/lib/format"
 import type { ApiClient, PaginatedEntities } from "@/lib/api"
-import { ExternalLink, RefreshCw, ChevronLeft, ChevronRight, Terminal } from "lucide-react"
+import { entityGitHubUrl, opencodeSessionUrl, timeAgo } from "@/lib/format"
+import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Terminal } from "lucide-react"
+import { useCallback, useState } from "react"
+import { Link } from "react-router-dom"
 
 export default function EntitiesPage() {
   const [cursor, setCursor] = useState<string | undefined>()
   const [cursorStack, setCursorStack] = useState<string[]>([])
 
-  const fetcher = useCallback(
-    (c: ApiClient) => c.entities({ limit: 25, cursor }),
-    [cursor],
-  )
+  const fetcher = useCallback((c: ApiClient) => c.entities({ limit: 25, cursor }), [cursor])
   const { data, loading, error, refetch } = useQuery<PaginatedEntities>(fetcher, [cursor])
 
   function nextPage() {
@@ -74,11 +71,23 @@ export default function EntitiesPage() {
                           <Badge variant="outline" className="text-xs">
                             {e.kind === "pull_request" ? "PR" : "Issue"}
                           </Badge>
-                          <a href={ghUrl} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" title="Open on GitHub">
+                          <a
+                            href={ghUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-muted-foreground hover:text-foreground"
+                            title="Open on GitHub"
+                          >
                             <ExternalLink className="h-3 w-3" />
                           </a>
                           {e.session_id?.trim() && (
-                            <a href={opencodeSessionUrl(e.session_id)} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" title="OpenCode session">
+                            <a
+                              href={opencodeSessionUrl(e.session_id)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-muted-foreground hover:text-foreground"
+                              title="OpenCode session"
+                            >
                               <Terminal className="h-3 w-3" />
                             </a>
                           )}
@@ -99,20 +108,10 @@ export default function EntitiesPage() {
 
               {/* Pagination */}
               <div className="mt-4 flex items-center justify-between">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={cursorStack.length === 0}
-                  onClick={prevPage}
-                >
+                <Button variant="outline" size="sm" disabled={cursorStack.length === 0} onClick={prevPage}>
                   <ChevronLeft className="h-4 w-4" /> Previous
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!data?.next_cursor}
-                  onClick={nextPage}
-                >
+                <Button variant="outline" size="sm" disabled={!data?.next_cursor} onClick={nextPage}>
                   Next <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>

@@ -1,11 +1,11 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
-import { useServers } from "@/hooks/use-servers"
 import Layout from "@/components/layout"
-import SetupPage from "@/pages/setup"
+import { useServers } from "@/hooks/use-servers"
 import DashboardPage from "@/pages/dashboard"
+import DispatchesPage from "@/pages/dispatches"
 import EntitiesPage from "@/pages/entities"
 import EntityDetailPage from "@/pages/entity-detail"
-import DispatchesPage from "@/pages/dispatches"
+import SetupPage from "@/pages/setup"
+import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 
 function AppRoutes() {
   const { servers } = useServers()

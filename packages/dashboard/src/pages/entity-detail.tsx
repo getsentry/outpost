@@ -1,23 +1,20 @@
-import { useMemo } from "react"
-import { useParams, useNavigate, Link } from "react-router-dom"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { StatusBadge } from "@/components/status-badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { useQuery } from "@/hooks/use-api"
-import { timeAgo, formatDuration, entityGitHubUrl, opencodeSessionUrl } from "@/lib/format"
 import type { ApiClient, EntityDetail } from "@/lib/api"
-import { ArrowLeft, ExternalLink, RefreshCw, Link as LinkIcon } from "lucide-react"
+import { entityGitHubUrl, formatDuration, opencodeSessionUrl, timeAgo } from "@/lib/format"
+import { ArrowLeft, ExternalLink, Link as LinkIcon, RefreshCw } from "lucide-react"
+import { useMemo } from "react"
+import { Link, useNavigate, useParams } from "react-router-dom"
 
 export default function EntityDetailPage() {
   const { key } = useParams<{ key: string }>()
   const navigate = useNavigate()
   const decodedKey = decodeURIComponent(key ?? "")
 
-  const fetcher = useMemo(
-    () => decodedKey ? (c: ApiClient) => c.entity(decodedKey) : null,
-    [decodedKey],
-  )
+  const fetcher = useMemo(() => (decodedKey ? (c: ApiClient) => c.entity(decodedKey) : null), [decodedKey])
   const { data, loading, error, refetch } = useQuery<EntityDetail>(fetcher)
 
   if (!decodedKey) return <p>Invalid entity key</p>
@@ -99,7 +96,12 @@ export default function EntityDetailPage() {
                   <div>
                     <dt className="text-xs text-muted-foreground">GitHub</dt>
                     <dd>
-                      <a href={githubUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                      <a
+                        href={githubUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                      >
                         Open <ExternalLink className="h-3 w-3" />
                       </a>
                     </dd>
@@ -122,7 +124,9 @@ export default function EntityDetailPage() {
                     const other = link.source_key === decodedKey ? link.target_key : link.source_key
                     return (
                       <div key={`${link.source_key}-${link.target_key}`} className="flex items-center gap-2 text-sm">
-                        <Badge variant="outline" className="text-xs">{link.relation}</Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {link.relation}
+                        </Badge>
                         <Link to={`/entities/${encodeURIComponent(other)}`} className="font-mono hover:underline">
                           {other}
                         </Link>
@@ -158,7 +162,9 @@ export default function EntityDetailPage() {
                         <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                           <span>{timeAgo(d.created_at)}</span>
                           <span>Duration: {formatDuration(d.created_at, d.completed_at)}</span>
-                          <span className="font-mono" title={d.id}>{d.id.slice(0, 8)}</span>
+                          <span className="font-mono" title={d.id}>
+                            {d.id.slice(0, 8)}
+                          </span>
                         </div>
                       </div>
                     </div>

@@ -1,22 +1,22 @@
-import { useState } from "react"
-import { Link, NavLink, Outlet } from "react-router-dom"
 import { useServers } from "@/hooks/use-servers"
 import { ApiClient } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import {
-  LayoutDashboard,
-  GitPullRequest,
-  Zap,
-  Plus,
-  Trash2,
-  Pencil,
   Check,
-  X,
-  Loader2,
   ChevronLeft,
   ChevronRight,
+  GitPullRequest,
+  LayoutDashboard,
+  Loader2,
+  Pencil,
+  Plus,
   Server,
+  Trash2,
+  X,
+  Zap,
 } from "lucide-react"
+import { useState } from "react"
+import { Link, NavLink, Outlet } from "react-router-dom"
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -25,7 +25,11 @@ const navItems = [
 ]
 
 function safeHostname(url: string): string {
-  try { return new URL(url).hostname } catch { return url }
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
 }
 
 export default function Layout() {
@@ -46,11 +50,20 @@ export default function Layout() {
         {/* Logo */}
         <div className="flex h-14 items-center border-b px-3">
           <Link to="/" className="flex items-center gap-2 font-semibold">
-            <span className="text-xl" role="img" aria-label="outpost">🏕️</span>
+            <span className="text-xl" role="img" aria-label="outpost">
+              🏕️
+            </span>
             {!collapsed && <span>Outpost</span>}
           </Link>
           <button
-            onClick={() => { if (!collapsed) { setEditingId(null); setAdding(false) } setCollapsed(!collapsed) }}
+            type="button"
+            onClick={() => {
+              if (!collapsed) {
+                setEditingId(null)
+                setAdding(false)
+              }
+              setCollapsed(!collapsed)
+            }}
             className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
@@ -87,7 +100,11 @@ export default function Layout() {
             <div className="flex items-center justify-between px-3 py-2">
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Servers</span>
               <button
-                onClick={() => { setAdding(!adding); setEditingId(null) }}
+                type="button"
+                onClick={() => {
+                  setAdding(!adding)
+                  setEditingId(null)
+                }}
                 className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 title="Add server"
               >
@@ -99,7 +116,11 @@ export default function Layout() {
           {collapsed && (
             <div className="flex justify-center py-2">
               <button
-                onClick={() => { setCollapsed(false); setAdding(true) }}
+                type="button"
+                onClick={() => {
+                  setCollapsed(false)
+                  setAdding(true)
+                }}
                 className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                 title="Add server"
               >
@@ -111,7 +132,10 @@ export default function Layout() {
           {/* Add server form */}
           {adding && !collapsed && (
             <AddServerForm
-              onAdd={(cfg) => { add(cfg); setAdding(false) }}
+              onAdd={(cfg) => {
+                add(cfg)
+                setAdding(false)
+              }}
               onCancel={() => setAdding(false)}
             />
           )}
@@ -123,7 +147,10 @@ export default function Layout() {
                 <EditServerForm
                   key={s.id}
                   server={s}
-                  onSave={(patch) => { update(s.id, patch); setEditingId(null) }}
+                  onSave={(patch) => {
+                    update(s.id, patch)
+                    setEditingId(null)
+                  }}
                   onCancel={() => setEditingId(null)}
                 />
               ) : (
@@ -131,20 +158,17 @@ export default function Layout() {
                   key={s.id}
                   className={cn(
                     "group flex items-center gap-2 border-l-2 px-3 py-2 transition-colors",
-                    activeId === s.id
-                      ? "border-l-primary bg-primary/5"
-                      : "border-l-transparent hover:bg-accent/50",
+                    activeId === s.id ? "border-l-primary bg-primary/5" : "border-l-transparent hover:bg-accent/50",
                     collapsed && "justify-center px-2",
                   )}
                 >
                   {collapsed ? (
                     <button
+                      type="button"
                       onClick={() => setActiveId(s.id)}
                       className={cn(
                         "flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium",
-                        activeId === s.id
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted text-muted-foreground",
+                        activeId === s.id ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
                       )}
                       title={s.name}
                     >
@@ -153,24 +177,37 @@ export default function Layout() {
                   ) : (
                     <>
                       <button
+                        type="button"
                         onClick={() => setActiveId(s.id)}
                         className="flex min-w-0 flex-1 flex-col items-start text-left"
                       >
-                        <span className={cn("truncate text-sm", activeId === s.id ? "font-medium" : "text-muted-foreground")}>
+                        <span
+                          className={cn(
+                            "truncate text-sm",
+                            activeId === s.id ? "font-medium" : "text-muted-foreground",
+                          )}
+                        >
                           {s.name}
                         </span>
                         <span className="truncate text-xs text-muted-foreground">{safeHostname(s.url)}</span>
                       </button>
                       <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                         <button
-                          onClick={() => { setEditingId(s.id); setAdding(false) }}
+                          type="button"
+                          onClick={() => {
+                            setEditingId(s.id)
+                            setAdding(false)
+                          }}
                           className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
                           title="Edit"
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
                         <button
-                          onClick={() => { if (window.confirm(`Remove server "${s.name}"?`)) remove(s.id) }}
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Remove server "${s.name}"?`)) remove(s.id)
+                          }}
                           className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive-foreground"
                           title="Delete"
                         >
@@ -234,7 +271,10 @@ function AddServerForm({
     try {
       const client = new ApiClient(trimmedUrl, token)
       const ok = await client.healthz()
-      if (!ok) { setError("Unreachable"); return }
+      if (!ok) {
+        setError("Unreachable")
+        return
+      }
       await client.stats()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed")
@@ -313,7 +353,9 @@ function EditServerForm({
       setError("URL and token required")
       return
     }
-    try { new URL(trimmedUrl) } catch {
+    try {
+      new URL(trimmedUrl)
+    } catch {
       setError("Invalid URL")
       return
     }
@@ -325,7 +367,10 @@ function EditServerForm({
       try {
         const client = new ApiClient(trimmedUrl, token)
         const ok = await client.healthz()
-        if (!ok) { setError("Unreachable"); return }
+        if (!ok) {
+          setError("Unreachable")
+          return
+        }
         await client.stats()
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed")

@@ -61,11 +61,17 @@ export type LifecycleStore = {
   completeDispatch(id: string, status: "completed" | "failed" | "timeout"): void
 
   // Query methods for the dashboard API.
-  listEntities(opts?: { limit?: number; cursor?: string; repo?: string }): { entities: EntityRow[]; next_cursor: string | null }
+  listEntities(opts?: { limit?: number; cursor?: string; repo?: string }): {
+    entities: EntityRow[]
+    next_cursor: string | null
+  }
   getEntity(entityKey: string): EntityRow | null
   getEntityDispatches(entityKey: string): DispatchRow[]
   getEntityLinks(entityKey: string): LinkRow[]
-  listDispatches(opts?: { limit?: number; cursor?: string; status?: string; event?: string }): { dispatches: DispatchRow[]; next_cursor: string | null }
+  listDispatches(opts?: { limit?: number; cursor?: string; status?: string; event?: string }): {
+    dispatches: DispatchRow[]
+    next_cursor: string | null
+  }
   getStats(): StatsResult
 
   close(): void
@@ -116,9 +122,7 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
   db.exec(SCHEMA)
 
   const stmts = {
-    getEntity: db.prepare<EntityRow, [string]>(
-      "SELECT * FROM entities WHERE entity_key = ?",
-    ),
+    getEntity: db.prepare<EntityRow, [string]>("SELECT * FROM entities WHERE entity_key = ?"),
     upsertEntity: db.prepare(
       `INSERT INTO entities (entity_key, repo, number, kind, session_id, agent)
        VALUES ($entity_key, $repo, $number, $kind, $session_id, $agent)
@@ -133,12 +137,8 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
       `INSERT OR IGNORE INTO links (source_key, target_key, relation)
        VALUES ($source_key, $target_key, $relation)`,
     ),
-    getLinksBySource: db.prepare<LinkRow, [string]>(
-      "SELECT * FROM links WHERE source_key = ?",
-    ),
-    getLinksByTarget: db.prepare<LinkRow, [string]>(
-      "SELECT * FROM links WHERE target_key = ?",
-    ),
+    getLinksBySource: db.prepare<LinkRow, [string]>("SELECT * FROM links WHERE source_key = ?"),
+    getLinksByTarget: db.prepare<LinkRow, [string]>("SELECT * FROM links WHERE target_key = ?"),
 
     insertDispatch: db.prepare(
       `INSERT INTO dispatches (id, entity_key, session_id, trigger_name, event, delivery_id, status)
@@ -176,13 +176,18 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
       conditions.push("repo = $repo")
       params.$repo = repo
     }
-    if (conditions.length > 0) sql += " WHERE " + conditions.join(" AND ")
+    if (conditions.length > 0) sql += ` WHERE ${conditions.join(" AND ")}`
     sql += " ORDER BY updated_at DESC LIMIT $limit"
     params.$limit = limit + 1
     return db.prepare<EntityRow, Record<string, string | number>>(sql).all(params)
   }
 
-  function queryDispatches(limit: number, cursor: string | null, status: string | null, event: string | null): DispatchRow[] {
+  function queryDispatches(
+    limit: number,
+    cursor: string | null,
+    status: string | null,
+    event: string | null,
+  ): DispatchRow[] {
     let sql = "SELECT * FROM dispatches"
     const conditions: string[] = []
     const params: Record<string, string | number> = {}
@@ -198,7 +203,7 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
       conditions.push("event = $event")
       params.$event = event
     }
-    if (conditions.length > 0) sql += " WHERE " + conditions.join(" AND ")
+    if (conditions.length > 0) sql += ` WHERE ${conditions.join(" AND ")}`
     sql += " ORDER BY created_at DESC LIMIT $limit"
     params.$limit = limit + 1
     return db.prepare<DispatchRow, Record<string, string | number>>(sql).all(params)
@@ -313,7 +318,12 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
         const statusRows = stmts.statsStatusCounts.all()
         const statusCounts: Record<string, number> = {}
         for (const row of statusRows) statusCounts[row.status] = row.c
-        return { total_entities: totalEntities, total_dispatches: totalDispatches, status_counts: statusCounts, recent_24h: recent24h }
+        return {
+          total_entities: totalEntities,
+          total_dispatches: totalDispatches,
+          status_counts: statusCounts,
+          recent_24h: recent24h,
+        }
       })()
     },
 

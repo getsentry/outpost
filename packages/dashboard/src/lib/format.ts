@@ -1,5 +1,5 @@
 function parseUTC(iso: string): number {
-  return new Date(/[Zz+\-]/.test(iso.slice(-6)) ? iso : iso + "Z").getTime()
+  return new Date(/[Zz+\-]/.test(iso.slice(-6)) ? iso : `${iso}Z`).getTime()
 }
 
 export function timeAgo(iso: string): string {
