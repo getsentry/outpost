@@ -6,7 +6,7 @@ import type { PaginatedDispatches } from "@/lib/api"
 import { formatDuration, opencodeSessionUrl, timeAgo } from "@/lib/format"
 import { useQuery } from "@tanstack/react-query"
 import { ChevronLeft, ChevronRight, RefreshCw, Terminal } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 
 export default function DispatchesPage() {
@@ -15,6 +15,14 @@ export default function DispatchesPage() {
 	const [statusFilter, setStatusFilter] = useState("")
 	const [page, setPage] = useState(0)
 	const [cursors, setCursors] = useState<string[]>([""])
+
+	// Reset pagination when the active server changes
+	const serverUrl = client?.baseUrl
+	useEffect(() => {
+		setPage(0)
+		setCursors([""])
+		setStatusFilter("")
+	}, [serverUrl])
 
 	const { data, isLoading, error, refetch } = useQuery<PaginatedDispatches>({
 		queryKey: ["dispatches", client?.baseUrl, statusFilter, cursors[page]],
@@ -139,20 +147,22 @@ export default function DispatchesPage() {
 								)}
 							</div>
 
-							<div className="mt-4 flex items-center justify-between">
-								<Button variant="outline" size="sm" disabled={page === 0} onClick={prevPage}>
-									<ChevronLeft className="h-4 w-4" /> Previous
-								</Button>
-								<span className="text-xs text-muted-foreground">Page {page + 1}</span>
-								<Button
-									variant="outline"
-									size="sm"
-									disabled={!data?.next_cursor}
-									onClick={nextPage}
-								>
-									Next <ChevronRight className="h-4 w-4" />
-								</Button>
-							</div>
+							{(page > 0 || data?.next_cursor) && (
+								<div className="mt-4 flex items-center justify-between">
+									<Button variant="outline" size="sm" disabled={page === 0} onClick={prevPage}>
+										<ChevronLeft className="h-4 w-4" /> Previous
+									</Button>
+									<span className="text-xs text-muted-foreground">Page {page + 1}</span>
+									<Button
+										variant="outline"
+										size="sm"
+										disabled={!data?.next_cursor}
+										onClick={nextPage}
+									>
+										Next <ChevronRight className="h-4 w-4" />
+									</Button>
+								</div>
+							)}
 						</>
 					)}
 				</CardContent>

@@ -17,7 +17,7 @@ import {
 	Terminal,
 	Zap,
 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 
 export default function DashboardPage() {
@@ -28,6 +28,16 @@ export default function DashboardPage() {
 	const [entityCursors, setEntityCursors] = useState<string[]>([""])
 	const [dispatchPage, setDispatchPage] = useState(0)
 	const [dispatchCursors, setDispatchCursors] = useState<string[]>([""])
+
+	// Reset pagination when the active server changes
+	const serverUrl = client?.baseUrl
+	useEffect(() => {
+		setEntityPage(0)
+		setEntityCursors([""])
+		setDispatchPage(0)
+		setDispatchCursors([""])
+		setDispatchFilter("")
+	}, [serverUrl])
 
 	const stats = useQuery<StatsResult>({
 		queryKey: ["stats", client?.baseUrl],

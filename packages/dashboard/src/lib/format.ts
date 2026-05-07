@@ -25,7 +25,7 @@ export function entityGitHubUrl(entity: { repo: string; number: number; kind: st
 
 /**
  * Build a session URL relative to the configured OpenCode instance.
- * Falls back to the opentower server URL origin if no explicit opencodeUrl is set.
+ * Falls back to a relative path on the current origin when no opencodeUrl is set.
  */
 export function opencodeSessionUrl(sessionId: string, opencodeUrl?: string): string {
 	const base = opencodeUrl?.replace(/\/+$/, "")

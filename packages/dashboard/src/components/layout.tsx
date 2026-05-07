@@ -184,7 +184,7 @@ export default function Layout() {
 													{safeHostname(s.url)}
 												</span>
 											</button>
-											<div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+											<div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
 												<button
 													type="button"
 													onClick={() => {
@@ -224,6 +224,8 @@ export default function Layout() {
 				{/* Sidebar rail toggle — inspired by shadcn SidebarRail */}
 				<button
 					type="button"
+					aria-expanded={!collapsed}
+					aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
 					onClick={() => {
 						if (!collapsed) {
 							setEditingId(null)
@@ -232,7 +234,7 @@ export default function Layout() {
 						setCollapsed(!collapsed)
 					}}
 					title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-					className="absolute inset-y-0 -right-2 z-20 w-4 cursor-col-resize opacity-0 transition-opacity group-hover/sidebar:opacity-100 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-colors hover:after:bg-primary"
+					className="absolute inset-y-0 -right-2 z-20 w-4 cursor-col-resize opacity-0 transition-opacity focus-visible:opacity-100 group-hover/sidebar:opacity-100 after:absolute after:inset-y-0 after:left-1/2 after:w-[2px] after:-translate-x-1/2 after:rounded-full after:bg-transparent after:transition-colors hover:after:bg-primary focus-visible:after:bg-primary"
 				/>
 			</aside>
 

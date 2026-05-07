@@ -6,7 +6,7 @@ import type { PaginatedEntities } from "@/lib/api"
 import { entityGitHubUrl, opencodeSessionUrl, timeAgo } from "@/lib/format"
 import { useQuery } from "@tanstack/react-query"
 import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw, Terminal } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 
 export default function EntitiesPage() {
@@ -14,6 +14,13 @@ export default function EntitiesPage() {
 	const opencodeUrl = useOpencodeUrl()
 	const [page, setPage] = useState(0)
 	const [cursors, setCursors] = useState<string[]>([""])
+
+	// Reset pagination when the active server changes
+	const serverUrl = client?.baseUrl
+	useEffect(() => {
+		setPage(0)
+		setCursors([""])
+	}, [serverUrl])
 
 	const { data, isLoading, error, refetch } = useQuery<PaginatedEntities>({
 		queryKey: ["entities", client?.baseUrl, cursors[page]],
@@ -120,20 +127,22 @@ export default function EntitiesPage() {
 							</div>
 
 							{/* Pagination */}
-							<div className="mt-4 flex items-center justify-between">
-								<Button variant="outline" size="sm" disabled={page === 0} onClick={prevPage}>
-									<ChevronLeft className="h-4 w-4" /> Previous
-								</Button>
-								<span className="text-xs text-muted-foreground">Page {page + 1}</span>
-								<Button
-									variant="outline"
-									size="sm"
-									disabled={!data?.next_cursor}
-									onClick={nextPage}
-								>
-									Next <ChevronRight className="h-4 w-4" />
-								</Button>
-							</div>
+							{(page > 0 || data?.next_cursor) && (
+								<div className="mt-4 flex items-center justify-between">
+									<Button variant="outline" size="sm" disabled={page === 0} onClick={prevPage}>
+										<ChevronLeft className="h-4 w-4" /> Previous
+									</Button>
+									<span className="text-xs text-muted-foreground">Page {page + 1}</span>
+									<Button
+										variant="outline"
+										size="sm"
+										disabled={!data?.next_cursor}
+										onClick={nextPage}
+									>
+										Next <ChevronRight className="h-4 w-4" />
+									</Button>
+								</div>
+							)}
 						</>
 					)}
 				</CardContent>
