@@ -4,8 +4,8 @@
 // self-loop guard (ignore_authors), and dispatch via the pipeline.
 
 import * as Sentry from "@sentry/bun"
-import type { EntityResolver } from "./entity-resolver"
 import { extractEntityKey } from "./entity"
+import type { EntityResolver } from "./entity-resolver"
 import type { Pipeline } from "./pipeline"
 import { renderTemplate } from "./template"
 import type { NormalizedTrigger, SkippedDispatch } from "./types"

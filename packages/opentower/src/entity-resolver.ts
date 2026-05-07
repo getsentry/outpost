@@ -24,12 +24,8 @@ const entityResultSchema = z.object({
     })
     .nullable()
     .describe("The GitHub entity this email relates to, or null if no specific entity can be identified"),
-  source: z
-    .enum(["github", "sentry", "ci", "other"])
-    .describe("The platform that originated this email"),
-  confidence: z
-    .enum(["high", "medium", "low"])
-    .describe("How confident you are in the entity identification"),
+  source: z.enum(["github", "sentry", "ci", "other"]).describe("The platform that originated this email"),
+  confidence: z.enum(["high", "medium", "low"]).describe("How confident you are in the entity identification"),
   reasoning: z.string().describe("Brief explanation of how the entity was identified or why it could not be"),
 })
 
