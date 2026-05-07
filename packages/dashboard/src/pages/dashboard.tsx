@@ -89,7 +89,7 @@ export default function DashboardPage() {
                         <a href={entityGitHubUrl(e)} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" title="Open on GitHub">
                           <ExternalLink className="h-3 w-3" />
                         </a>
-                        {e.session_id && (
+                        {e.session_id?.trim() && (
                           <a href={opencodeSessionUrl(e.session_id)} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground" title="OpenCode session">
                             <Terminal className="h-3 w-3" />
                           </a>

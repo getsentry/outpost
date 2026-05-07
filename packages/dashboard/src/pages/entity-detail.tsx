@@ -71,17 +71,21 @@ export default function EntityDetailPage() {
                 </div>
                 <div>
                   <dt className="text-xs text-muted-foreground">Session</dt>
-                  <dd>
-                    <a
-                      href={opencodeSessionUrl(data.entity.session_id)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-sm font-mono text-primary hover:underline"
-                      title={data.entity.session_id}
-                    >
-                      {data.entity.session_id.slice(0, 8)}... <ExternalLink className="h-3 w-3" />
-                    </a>
-                  </dd>
+                  {data.entity.session_id?.trim() ? (
+                    <dd>
+                      <a
+                        href={opencodeSessionUrl(data.entity.session_id)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-sm font-mono text-primary hover:underline"
+                        title={data.entity.session_id}
+                      >
+                        {data.entity.session_id.slice(0, 8)}... <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </dd>
+                  ) : (
+                    <dd className="text-sm text-muted-foreground">N/A</dd>
+                  )}
                 </div>
                 <div>
                   <dt className="text-xs text-muted-foreground">Created</dt>

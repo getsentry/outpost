@@ -24,6 +24,10 @@ const navItems = [
   { to: "/dispatches", label: "Dispatches", icon: Zap },
 ]
 
+function safeHostname(url: string): string {
+  try { return new URL(url).hostname } catch { return url }
+}
+
 export default function Layout() {
   const { servers, activeId, setActiveId, add, update, remove } = useServers()
   const [collapsed, setCollapsed] = useState(false)
@@ -46,7 +50,7 @@ export default function Layout() {
             {!collapsed && <span>Outpost</span>}
           </Link>
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => { if (!collapsed) { setEditingId(null); setAdding(false) } setCollapsed(!collapsed) }}
             className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
@@ -155,7 +159,7 @@ export default function Layout() {
                         <span className={cn("truncate text-sm", activeId === s.id ? "font-medium" : "text-muted-foreground")}>
                           {s.name}
                         </span>
-                        <span className="truncate text-xs text-muted-foreground">{new URL(s.url).hostname}</span>
+                        <span className="truncate text-xs text-muted-foreground">{safeHostname(s.url)}</span>
                       </button>
                       <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
                         <button
@@ -166,7 +170,7 @@ export default function Layout() {
                           <Pencil className="h-3 w-3" />
                         </button>
                         <button
-                          onClick={() => remove(s.id)}
+                          onClick={() => { if (window.confirm(`Remove server "${s.name}"?`)) remove(s.id) }}
                           className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive-foreground"
                           title="Delete"
                         >
@@ -264,7 +268,7 @@ function AddServerForm({
         onChange={(e) => setToken(e.target.value)}
         required
       />
-      {error && <p className="text-xs text-destructive-foreground">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-1">
         <button
           type="submit"
@@ -357,7 +361,7 @@ function EditServerForm({
         onChange={(e) => setToken(e.target.value)}
         required
       />
-      {error && <p className="text-xs text-destructive-foreground">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-1">
         <button
           type="submit"

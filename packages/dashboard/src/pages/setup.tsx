@@ -98,14 +98,14 @@ export default function SetupPage() {
               <Input
                 id="token"
                 type="password"
-                placeholder="OPENTOWER_API_TOKEN"
+                placeholder="API Token"
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 required
               />
             </div>
             {error && (
-              <p className="text-sm text-destructive-foreground">{error}</p>
+              <p className="text-sm text-destructive">{error}</p>
             )}
             <Button type="submit" className="w-full" disabled={testing}>
               {testing && <Loader2 className="animate-spin" />}
