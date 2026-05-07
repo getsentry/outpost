@@ -1,11 +1,26 @@
-import { useState, useCallback, useMemo, useSyncExternalStore } from "react"
+import { useCallback, useMemo, useSyncExternalStore } from "react"
 import { type ServerConfig, loadServers, saveServers } from "@/lib/servers"
+
+const ACTIVE_KEY = "opentower-active-server"
 
 let listeners: Array<() => void> = []
 let cachedServers: ServerConfig[] = loadServers()
+let cachedActiveId: string | null = (() => {
+  const stored = localStorage.getItem(ACTIVE_KEY)
+  const all = cachedServers
+  if (stored && all.some((s) => s.id === stored)) return stored
+  return all.length > 0 ? all[0].id : null
+})()
 
 function emitChange() {
   cachedServers = loadServers()
+  for (const listener of listeners) listener()
+}
+
+function setActiveIdStore(id: string | null) {
+  cachedActiveId = id
+  if (id) localStorage.setItem(ACTIVE_KEY, id)
+  else localStorage.removeItem(ACTIVE_KEY)
   for (const listener of listeners) listener()
 }
 
@@ -16,18 +31,17 @@ function subscribe(listener: () => void) {
   }
 }
 
-function getSnapshot(): ServerConfig[] {
+function getServersSnapshot(): ServerConfig[] {
   return cachedServers
 }
 
+function getActiveIdSnapshot(): string | null {
+  return cachedActiveId
+}
+
 export function useServers() {
-  const servers = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
-  const [activeId, setActiveIdState] = useState<string | null>(() => {
-    const stored = localStorage.getItem("opentower-active-server")
-    const all = loadServers()
-    if (stored && all.some((s) => s.id === stored)) return stored
-    return all.length > 0 ? all[0].id : null
-  })
+  const servers = useSyncExternalStore(subscribe, getServersSnapshot, getServersSnapshot)
+  const activeId = useSyncExternalStore(subscribe, getActiveIdSnapshot, getActiveIdSnapshot)
 
   const activeServer = useMemo(
     () => servers.find((s) => s.id === activeId) ?? null,
@@ -35,9 +49,7 @@ export function useServers() {
   )
 
   const setActiveId = useCallback((id: string | null) => {
-    setActiveIdState(id)
-    if (id) localStorage.setItem("opentower-active-server", id)
-    else localStorage.removeItem("opentower-active-server")
+    setActiveIdStore(id)
   }, [])
 
   const add = useCallback(
@@ -47,10 +59,10 @@ export function useServers() {
       all.push(entry)
       saveServers(all)
       emitChange()
-      if (!activeId) setActiveId(entry.id)
+      if (!cachedActiveId) setActiveIdStore(entry.id)
       return entry
     },
-    [activeId, setActiveId],
+    [],
   )
 
   const remove = useCallback(
@@ -58,11 +70,11 @@ export function useServers() {
       const all = loadServers().filter((s) => s.id !== id)
       saveServers(all)
       emitChange()
-      if (activeId === id) {
-        setActiveId(all.length > 0 ? all[0].id : null)
+      if (cachedActiveId === id) {
+        setActiveIdStore(all.length > 0 ? all[0].id : null)
       }
     },
-    [activeId, setActiveId],
+    [],
   )
 
   return { servers, activeServer, activeId, setActiveId, add, remove }

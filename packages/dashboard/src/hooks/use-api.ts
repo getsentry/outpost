@@ -6,7 +6,7 @@ export function useApiClient(): ApiClient | null {
   const { activeServer } = useServers()
   return useMemo(
     () => activeServer ? new ApiClient(activeServer.url, activeServer.token) : null,
-    [activeServer],
+    [activeServer?.url, activeServer?.token],
   )
 }
 
@@ -18,31 +18,40 @@ export function useQuery<T>(
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const client = useApiClient()
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   const refetch = useCallback(() => {
     if (!client || !fetcher) {
       setLoading(false)
       return
     }
+    abortRef.current?.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
     setLoading(true)
     fetcher(client)
       .then((result) => {
+        if (ac.signal.aborted) return
         setData(result)
         setError(null)
       })
       .catch((err) => {
+        if (ac.signal.aborted) return
         setError(err instanceof Error ? err.message : "Unknown error")
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (ac.signal.aborted) return
+        setLoading(false)
+      })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, fetcher, ...deps])
 
   useEffect(() => {
     refetch()
-    intervalRef.current = setInterval(refetch, 30_000)
+    const id = setInterval(refetch, 30_000)
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current)
+      clearInterval(id)
+      abortRef.current?.abort()
     }
   }, [refetch])
 

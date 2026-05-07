@@ -31,6 +31,14 @@ export default function SetupPage() {
       return
     }
 
+    let hostname: string
+    try {
+      hostname = new URL(trimmedUrl).hostname
+    } catch {
+      setError("Invalid URL")
+      return
+    }
+
     setTesting(true)
     try {
       const client = new ApiClient(trimmedUrl, token)
@@ -48,7 +56,7 @@ export default function SetupPage() {
       setTesting(false)
     }
 
-    add({ name: name || new URL(trimmedUrl).hostname, url: trimmedUrl, token })
+    add({ name: name || hostname, url: trimmedUrl, token })
     navigate("/")
   }
 

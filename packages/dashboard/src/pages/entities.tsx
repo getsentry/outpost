@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useQuery } from "@/hooks/use-api"
-import { timeAgo } from "@/lib/format"
+import { timeAgo, entityGitHubUrl } from "@/lib/format"
 import type { ApiClient, PaginatedEntities } from "@/lib/api"
 import { ExternalLink, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react"
 
@@ -60,8 +60,7 @@ export default function EntitiesPage() {
             <>
               <div className="space-y-2">
                 {data?.entities.map((e) => {
-                  const type = e.kind === "pull_request" ? "pull" : "issues"
-                  const ghUrl = `https://github.com/${e.repo}/${type}/${e.number}`
+                  const ghUrl = entityGitHubUrl(e)
                   return (
                     <div key={e.entity_key} className="flex items-center justify-between rounded-lg border p-3">
                       <div className="min-w-0 flex-1">

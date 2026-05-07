@@ -1,5 +1,9 @@
+function parseUTC(iso: string): number {
+  return new Date(/[Zz+\-]/.test(iso.slice(-6)) ? iso : iso + "Z").getTime()
+}
+
 export function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso + "Z").getTime()
+  const diff = Date.now() - parseUTC(iso)
   if (diff < 60_000) return "just now"
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
@@ -8,7 +12,7 @@ export function timeAgo(iso: string): string {
 
 export function formatDuration(start: string, end: string | null): string {
   if (!end) return "running..."
-  const ms = new Date(end + "Z").getTime() - new Date(start + "Z").getTime()
+  const ms = parseUTC(end) - parseUTC(start)
   if (ms < 1000) return `${ms}ms`
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
   return `${Math.floor(ms / 60_000)}m ${Math.floor((ms % 60_000) / 1000)}s`
