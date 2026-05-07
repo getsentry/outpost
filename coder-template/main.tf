@@ -201,10 +201,7 @@ resource "coder_app" "opentower" {
   url          = "http://localhost:5050"
   icon         = "/icon/kiro.svg"
   subdomain    = true
-  # Public so Coder's reverse proxy doesn't block CORS preflight
-  # (OPTIONS) requests from the dashboard SPA. The app has its own
-  # auth: Bearer token on /api/*, HMAC on /webhooks/*.
-  share        = "public"
+  share        = "owner"
 
   healthcheck {
     url       = "http://localhost:5050/healthz"
