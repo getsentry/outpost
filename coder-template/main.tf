@@ -92,6 +92,15 @@ data "coder_parameter" "webhook_port" {
   default      = "5050"
 }
 
+data "coder_parameter" "opentower_api_token" {
+  name         = "opentower_api_token"
+  display_name = "OpenTower API Token"
+  description  = "Bearer token for the /api/* dashboard endpoints. Without this, API requests are rejected with 503."
+  type         = "string"
+  mutable      = true
+  default      = ""
+}
+
 # --- Persistent volume for ~/dev ---
 
 resource "kubernetes_persistent_volume_claim_v1" "dev" {
@@ -136,6 +145,7 @@ resource "coder_agent" "main" {
     OPENAI_API_KEY        = data.coder_parameter.openai_api_key.value
     GITHUB_WEBHOOK_SECRET = data.coder_parameter.github_webhook_secret.value
     WEBHOOK_PORT          = tostring(data.coder_parameter.webhook_port.value)
+    OPENTOWER_API_TOKEN   = data.coder_parameter.opentower_api_token.value
     # git identity is set by docker-entrypoint.sh from GH_TOKEN/gh api user;
     # do not set GIT_AUTHOR_* here — it would attribute bot commits to the
     # Coder workspace owner instead of the GitHub bot account.
@@ -355,6 +365,10 @@ resource "kubernetes_deployment_v1" "workspace" {
           env {
             name  = "WEBHOOK_PORT"
             value = tostring(data.coder_parameter.webhook_port.value)
+          }
+          env {
+            name  = "OPENTOWER_API_TOKEN"
+            value = data.coder_parameter.opentower_api_token.value
           }
           env {
             name  = "PORT"
