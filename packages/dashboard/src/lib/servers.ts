@@ -1,3 +1,4 @@
+// Keep the "opentower-" prefix for backward compat with existing installs.
 const STORAGE_KEY = "opentower-servers"
 
 export type ServerConfig = {

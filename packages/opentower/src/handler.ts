@@ -2,19 +2,14 @@
 // ingest (one per source), and JSON API for the dashboard SPA.
 // Per-route logic lives under ./handlers/.
 
-import { Hono } from "hono"
-import { cors } from "hono/cors"
 import { timingSafeEqual } from "node:crypto"
 import * as Sentry from "@sentry/bun"
+import { Hono } from "hono"
+import { cors } from "hono/cors"
 import type { Dedup } from "./dedup"
-import { githubWebhookHandler } from "./handlers/github"
+import { apiDispatchesHandler, apiEntitiesHandler, apiEntityDetailHandler, apiStatsHandler } from "./handlers/api"
 import { emailWebhookHandler } from "./handlers/email"
-import {
-  apiStatsHandler,
-  apiEntitiesHandler,
-  apiEntityDetailHandler,
-  apiDispatchesHandler,
-} from "./handlers/api"
+import { githubWebhookHandler } from "./handlers/github"
 import type { Pipeline } from "./pipeline"
 import type { LifecycleStore } from "./storage"
 import type { NormalizedTrigger } from "./types"
@@ -47,21 +42,22 @@ export function createApp(opts: {
   store: LifecycleStore
   apiToken: string
 }): Hono<AppEnv> {
-  const githubTriggers = opts.triggers.filter(
-    (t) => t.source === "github_webhook",
-  )
+  const githubTriggers = opts.triggers.filter((t) => t.source === "github_webhook")
   const emailTriggers = opts.triggers.filter((t) => t.source === "email")
 
   const app = new Hono<AppEnv>()
 
   // CORS — allows the dashboard SPA (e.g. localhost:5173) to reach
   // all routes including /healthz and /api/*.
-  app.use("*", cors({
-    origin: "*",
-    allowMethods: ["GET", "POST", "OPTIONS"],
-    allowHeaders: ["Authorization", "Content-Type"],
-    maxAge: 86400,
-  }))
+  app.use(
+    "*",
+    cors({
+      origin: "*",
+      allowMethods: ["GET", "POST", "OPTIONS"],
+      allowHeaders: ["Authorization", "Content-Type"],
+      maxAge: 86400,
+    }),
+  )
 
   app.onError((err, c) => {
     Sentry.captureException(err)

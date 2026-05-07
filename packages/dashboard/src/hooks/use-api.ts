@@ -1,19 +1,17 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { ApiClient } from "@/lib/api"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useServers } from "./use-servers"
 
 export function useApiClient(): ApiClient | null {
   const { activeServer } = useServers()
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only recreate client when url/token change, not name
   return useMemo(
-    () => activeServer ? new ApiClient(activeServer.url, activeServer.token) : null,
+    () => (activeServer ? new ApiClient(activeServer.url, activeServer.token) : null),
     [activeServer?.url, activeServer?.token],
   )
 }
 
-export function useQuery<T>(
-  fetcher: ((client: ApiClient) => Promise<T>) | null,
-  deps: unknown[] = [],
-) {
+export function useQuery<T>(fetcher: ((client: ApiClient) => Promise<T>) | null, deps: unknown[] = []) {
   const [data, setData] = useState<T | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -43,7 +41,6 @@ export function useQuery<T>(
         if (ac.signal.aborted) return
         setLoading(false)
       })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, fetcher, ...deps])
 
   useEffect(() => {

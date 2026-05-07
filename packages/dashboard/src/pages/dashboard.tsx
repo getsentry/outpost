@@ -1,13 +1,13 @@
+import { StatusBadge } from "@/components/status-badge"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useQuery } from "@/hooks/use-api"
+import type { ApiClient, PaginatedDispatches, PaginatedEntities, StatsResult } from "@/lib/api"
+import { entityGitHubUrl, opencodeSessionUrl, timeAgo } from "@/lib/format"
+import { Activity, ChevronRight, Clock, ExternalLink, GitPullRequest, RefreshCw, Terminal, Zap } from "lucide-react"
 import { useCallback, useState } from "react"
 import { Link } from "react-router-dom"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { StatusBadge } from "@/components/status-badge"
-import { useQuery } from "@/hooks/use-api"
-import { timeAgo, entityGitHubUrl } from "@/lib/format"
-import type { ApiClient, StatsResult, PaginatedEntities, PaginatedDispatches } from "@/lib/api"
-import { Activity, GitPullRequest, Zap, Clock, RefreshCw, ChevronRight, ExternalLink } from "lucide-react"
 
 export default function DashboardPage() {
   const [dispatchFilter, setDispatchFilter] = useState<string>("")
@@ -83,15 +83,37 @@ export default function DashboardPage() {
                   <div key={e.entity_key} className="flex items-center justify-between rounded-lg border p-3">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <Link to={`/entities/${encodeURIComponent(e.entity_key)}`} className="font-mono text-sm font-medium hover:underline">
+                        <Link
+                          to={`/entities/${encodeURIComponent(e.entity_key)}`}
+                          className="font-mono text-sm font-medium hover:underline"
+                        >
                           {e.entity_key}
                         </Link>
-                        <a href={entityGitHubUrl(e)} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground">
+                        <a
+                          href={entityGitHubUrl(e)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-muted-foreground hover:text-foreground"
+                          title="Open on GitHub"
+                        >
                           <ExternalLink className="h-3 w-3" />
                         </a>
+                        {e.session_id?.trim() && (
+                          <a
+                            href={opencodeSessionUrl(e.session_id)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-muted-foreground hover:text-foreground"
+                            title="OpenCode session"
+                          >
+                            <Terminal className="h-3 w-3" />
+                          </a>
+                        )}
                       </div>
                       <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-                        <Badge variant="outline" className="text-xs">{e.kind === "pull_request" ? "PR" : "Issue"}</Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {e.kind === "pull_request" ? "PR" : "Issue"}
+                        </Badge>
                         <span>{timeAgo(e.updated_at)}</span>
                       </div>
                     </div>
@@ -145,7 +167,10 @@ export default function DashboardPage() {
                       <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                         <span>{d.event}</span>
                         {d.entity_key && (
-                          <Link to={`/entities/${encodeURIComponent(d.entity_key)}`} className="font-mono hover:underline">
+                          <Link
+                            to={`/entities/${encodeURIComponent(d.entity_key)}`}
+                            className="font-mono hover:underline"
+                          >
                             {d.entity_key}
                           </Link>
                         )}
@@ -166,7 +191,12 @@ export default function DashboardPage() {
   )
 }
 
-function StatCard({ title, value, icon, loading }: {
+function StatCard({
+  title,
+  value,
+  icon,
+  loading,
+}: {
   title: string
   value?: string | number
   icon: React.ReactNode

@@ -1,5 +1,5 @@
 function parseUTC(iso: string): number {
-  return new Date(/[Zz+\-]/.test(iso.slice(-6)) ? iso : iso + "Z").getTime()
+  return new Date(/[Zz+\-]/.test(iso.slice(-6)) ? iso : `${iso}Z`).getTime()
 }
 
 export function timeAgo(iso: string): string {
@@ -21,4 +21,9 @@ export function formatDuration(start: string, end: string | null): string {
 export function entityGitHubUrl(entity: { repo: string; number: number; kind: string }): string {
   const type = entity.kind === "pull_request" ? "pull" : "issues"
   return `https://github.com/${entity.repo}/${type}/${entity.number}`
+}
+
+/** Construct a link to the opencode session viewer at opencode.ai */
+export function opencodeSessionUrl(sessionId: string): string {
+  return `https://opencode.ai/sessions/${encodeURIComponent(sessionId)}`
 }

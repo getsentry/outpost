@@ -1,12 +1,12 @@
+import { StatusBadge } from "@/components/status-badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useQuery } from "@/hooks/use-api"
+import type { ApiClient, PaginatedDispatches } from "@/lib/api"
+import { formatDuration, timeAgo } from "@/lib/format"
+import { ChevronLeft, ChevronRight, RefreshCw } from "lucide-react"
 import { useCallback, useState } from "react"
 import { Link } from "react-router-dom"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { StatusBadge } from "@/components/status-badge"
-import { useQuery } from "@/hooks/use-api"
-import { timeAgo, formatDuration } from "@/lib/format"
-import type { ApiClient, PaginatedDispatches } from "@/lib/api"
-import { RefreshCw, ChevronLeft, ChevronRight } from "lucide-react"
 
 export default function DispatchesPage() {
   const [statusFilter, setStatusFilter] = useState("")
@@ -91,13 +91,20 @@ export default function DispatchesPage() {
                     </div>
                     <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
                       {d.entity_key && (
-                        <Link to={`/entities/${encodeURIComponent(d.entity_key)}`} className="font-mono hover:underline">
+                        <Link
+                          to={`/entities/${encodeURIComponent(d.entity_key)}`}
+                          className="font-mono hover:underline"
+                        >
                           {d.entity_key}
                         </Link>
                       )}
                       <span>Duration: {formatDuration(d.created_at, d.completed_at)}</span>
-                      <span className="font-mono" title={d.id}>{d.id.slice(0, 8)}</span>
-                      <span className="font-mono" title={d.delivery_id}>delivery: {d.delivery_id.slice(0, 8)}</span>
+                      <span className="font-mono" title={d.id}>
+                        {d.id.slice(0, 8)}
+                      </span>
+                      <span className="font-mono" title={d.delivery_id}>
+                        delivery: {d.delivery_id.slice(0, 8)}
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -107,20 +114,10 @@ export default function DispatchesPage() {
               </div>
 
               <div className="mt-4 flex items-center justify-between">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={cursorStack.length === 0}
-                  onClick={prevPage}
-                >
+                <Button variant="outline" size="sm" disabled={cursorStack.length === 0} onClick={prevPage}>
                   <ChevronLeft className="h-4 w-4" /> Previous
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!data?.next_cursor}
-                  onClick={nextPage}
-                >
+                <Button variant="outline" size="sm" disabled={!data?.next_cursor} onClick={nextPage}>
                   Next <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>
