@@ -22,15 +22,15 @@ export type EntityKey = {
 
 // Extract entity key from a GitHub webhook payload or email event.
 // Returns null for events that don't map to a trackable entity.
-// For email events with no regex match, falls back to the AI resolver
-// if one is provided.
+// Email events use the AI entity resolver to identify the GitHub
+// entity from any email source (GitHub, Sentry, CI, etc.).
 export async function extractEntityKey(
   event: string,
   payload: unknown,
   resolver?: EntityResolver | null,
 ): Promise<EntityKey | null> {
   if (event.startsWith("email.")) {
-    return extractEmailEntityKey(payload, resolver)
+    return resolveEmailEntity(payload, resolver)
   }
 
   const repo = lookupString(payload, "repository.full_name")
@@ -101,80 +101,35 @@ export async function extractEntityKey(
   return null
 }
 
-// Extract entity key from a GitHub notification email.
-// GitHub emails include structured headers we can parse:
-//   message_id / references: <owner/repo/issues/42/...@github.com>
-//                            <owner/repo/pull/43/...@github.com>
-//   subject:                 Re: [owner/repo] Title (#42)
-async function extractEmailEntityKey(payload: unknown, resolver?: EntityResolver | null): Promise<EntityKey | null> {
+// Resolve email entity key using the AI resolver.
+// The resolver handles all email sources (GitHub, Sentry, CI, etc.)
+// via a single LLM call that extracts the GitHub entity reference.
+// Returns null if no resolver is configured or if the email doesn't
+// relate to a specific GitHub entity.
+async function resolveEmailEntity(payload: unknown, resolver?: EntityResolver | null): Promise<EntityKey | null> {
+  if (!resolver) return null
   const o = payload as Record<string, unknown> | null
   if (!o || typeof o !== "object") return null
-
-  // 1. Try message_id and references — most reliable, encodes repo + number + type.
-  //    Format: <owner/repo/issues/N/...@github.com> or <owner/repo/pull/N/...@github.com>
-  const messageId = typeof o.message_id === "string" ? o.message_id : ""
-  const references = Array.isArray(o.references) ? o.references.filter((s): s is string => typeof s === "string") : []
-
-  const refResult =
-    parseGitHubMessageRef(messageId) ??
-    references.reduce<EntityKey | null>((found, ref) => found ?? parseGitHubMessageRef(ref), null)
-  if (refResult) return refResult
-
-  // 2. Fall back to subject line — format: "Re: [owner/repo] Title (#42)"
-  const subject = typeof o.subject === "string" ? o.subject : ""
-  const subjectResult = parseGitHubSubject(subject)
-  if (subjectResult) return subjectResult
-
-  // 3. Fall back to AI resolver for non-GitHub emails (Sentry, etc.)
-  if (!resolver) return null
 
   const result = await resolver.resolve({
     from: typeof o.from === "string" ? o.from : "",
     to: typeof o.to === "string" ? o.to : "",
-    subject,
-    message_id: messageId,
-    body_text: typeof o.body_text === "string" ? o.body_text : null,
+    subject: typeof o.subject === "string" ? o.subject : "",
+    message_id: typeof o.message_id === "string" ? o.message_id : "",
+    in_reply_to: typeof o.in_reply_to === "string" ? o.in_reply_to : null,
+    references: Array.isArray(o.references) ? o.references.filter((s): s is string => typeof s === "string") : [],
     list_id: typeof o.list_id === "string" ? o.list_id : null,
+    body_text: typeof o.body_text === "string" ? o.body_text : null,
   })
 
-  if (!result.repo || !result.number) return null
+  if (!result.entity) return null
   return {
-    key: `${result.repo}#${result.number}`,
-    repo: result.repo,
-    number: result.number,
-    kind: result.kind ?? "issue",
+    key: `${result.entity.repo}#${result.entity.number}`,
+    repo: result.entity.repo,
+    number: result.entity.number,
+    kind: result.entity.kind,
     linkedIssues: [],
   }
-}
-
-// Parse owner/repo and issue/PR number from a GitHub email Message-ID or References header.
-// Example: <MathurAditya724/outpost/pull/54/c1234567@github.com>
-//          <MathurAditya724/outpost/issues/42/890abcde@github.com>
-const GITHUB_REF_RE = /<?([A-Za-z0-9_.+-]+\/[A-Za-z0-9_.+-]+)\/(issues|pull)\/(\d+)\//
-
-function parseGitHubMessageRef(ref: string): EntityKey | null {
-  const m = GITHUB_REF_RE.exec(ref)
-  if (!m) return null
-  const repo = m[1]
-  const kind = m[2] === "pull" ? "pull_request" : "issue"
-  const number = Number(m[3])
-  return { key: `${repo}#${number}`, repo, number, kind, linkedIssues: [] }
-}
-
-// Parse owner/repo and number from a GitHub email subject line.
-// Example: "Re: [MathurAditya724/outpost] Fix CI (#54)"
-//          "[owner/repo] New issue title (#42)"
-const GITHUB_SUBJECT_RE = /\[([A-Za-z0-9_.+-]+\/[A-Za-z0-9_.+-]+)\].*\(#(\d+)\)/
-
-function parseGitHubSubject(subject: string): EntityKey | null {
-  const m = GITHUB_SUBJECT_RE.exec(subject)
-  if (!m) return null
-  const repo = m[1]
-  const number = Number(m[2])
-  // Subject doesn't distinguish issue vs PR — default to issue;
-  // the lifecycle store's link walking will find the right session
-  // if a PR session already exists for this number.
-  return { key: `${repo}#${number}`, repo, number, kind: "issue", linkedIssues: [] }
 }
 
 // Extract issue numbers from "Fixes #N", "Closes #N", "Resolves #N"

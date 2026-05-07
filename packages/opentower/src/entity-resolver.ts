@@ -1,10 +1,12 @@
-// AI-powered entity key resolution for emails that don't match
-// structured GitHub header patterns (e.g. Sentry alerts, forwarded
-// issues from other platforms). Uses the Vercel AI SDK with Anthropic
-// to extract a GitHub entity reference from unstructured email content.
+// AI-powered entity resolution for inbound emails. Uses the Vercel AI
+// SDK to extract the GitHub entity (issue or PR) that an email relates
+// to — regardless of whether the email is a GitHub notification, a
+// Sentry alert, a CI notification, or anything else.
 //
-// This is the slow path — regex extraction in entity.ts handles the
-// fast path for GitHub notification emails.
+// The resolver is the single source of truth for email→entity mapping.
+// It replaces regex-based header parsing with a unified LLM call that
+// can reason about cross-platform references (e.g. a Sentry error that
+// was introduced by a specific PR).
 
 import { createAnthropic } from "@ai-sdk/anthropic"
 import * as Sentry from "@sentry/bun"
@@ -12,36 +14,58 @@ import { generateObject } from "ai"
 import { z } from "zod"
 
 const entityResultSchema = z.object({
-  repo: z
-    .string()
+  entity: z
+    .object({
+      repo: z.string().describe("GitHub repository in owner/repo format (e.g. 'acme/webapp')"),
+      number: z.number().int().positive().describe("GitHub issue or pull request number"),
+      kind: z
+        .enum(["issue", "pull_request"])
+        .describe("Whether this is an issue or a pull request. Default to 'issue' if uncertain."),
+    })
     .nullable()
-    .describe("GitHub repository in owner/repo format, or null if not identifiable"),
-  number: z
-    .number()
-    .nullable()
-    .describe("Issue or PR number, or null if not identifiable"),
-  kind: z
-    .enum(["issue", "pull_request"])
-    .nullable()
-    .describe("Whether this references an issue or pull request, or null if unknown"),
-  reasoning: z
-    .string()
-    .describe("Brief explanation of how the entity was identified"),
+    .describe("The GitHub entity this email relates to, or null if no specific entity can be identified"),
+  source: z
+    .enum(["github", "sentry", "ci", "other"])
+    .describe("The platform that originated this email"),
+  confidence: z
+    .enum(["high", "medium", "low"])
+    .describe("How confident you are in the entity identification"),
+  reasoning: z.string().describe("Brief explanation of how the entity was identified or why it could not be"),
 })
 
-type EntityResult = z.infer<typeof entityResultSchema>
+export type EntityResult = z.infer<typeof entityResultSchema>
 
-const SYSTEM_PROMPT = `You are an entity resolver for a GitHub automation system. Given an email, identify whether it references a specific GitHub issue or pull request.
+const SYSTEM_PROMPT = `You are an entity resolver for a GitHub-centric automation system. Given an inbound email, determine which GitHub issue or pull request it relates to.
 
-Look for:
-- Direct references: issue/PR URLs, "#123" patterns, "owner/repo#123"
-- Sentry alerts: error titles that match known issues, deployment references, commit SHAs
-- CI/CD notifications: build failures, deployment status tied to PRs
-- Forwarded issues from other platforms that reference GitHub entities
+## What you receive
+Emails from various sources: GitHub notifications, Sentry alerts, CI/CD systems, or forwarded messages from other platforms.
 
-Return the GitHub repo (owner/repo format) and issue/PR number if identifiable.
-If you cannot confidently identify a specific GitHub entity, return null for all fields.
-Be conservative — only return a match when you're confident.`
+## What you return
+The specific GitHub entity (owner/repo + issue/PR number) the email is about.
+
+## How to identify entities
+
+**GitHub notification emails:**
+- Message-ID and References headers encode the entity: \`<owner/repo/issues/42/...@github.com>\` or \`<owner/repo/pull/54/...@github.com>\`
+- List-ID encodes the repo: \`<repo.owner.github.com>\`
+- Subject line format: \`[owner/repo] Title (#42)\` or \`Re: [owner/repo] Title (#42)\`
+- The (#N) at the end of the subject is the canonical issue/PR number
+
+**Sentry alert emails:**
+- Look for GitHub URLs, commit SHAs, PR references in the alert body
+- Sentry deployment context may reference the PR that deployed the change
+- Error stack traces may contain file paths that hint at the repository
+
+**CI/CD notifications:**
+- Build/deploy notifications often reference the PR or branch that triggered them
+- Look for PR numbers, branch names like \`fix/issue-42\`, or commit messages
+
+## Rules
+- Return \`entity: null\` when you cannot confidently identify a specific GitHub entity
+- Set confidence to "high" only when you find an explicit reference (URL, #N pattern, structured header)
+- Set confidence to "medium" when you can infer the entity from context clues
+- Set confidence to "low" when it's a guess — the caller may choose to ignore low-confidence results
+- For the \`kind\` field: use "pull_request" only when you have evidence it's a PR; default to "issue" otherwise`
 
 export type EntityResolver = {
   resolve(email: {
@@ -49,13 +73,14 @@ export type EntityResolver = {
     to: string
     subject: string
     message_id: string
-    body_text: string | null
+    in_reply_to: string | null
+    references: string[]
     list_id: string | null
+    body_text: string | null
   }): Promise<EntityResult>
 }
 
 export function createEntityResolver(): EntityResolver | null {
-  // Only create the resolver if ANTHROPIC_API_KEY is available.
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return null
 
@@ -69,6 +94,8 @@ export function createEntityResolver(): EntityResolver | null {
         `To: ${email.to}`,
         `Subject: ${email.subject}`,
         `Message-ID: ${email.message_id}`,
+        email.in_reply_to ? `In-Reply-To: ${email.in_reply_to}` : null,
+        email.references.length > 0 ? `References: ${email.references.join(" ")}` : null,
         email.list_id ? `List-ID: ${email.list_id}` : null,
         "",
         "Body:",
@@ -84,15 +111,29 @@ export function createEntityResolver(): EntityResolver | null {
           system: SYSTEM_PROMPT,
           prompt,
           temperature: 0,
-          maxOutputTokens: 256,
+          maxOutputTokens: 512,
         })
+
+        Sentry.logger.info("entity_resolver.resolved", {
+          message_id: email.message_id,
+          source: object.source,
+          confidence: object.confidence,
+          entity: object.entity ? `${object.entity.repo}#${object.entity.number}` : "null",
+          reasoning: object.reasoning,
+        })
+
         return object
       } catch (err) {
         Sentry.logger.error("entity_resolver.failed", {
           message_id: email.message_id,
           error: err instanceof Error ? err.message : String(err),
         })
-        return { repo: null, number: null, kind: null, reasoning: `resolver error: ${String(err)}` }
+        return {
+          entity: null,
+          source: "other",
+          confidence: "low",
+          reasoning: `resolver error: ${err instanceof Error ? err.message : String(err)}`,
+        }
       }
     },
   }
