@@ -70,6 +70,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     const port = cfg.port ?? Number(process.env.WEBHOOK_PORT ?? "5050")
     const secret = cfg.secret ?? process.env.GITHUB_WEBHOOK_SECRET ?? ""
     const emailSecret = cfg.email_secret ?? process.env.EMAIL_WEBHOOK_SECRET ?? ""
+    const seerSecret = cfg.seer_secret ?? process.env.SEER_WEBHOOK_SECRET ?? ""
     const timeoutMs = cfg.timeout_ms ?? 1_800_000
     const maxConcurrent = Math.max(1, cfg.max_concurrent ?? 2)
     const defaultCwd = cfg.default_cwd ?? ctx.directory
@@ -87,6 +88,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     const triggers = (cfg.triggers ?? []).map((t) => normalizeTrigger(t, botLogin))
     const githubTriggerCount = triggers.filter((t) => t.source === "github_webhook").length
     const emailTriggerCount = triggers.filter((t) => t.source === "email").length
+    const seerTriggerCount = triggers.filter((t) => t.source === "seer").length
 
     if (triggers.length === 0) {
       console.log(`[opentower] no triggers configured (looked at ${configPath()}) -- listener disabled`)
@@ -97,6 +99,9 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     }
     if (emailTriggerCount > 0 && !emailSecret) {
       console.warn("[opentower] WARNING: no email HMAC secret configured -- /webhooks/email will reject with 503")
+    }
+    if (seerTriggerCount > 0 && !seerSecret) {
+      console.warn("[opentower] WARNING: no Seer HMAC secret configured -- /webhooks/seer will reject with 503")
     }
 
     const batchWindowMs = cfg.batch_window_ms ?? 5_000
@@ -135,6 +140,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     const app = createApp({
       secret,
       emailSecret,
+      seerSecret,
       triggers,
       dedup,
       pipeline,
@@ -152,7 +158,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     })
 
     console.log(
-      `[opentower] listening on http://0.0.0.0:${server.port} (triggers: github=${githubTriggerCount}, email=${emailTriggerCount})`,
+      `[opentower] listening on http://0.0.0.0:${server.port} (triggers: github=${githubTriggerCount}, email=${emailTriggerCount}, seer=${seerTriggerCount})`,
     )
 
     let stopping = false

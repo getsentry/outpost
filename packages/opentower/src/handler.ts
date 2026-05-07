@@ -11,6 +11,7 @@ import type { EntityResolver } from "./entity-resolver"
 import { apiDispatchesHandler, apiEntitiesHandler, apiEntityDetailHandler, apiStatsHandler } from "./handlers/api"
 import { emailWebhookHandler } from "./handlers/email"
 import { githubWebhookHandler } from "./handlers/github"
+import { seerWebhookHandler } from "./handlers/seer"
 import type { Pipeline } from "./pipeline"
 import type { LifecycleStore } from "./storage"
 import type { NormalizedTrigger } from "./types"
@@ -19,11 +20,13 @@ export type AppEnv = {
   Variables: {
     secret: string
     emailSecret: string
+    seerSecret: string
     dedup: Dedup
     pipeline: Pipeline
     botLogin: string | null
     githubTriggers: NormalizedTrigger[]
     emailTriggers: NormalizedTrigger[]
+    seerTriggers: NormalizedTrigger[]
     store: LifecycleStore
     entityResolver: EntityResolver | null
   }
@@ -37,6 +40,7 @@ function safeTokenCompare(a: string, b: string): boolean {
 export function createApp(opts: {
   secret: string
   emailSecret: string
+  seerSecret: string
   triggers: NormalizedTrigger[]
   dedup: Dedup
   pipeline: Pipeline
@@ -47,6 +51,7 @@ export function createApp(opts: {
 }): Hono<AppEnv> {
   const githubTriggers = opts.triggers.filter((t) => t.source === "github_webhook")
   const emailTriggers = opts.triggers.filter((t) => t.source === "email")
+  const seerTriggers = opts.triggers.filter((t) => t.source === "seer")
 
   const app = new Hono<AppEnv>()
 
@@ -111,11 +116,13 @@ export function createApp(opts: {
   app.use("/webhooks/*", async (c, next) => {
     c.set("secret", opts.secret)
     c.set("emailSecret", opts.emailSecret)
+    c.set("seerSecret", opts.seerSecret)
     c.set("dedup", opts.dedup)
     c.set("pipeline", opts.pipeline)
     c.set("botLogin", opts.botLogin)
     c.set("githubTriggers", githubTriggers)
     c.set("emailTriggers", emailTriggers)
+    c.set("seerTriggers", seerTriggers)
     c.set("store", opts.store)
     c.set("entityResolver", opts.entityResolver)
     await next()
@@ -123,6 +130,7 @@ export function createApp(opts: {
 
   app.post("/webhooks/github", githubWebhookHandler)
   app.post("/webhooks/email", emailWebhookHandler)
+  app.post("/webhooks/seer", seerWebhookHandler)
 
   // --- Dashboard JSON API ---
 

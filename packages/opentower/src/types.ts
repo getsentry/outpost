@@ -1,6 +1,6 @@
 // Shared types for the opentower plugin.
 
-export type TriggerSource = "github_webhook" | "email"
+export type TriggerSource = "github_webhook" | "email" | "seer"
 
 export type Trigger = {
   name: string
@@ -18,6 +18,7 @@ export type WebhookConfig = {
   port?: number
   secret?: string
   email_secret?: string
+  seer_secret?: string
   timeout_ms?: number
   max_concurrent?: number
   batch_window_ms?: number
