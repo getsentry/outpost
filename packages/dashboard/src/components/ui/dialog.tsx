@@ -55,7 +55,7 @@ function DialogTrigger({ asChild, children }: DialogTriggerProps) {
   )
 }
 
-interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement> {
+interface DialogContentProps extends React.HTMLAttributes<HTMLDialogElement> {
   children: React.ReactNode
 }
 
