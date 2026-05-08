@@ -78,12 +78,7 @@ export async function emailWebhookHandler(c: Context<AppEnv>) {
   // review activity — those can cause feedback loops (comment → email
   // → respond → comment → …). All other self-triggered notifications
   // (assignments, CI, state changes, pushes) are safe to process.
-  if (
-    botLogin &&
-    ghSender &&
-    ghSender.toLowerCase() === botLogin.toLowerCase() &&
-    SELF_LOOP_RISK_REASONS.has(reason)
-  ) {
+  if (botLogin && ghSender && ghSender.toLowerCase() === botLogin.toLowerCase() && SELF_LOOP_RISK_REASONS.has(reason)) {
     return c.json({
       ok: true,
       message_id: event.message_id,
