@@ -1,5 +1,5 @@
 import Layout from "@/components/layout"
-import { useServers } from "@/hooks/use-servers"
+import { useToken } from "@/hooks/use-api"
 import DashboardPage from "@/pages/dashboard"
 import DispatchesPage from "@/pages/dispatches"
 import EntitiesPage from "@/pages/entities"
@@ -9,9 +9,9 @@ import SetupPage from "@/pages/setup"
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
 
 function AppRoutes() {
-  const { servers } = useServers()
+  const token = useToken()
 
-  if (servers.length === 0) {
+  if (!token) {
     return (
       <Routes>
         <Route path="/setup" element={<SetupPage />} />

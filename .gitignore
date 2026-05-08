@@ -4,6 +4,7 @@
 
 node_modules/
 dist/
+public/
 
 # Local-only OpenCode workspace state (plans, scratch notes, session
 # data). Anything we want to share publicly belongs in repo-root files

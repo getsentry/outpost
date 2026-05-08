@@ -15,7 +15,10 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "echo 'opentower ships raw TS — no build step needed'"
+    "build": "bun run build:dashboard && bun run build:copy",
+    "build:dashboard": "bun run --cwd ../dashboard build",
+    "build:copy": "rm -rf ./public && cp -r ../dashboard/dist ./public",
+    "prepublishOnly": "bun run build"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.75",
@@ -34,6 +37,7 @@
   },
   "files": [
     "src/",
+    "public/",
     "README.md",
     "LICENSE"
   ],

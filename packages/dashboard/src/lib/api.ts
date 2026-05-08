@@ -64,16 +64,25 @@ export class ApiError extends Error {
   }
 }
 
+const TOKEN_KEY = "opentower-token"
+
+export function setToken(token: string): void {
+  localStorage.setItem(TOKEN_KEY, token)
+}
+
+export function clearToken(): void {
+  localStorage.removeItem(TOKEN_KEY)
+}
+
 export class ApiClient {
-  readonly baseUrl: string
   private token: string
-  constructor(baseUrl: string, token: string) {
-    this.baseUrl = baseUrl
+
+  constructor(token: string) {
     this.token = token
   }
 
   private async request<T>(path: string, params?: Record<string, string>): Promise<T> {
-    const url = new URL(path, this.baseUrl)
+    const url = new URL(path, window.location.origin)
     if (params) {
       for (const [k, v] of Object.entries(params)) {
         if (v) url.searchParams.set(k, v)
@@ -119,9 +128,20 @@ export class ApiClient {
     })
   }
 
-  async healthz(): Promise<boolean> {
+  static async healthz(): Promise<boolean> {
     try {
-      const res = await fetch(new URL("/healthz", this.baseUrl).toString())
+      const res = await fetch("/healthz")
+      return res.ok
+    } catch {
+      return false
+    }
+  }
+
+  static async testToken(token: string): Promise<boolean> {
+    try {
+      const res = await fetch("/api/stats", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
       return res.ok
     } catch {
       return false

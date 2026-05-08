@@ -7,48 +7,37 @@ import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useApiClient, useOpencodeUrl } from "@/hooks/use-api"
+import { useApiClient } from "@/hooks/use-api"
 import type { PaginatedDispatches, PaginatedEntities, StatsResult } from "@/lib/api"
 import { entityGitHubUrl, timeAgo } from "@/lib/format"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { Activity, ChevronRight, Clock, ExternalLink, GitPullRequest, Zap } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Link } from "react-router-dom"
 
 export default function DashboardPage() {
   const client = useApiClient()
-  const opencodeUrl = useOpencodeUrl()
   const [dispatchFilter, setDispatchFilter] = useState("")
   const [entityPage, setEntityPage] = useState(0)
   const [entityCursors, setEntityCursors] = useState<string[]>([""])
   const [dispatchPage, setDispatchPage] = useState(0)
   const [dispatchCursors, setDispatchCursors] = useState<string[]>([""])
 
-  const serverUrl = client?.baseUrl
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset trigger on server change
-  useEffect(() => {
-    setEntityPage(0)
-    setEntityCursors([""])
-    setDispatchPage(0)
-    setDispatchCursors([""])
-    setDispatchFilter("")
-  }, [serverUrl])
-
   const stats = useQuery<StatsResult>({
-    queryKey: ["stats", client?.baseUrl],
+    queryKey: ["stats"],
     queryFn: () => client!.stats(),
     enabled: !!client,
   })
 
   const entities = useQuery<PaginatedEntities>({
-    queryKey: ["dashboard-entities", client?.baseUrl, entityCursors[entityPage]],
+    queryKey: ["dashboard-entities", entityCursors[entityPage]],
     queryFn: () => client!.entities({ limit: 10, cursor: entityCursors[entityPage] || undefined }),
     enabled: !!client,
     placeholderData: keepPreviousData,
   })
 
   const dispatches = useQuery<PaginatedDispatches>({
-    queryKey: ["dashboard-dispatches", client?.baseUrl, dispatchFilter, dispatchCursors[dispatchPage]],
+    queryKey: ["dashboard-dispatches", dispatchFilter, dispatchCursors[dispatchPage]],
     queryFn: () =>
       client!.dispatches({
         limit: 10,
@@ -176,12 +165,7 @@ export default function DashboardPage() {
                           >
                             <ExternalLink className="h-3 w-3" />
                           </a>
-                          <SessionLink
-                            sessionId={e.session_id}
-                            shareUrl={e.share_url}
-                            cwd={e.cwd}
-                            opencodeUrl={opencodeUrl}
-                          />
+                          <SessionLink sessionId={e.session_id} shareUrl={e.share_url} cwd={e.cwd} />
                         </div>
                         <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
                           <Badge variant="outline" className="text-xs">

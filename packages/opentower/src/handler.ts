@@ -1,10 +1,13 @@
 // Hono app for the plugin's HTTP listener. Routes: healthz, webhook
-// ingest (one per source), and JSON API for the dashboard SPA.
+// ingest (one per source), JSON API, and static dashboard serving.
 // Per-route logic lives under ./handlers/.
 
 import { timingSafeEqual } from "node:crypto"
+import { existsSync } from "node:fs"
+import { resolve } from "node:path"
 import * as Sentry from "@sentry/bun"
 import { Hono } from "hono"
+import { serveStatic } from "hono/bun"
 import { cors } from "hono/cors"
 import type { Dedup } from "./dedup"
 import type { EntityResolver } from "./entity-resolver"
@@ -143,6 +146,14 @@ export function createApp(opts: {
   app.get("/api/entities", apiEntitiesHandler)
   app.get("/api/entities/:key", apiEntityDetailHandler)
   app.get("/api/dispatches", apiDispatchesHandler)
+
+  // --- Static dashboard serving ---
+  // Serve bundled dashboard from ./public if it exists
+  const publicDir = resolve(import.meta.dirname, "../public")
+  if (existsSync(publicDir)) {
+    app.use("/assets/*", serveStatic({ root: publicDir }))
+    app.get("*", serveStatic({ root: publicDir, path: "index.html" }))
+  }
 
   return app
 }
