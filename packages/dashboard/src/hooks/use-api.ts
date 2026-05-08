@@ -1,17 +1,29 @@
 import { ApiClient } from "@/lib/api"
-import { useMemo } from "react"
-import { useServers } from "./use-servers"
+import { useMemo, useSyncExternalStore } from "react"
 
-export function useApiClient(): ApiClient | null {
-  const { activeServer } = useServers()
-  // biome-ignore lint/correctness/useExhaustiveDependencies: only recreate client when url/token change, not name
-  return useMemo(
-    () => (activeServer ? new ApiClient(activeServer.url, activeServer.token) : null),
-    [activeServer?.url, activeServer?.token],
-  )
+const TOKEN_KEY = "opentower-token"
+let listeners: Array<() => void> = []
+
+function subscribe(listener: () => void) {
+  listeners = [...listeners, listener]
+  return () => {
+    listeners = listeners.filter((l) => l !== listener)
+  }
 }
 
-export function useOpencodeUrl(): string | undefined {
-  const { activeServer } = useServers()
-  return activeServer?.opencodeUrl
+function getSnapshot(): string | null {
+  return localStorage.getItem(TOKEN_KEY)
+}
+
+export function emitTokenChange() {
+  for (const listener of listeners) listener()
+}
+
+export function useToken(): string | null {
+  return useSyncExternalStore(subscribe, getSnapshot, () => null)
+}
+
+export function useApiClient(): ApiClient | null {
+  const token = useToken()
+  return useMemo(() => (token ? new ApiClient(token) : null), [token])
 }

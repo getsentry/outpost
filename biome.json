@@ -41,6 +41,6 @@
     }
   },
   "files": {
-    "ignore": ["dist", "node_modules", "*.lock", "*.json", ".terraform"]
+    "ignore": ["dist", "public", "node_modules", "*.lock", "*.json", ".terraform"]
   }
 }

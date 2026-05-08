@@ -7,7 +7,7 @@ import { SessionLink } from "@/components/session-link"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { useApiClient, useOpencodeUrl } from "@/hooks/use-api"
+import { useApiClient } from "@/hooks/use-api"
 import { useUrlFilter, useUrlPagination } from "@/hooks/use-url-pagination"
 import type { PaginatedEntities } from "@/lib/api"
 import { entityGitHubUrl, timeAgo } from "@/lib/format"
@@ -18,26 +18,18 @@ import { Link } from "react-router-dom"
 
 export default function EntitiesPage() {
   const client = useApiClient()
-  const opencodeUrl = useOpencodeUrl()
   const { page, pageSize, cursor, setPageSize, nextPage, prevPage, resetPagination } = useUrlPagination({
     defaultPageSize: 25,
   })
   const [repoFilter, setRepoFilter] = useUrlFilter("repo")
   const [searchInput, setSearchInput] = useState(repoFilter)
 
-  // Reset pagination when the active server changes
-  const serverUrl = client?.baseUrl
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset trigger on server change
-  useEffect(() => {
-    resetPagination()
-  }, [serverUrl])
-
   useEffect(() => {
     setSearchInput(repoFilter)
   }, [repoFilter])
 
   const { data, isLoading, isFetching, dataUpdatedAt, error, refetch } = useQuery<PaginatedEntities>({
-    queryKey: ["entities", client?.baseUrl, pageSize, cursor, repoFilter],
+    queryKey: ["entities", pageSize, cursor, repoFilter],
     queryFn: () =>
       client!.entities({
         limit: pageSize,
@@ -125,12 +117,7 @@ export default function EntitiesPage() {
                         >
                           <ExternalLink className="h-3 w-3" />
                         </a>
-                        <SessionLink
-                          sessionId={e.session_id}
-                          shareUrl={e.share_url}
-                          cwd={e.cwd}
-                          opencodeUrl={opencodeUrl}
-                        />
+                        <SessionLink sessionId={e.session_id} shareUrl={e.share_url} cwd={e.cwd} />
                       </div>
                       <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                         <span>{e.repo}</span>

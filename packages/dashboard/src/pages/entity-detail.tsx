@@ -5,7 +5,7 @@ import { StatusBadge } from "@/components/status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { useApiClient, useOpencodeUrl } from "@/hooks/use-api"
+import { useApiClient } from "@/hooks/use-api"
 import type { EntityDetail } from "@/lib/api"
 import { entityGitHubUrl, formatDuration, timeAgo } from "@/lib/format"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
@@ -16,11 +16,10 @@ export default function EntityDetailPage() {
   const { key } = useParams<{ key: string }>()
   const navigate = useNavigate()
   const client = useApiClient()
-  const opencodeUrl = useOpencodeUrl()
   const decodedKey = decodeURIComponent(key ?? "")
 
   const { data, isLoading, isFetching, dataUpdatedAt, error, refetch } = useQuery<EntityDetail>({
-    queryKey: ["entity", client?.baseUrl, decodedKey],
+    queryKey: ["entity", decodedKey],
     queryFn: () => client!.entity(decodedKey),
     enabled: !!client && !!decodedKey,
     placeholderData: keepPreviousData,
@@ -79,7 +78,6 @@ export default function EntityDetailPage() {
                         sessionId={data.entity.session_id}
                         shareUrl={data.entity.share_url}
                         cwd={data.entity.cwd}
-                        opencodeUrl={opencodeUrl}
                       />
                     ) : (
                       <span className="text-sm text-muted-foreground">N/A</span>
@@ -160,13 +158,7 @@ export default function EntityDetailPage() {
                           <span className="font-mono text-sm">{d.trigger_name}</span>
                           <StatusBadge status={d.status} />
                           <span className="text-xs text-muted-foreground">{d.event}</span>
-                          <SessionLink
-                            sessionId={d.session_id}
-                            shareUrl={d.share_url}
-                            cwd={d.cwd}
-                            opencodeUrl={opencodeUrl}
-                            showLabel
-                          />
+                          <SessionLink sessionId={d.session_id} shareUrl={d.share_url} cwd={d.cwd} showLabel />
                         </div>
                         <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                           <span>{timeAgo(d.created_at)}</span>

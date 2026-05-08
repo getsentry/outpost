@@ -37,7 +37,7 @@ function base64UrlEncode(value: string): string {
 /**
  * Return the best available URL for viewing an OpenCode session.
  * Prefers the public share URL (from auto-share) when available.
- * Falls back to constructing a URL that matches the OpenCode web UI
+ * Falls back to constructing a relative URL that matches the OpenCode web UI
  * route structure: /{base64url(directory)}/session/{sessionId}.
  * Returns null when both shareUrl and directory are missing.
  */
@@ -45,12 +45,9 @@ export function opencodeSessionUrl(
   sessionId: string,
   shareUrl: string | null | undefined,
   directory: string | null | undefined,
-  opencodeUrl?: string,
 ): string | null {
   if (shareUrl) return shareUrl
   if (!directory) return null
   const dir = base64UrlEncode(directory)
-  const base = opencodeUrl?.replace(/\/+$/, "")
-  const path = `/${dir}/session/${encodeURIComponent(sessionId)}`
-  return base ? `${base}${path}` : path
+  return `/${dir}/session/${encodeURIComponent(sessionId)}`
 }

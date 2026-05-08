@@ -5,17 +5,15 @@ export function SessionLink({
   sessionId,
   shareUrl,
   cwd,
-  opencodeUrl,
   showLabel,
 }: {
   sessionId: string | null | undefined
   shareUrl: string | null | undefined
   cwd: string | null | undefined
-  opencodeUrl?: string
   showLabel?: boolean
 }) {
   if (!sessionId?.trim()) return null
-  const url = opencodeSessionUrl(sessionId, shareUrl, cwd, opencodeUrl)
+  const url = opencodeSessionUrl(sessionId, shareUrl, cwd)
   if (!url) return null
 
   return (
@@ -36,14 +34,12 @@ export function SessionLinkPrimary({
   sessionId,
   shareUrl,
   cwd,
-  opencodeUrl,
 }: {
   sessionId: string
   shareUrl: string | null | undefined
   cwd: string | null | undefined
-  opencodeUrl?: string
 }) {
-  const url = opencodeSessionUrl(sessionId, shareUrl, cwd, opencodeUrl)
+  const url = opencodeSessionUrl(sessionId, shareUrl, cwd)
   if (!url) return <span className="text-sm text-muted-foreground">N/A</span>
   return (
     <a

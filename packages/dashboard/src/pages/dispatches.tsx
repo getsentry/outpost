@@ -7,7 +7,7 @@ import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { useApiClient, useOpencodeUrl } from "@/hooks/use-api"
+import { useApiClient } from "@/hooks/use-api"
 import { useUrlFilter, useUrlPagination } from "@/hooks/use-url-pagination"
 import type { PaginatedDispatches } from "@/lib/api"
 import { formatDuration, opencodeSessionUrl, timeAgo } from "@/lib/format"
@@ -18,7 +18,6 @@ import { Link } from "react-router-dom"
 
 export default function DispatchesPage() {
   const client = useApiClient()
-  const opencodeUrl = useOpencodeUrl()
   const { page, pageSize, cursor, setPageSize, nextPage, prevPage, resetPagination } = useUrlPagination({
     defaultPageSize: 25,
   })
@@ -26,18 +25,12 @@ export default function DispatchesPage() {
   const [eventFilter, setEventFilter] = useUrlFilter("event")
   const [eventInput, setEventInput] = useState(eventFilter)
 
-  const serverUrl = client?.baseUrl
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional reset trigger on server change
-  useEffect(() => {
-    resetPagination()
-  }, [serverUrl])
-
   useEffect(() => {
     setEventInput(eventFilter)
   }, [eventFilter])
 
   const { data, isLoading, isFetching, dataUpdatedAt, error, refetch } = useQuery<PaginatedDispatches>({
-    queryKey: ["dispatches", client?.baseUrl, pageSize, statusFilter, eventFilter, cursor],
+    queryKey: ["dispatches", pageSize, statusFilter, eventFilter, cursor],
     queryFn: () =>
       client!.dispatches({
         limit: pageSize,
@@ -143,7 +136,7 @@ export default function DispatchesPage() {
                       )}
                       {(() => {
                         const sid = d.session_id?.trim()
-                        const url = sid ? opencodeSessionUrl(sid, d.share_url, d.cwd, opencodeUrl) : null
+                        const url = sid ? opencodeSessionUrl(sid, d.share_url, d.cwd) : null
                         return url && sid ? (
                           <a
                             href={url}
