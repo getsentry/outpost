@@ -48,6 +48,7 @@ and any other skill that needs a quality check before committing.
 - Bug findings reflect real logic errors, not hypothetical edge cases
 - Empty findings array is used correctly (no "everything looks good" entries)
 - Confidence levels are applied appropriately (see references/confidence-calibration.md)
+- Known false-positive patterns are filtered (see references/not-a-finding.md)
 
 ## Maintenance
 

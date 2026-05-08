@@ -14,6 +14,10 @@ faster and avoid distracting reviewers.
 - Removing defensive try/catch blocks in trusted code paths
 - Removing type casts (`any`, `as unknown as X`) that silence the checker
 - Moving inline imports to the top of the file (Python)
+- Removing redundant type annotations where inference handles it
+- Removing unnecessary `else` after early returns
+- Removing leftover debug logging (console.log, print)
+- Replacing overly verbose variable names that break file conventions
 - Fixing style inconsistencies with the surrounding file
 
 ### Out of scope

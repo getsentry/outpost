@@ -3,7 +3,8 @@
 ## Intent
 
 Promote a draft PR to ready-for-review after CI passes and
-self-review is clean. This is the bot's final step — it never merges.
+self-review is clean. The `auto-merge` skill may follow for small,
+non-disruptive changes, but this skill itself never merges.
 
 ## Scope
 
