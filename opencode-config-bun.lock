@@ -184,6 +184,8 @@
 
     "cli-progress": ["cli-progress@3.12.0", "", { "dependencies": { "string-width": "^4.2.3" } }, "sha512-tRkV3HJ1ASwm19THiiLIXLO7Im7wlTuKnvkYaTkyoAPefqjNg7W7DHKUlGRxy9vxDvbyCYQkQozvptuMkGCg8A=="],
 
+    "croner": ["croner@10.0.1", "", {}, "sha512-ixNtAJndqh173VQ4KodSdJEI6nuioBWI0V1ITNKhZZsO0pEMoDxz539T4FTTbSZ/xIOSuDnzxLVRqBVSvPNE2g=="],
+
     "cross-spawn": ["cross-spawn@7.0.6", "", { "dependencies": { "path-key": "^3.1.0", "shebang-command": "^2.0.0", "which": "^2.0.1" } }, "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA=="],
 
     "debug": ["debug@4.4.3", "", { "dependencies": { "ms": "^2.1.3" } }, "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA=="],
@@ -340,7 +342,7 @@
 
     "onnxruntime-node": ["onnxruntime-node@1.21.0", "", { "dependencies": { "global-agent": "^3.0.0", "onnxruntime-common": "1.21.0", "tar": "^7.0.1" }, "os": [ "linux", "win32", "darwin", ] }, "sha512-NeaCX6WW2L8cRCSqy3bInlo5ojjQqu2fD3D+9W5qb5irwxhEyWKXeH2vZ8W9r6VxaMPUan+4/7NDwZMtouZxEw=="],
 
-    "opentower": ["opentower@file:packages/opentower", { "dependencies": { "@ai-sdk/anthropic": "^3.0.75", "@sentry/bun": "^9.0.0", "ai": "^6.0.175", "hono": "^4.0.0", "zod": "^4.4.3" }, "devDependencies": { "@opencode-ai/plugin": "^1.14.30", "@types/bun": "latest", "typescript": "^5.6.0" }, "peerDependencies": { "@opencode-ai/plugin": ">=1.1.1" } }],
+    "opentower": ["opentower@file:packages/opentower", { "dependencies": { "@ai-sdk/anthropic": "^3.0.75", "@sentry/bun": "^9.0.0", "ai": "^6.0.175", "croner": "^10.0.1", "hono": "^4.0.0", "zod": "^4.4.3" }, "devDependencies": { "@opencode-ai/plugin": "^1.14.30", "@types/bun": "latest", "typescript": "^5.6.0" }, "peerDependencies": { "@opencode-ai/plugin": ">=1.1.1" } }],
 
     "path-key": ["path-key@3.1.1", "", {}, "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q=="],
 
