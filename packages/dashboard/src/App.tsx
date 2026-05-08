@@ -1,5 +1,6 @@
 import Layout from "@/components/layout"
 import { useToken } from "@/hooks/use-api"
+import CronPage from "@/pages/cron"
 import DashboardPage from "@/pages/dashboard"
 import DispatchesPage from "@/pages/dispatches"
 import EntitiesPage from "@/pages/entities"
@@ -27,6 +28,7 @@ function AppRoutes() {
         <Route path="/entities" element={<EntitiesPage />} />
         <Route path="/entities/:key" element={<EntityDetailPage />} />
         <Route path="/dispatches" element={<DispatchesPage />} />
+        <Route path="/cron" element={<CronPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Route>
       <Route path="/setup" element={<SetupPage />} />

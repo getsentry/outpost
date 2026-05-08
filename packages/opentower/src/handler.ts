@@ -9,9 +9,11 @@ import * as Sentry from "@sentry/bun"
 import { Hono } from "hono"
 import { serveStatic } from "hono/bun"
 import { cors } from "hono/cors"
+import type { CronScheduler } from "./cron"
 import type { Dedup } from "./dedup"
 import type { EntityResolver } from "./entity-resolver"
 import { apiDispatchesHandler, apiEntitiesHandler, apiEntityDetailHandler, apiStatsHandler } from "./handlers/api"
+import { makeCronHandlers } from "./handlers/cron"
 import { emailWebhookHandler } from "./handlers/email"
 import { githubWebhookHandler } from "./handlers/github"
 import type { Pipeline } from "./pipeline"
@@ -47,6 +49,7 @@ export function createApp(opts: {
   store: LifecycleStore
   apiToken: string
   entityResolver: EntityResolver | null
+  cronScheduler: CronScheduler | null
 }): Hono<AppEnv> {
   const githubTriggers = opts.triggers.filter((t) => t.source === "github_webhook")
   const emailTriggers = opts.triggers.filter((t) => t.source === "email")
@@ -59,7 +62,7 @@ export function createApp(opts: {
     "*",
     cors({
       origin: "*",
-      allowMethods: ["GET", "POST", "OPTIONS"],
+      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
       allowHeaders: ["Authorization", "Content-Type"],
       maxAge: 86400,
     }),
@@ -146,6 +149,18 @@ export function createApp(opts: {
   app.get("/api/entities", apiEntitiesHandler)
   app.get("/api/entities/:key", apiEntityDetailHandler)
   app.get("/api/dispatches", apiDispatchesHandler)
+
+  // Cron job management routes
+  if (opts.cronScheduler) {
+    const cronHandlers = makeCronHandlers(opts.cronScheduler)
+    app.get("/api/cron", cronHandlers.list)
+    app.post("/api/cron", cronHandlers.create)
+    app.get("/api/cron/:id", cronHandlers.get)
+    app.put("/api/cron/:id", cronHandlers.update)
+    app.delete("/api/cron/:id", cronHandlers.delete)
+    app.post("/api/cron/:id/trigger", cronHandlers.trigger)
+    app.get("/api/cron/:id/executions", cronHandlers.executions)
+  }
 
   // --- Static dashboard serving ---
   // Serve bundled dashboard from ./public if it exists

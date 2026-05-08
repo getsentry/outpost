@@ -8,6 +8,8 @@
 //   links     – connects related entity keys (e.g. issue #42 → PR #43
 //               that fixes it) so they share a session.
 //   dispatches – audit log of every dispatch for debugging.
+//   cron_jobs – scheduled tasks that trigger agent prompts.
+//   cron_executions – execution history for cron jobs.
 
 import { Database } from "bun:sqlite"
 import { existsSync, mkdirSync } from "node:fs"
@@ -54,6 +56,33 @@ export type StatsResult = {
   recent_24h: number
 }
 
+export type CronJobRow = {
+  id: string
+  name: string
+  cron_expression: string
+  prompt: string
+  entity_key: string | null
+  agent: string
+  timezone: string
+  enabled: number
+  run_once: number
+  created_by: string
+  created_at: string
+  updated_at: string
+  last_run_at: string | null
+  next_run_at: string | null
+}
+
+export type CronExecutionRow = {
+  id: string
+  cron_job_id: string
+  dispatch_id: string | null
+  status: "pending" | "running" | "completed" | "failed" | "skipped"
+  scheduled_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
 export type LifecycleStore = {
   upsertEntity(
     row: Pick<EntityRow, "entity_key" | "repo" | "number" | "kind" | "session_id" | "share_url" | "cwd" | "agent">,
@@ -85,6 +114,39 @@ export type LifecycleStore = {
     next_cursor: string | null
   }
   getStats(): StatsResult
+
+  // Cron job methods
+  createCronJob(
+    job: Pick<
+      CronJobRow,
+      "id" | "name" | "cron_expression" | "prompt" | "entity_key" | "agent" | "timezone" | "run_once" | "created_by"
+    > & { next_run_at?: string | null },
+  ): void
+  updateCronJob(
+    id: string,
+    updates: Partial<Pick<CronJobRow, "name" | "cron_expression" | "prompt" | "entity_key" | "agent" | "timezone">> & {
+      enabled?: boolean
+      next_run_at?: string | null
+    },
+  ): void
+  deleteCronJob(id: string): void
+  getCronJob(id: string): CronJobRow | null
+  getCronJobByName(name: string): CronJobRow | null
+  listCronJobs(opts?: { limit?: number; cursor?: string; enabled?: boolean }): {
+    jobs: CronJobRow[]
+    next_cursor: string | null
+  }
+  listEnabledCronJobs(): CronJobRow[]
+  updateCronJobLastRun(id: string, lastRunAt: string, nextRunAt: string | null): void
+  disableCronJob(id: string): void
+
+  // Cron execution methods
+  insertCronExecution(row: Pick<CronExecutionRow, "id" | "cron_job_id" | "scheduled_at" | "status">): void
+  updateCronExecution(
+    id: string,
+    updates: Partial<Pick<CronExecutionRow, "dispatch_id" | "status" | "started_at" | "completed_at">>,
+  ): void
+  listCronExecutions(jobId: string, opts?: { limit?: number }): CronExecutionRow[]
 
   close(): void
 }
@@ -126,6 +188,37 @@ CREATE TABLE IF NOT EXISTS dispatches (
   completed_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_dispatches_entity ON dispatches(entity_key);
+
+CREATE TABLE IF NOT EXISTS cron_jobs (
+  id              TEXT PRIMARY KEY,
+  name            TEXT NOT NULL UNIQUE,
+  cron_expression TEXT NOT NULL,
+  prompt          TEXT NOT NULL,
+  entity_key      TEXT,
+  agent           TEXT NOT NULL,
+  timezone        TEXT NOT NULL DEFAULT 'UTC',
+  enabled         INTEGER NOT NULL DEFAULT 1,
+  run_once        INTEGER NOT NULL DEFAULT 0,
+  created_by      TEXT NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  last_run_at     TEXT,
+  next_run_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_cron_jobs_enabled ON cron_jobs(enabled);
+CREATE INDEX IF NOT EXISTS idx_cron_jobs_next_run ON cron_jobs(next_run_at);
+
+CREATE TABLE IF NOT EXISTS cron_executions (
+  id           TEXT PRIMARY KEY,
+  cron_job_id  TEXT NOT NULL,
+  dispatch_id  TEXT,
+  status       TEXT NOT NULL DEFAULT 'pending',
+  scheduled_at TEXT NOT NULL,
+  started_at   TEXT,
+  completed_at TEXT,
+  FOREIGN KEY (cron_job_id) REFERENCES cron_jobs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_cron_executions_job ON cron_executions(cron_job_id);
 `
 
 export function openLifecycleStore(dbPath: string): LifecycleStore {
@@ -207,6 +300,30 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
     statsStatusCounts: db.prepare<{ status: string; c: number }, []>(
       "SELECT status, COUNT(*) as c FROM dispatches GROUP BY status",
     ),
+
+    // Cron job statements
+    createCronJob: db.prepare(
+      `INSERT INTO cron_jobs (id, name, cron_expression, prompt, entity_key, agent, timezone, run_once, created_by, next_run_at)
+       VALUES ($id, $name, $cron_expression, $prompt, $entity_key, $agent, $timezone, $run_once, $created_by, $next_run_at)`,
+    ),
+    getCronJob: db.prepare<CronJobRow, [string]>("SELECT * FROM cron_jobs WHERE id = ?"),
+    getCronJobByName: db.prepare<CronJobRow, [string]>("SELECT * FROM cron_jobs WHERE name = ?"),
+    deleteCronJob: db.prepare("DELETE FROM cron_jobs WHERE id = ?"),
+    listEnabledCronJobs: db.prepare<CronJobRow, []>("SELECT * FROM cron_jobs WHERE enabled = 1"),
+    updateCronJobLastRun: db.prepare(
+      `UPDATE cron_jobs SET last_run_at = $last_run_at, next_run_at = $next_run_at, updated_at = datetime('now')
+       WHERE id = $id`,
+    ),
+    disableCronJob: db.prepare("UPDATE cron_jobs SET enabled = 0, updated_at = datetime('now') WHERE id = ?"),
+
+    // Cron execution statements
+    insertCronExecution: db.prepare(
+      `INSERT INTO cron_executions (id, cron_job_id, scheduled_at, status)
+       VALUES ($id, $cron_job_id, $scheduled_at, $status)`,
+    ),
+    listCronExecutions: db.prepare<CronExecutionRow, [string, number]>(
+      "SELECT * FROM cron_executions WHERE cron_job_id = ? ORDER BY scheduled_at DESC LIMIT ?",
+    ),
   }
 
   // Helper to run raw SQL for dynamic queries (pagination with cursor).
@@ -253,6 +370,24 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
     sql += " ORDER BY created_at DESC LIMIT $limit"
     params.$limit = limit + 1
     return db.prepare<DispatchRow, Record<string, string | number>>(sql).all(params)
+  }
+
+  function queryCronJobs(limit: number, cursor: string | null, enabled: boolean | null): CronJobRow[] {
+    let sql = "SELECT * FROM cron_jobs"
+    const conditions: string[] = []
+    const params: Record<string, string | number> = {}
+    if (cursor) {
+      conditions.push("created_at < $cursor")
+      params.$cursor = cursor
+    }
+    if (enabled !== null) {
+      conditions.push("enabled = $enabled")
+      params.$enabled = enabled ? 1 : 0
+    }
+    if (conditions.length > 0) sql += ` WHERE ${conditions.join(" AND ")}`
+    sql += " ORDER BY created_at DESC LIMIT $limit"
+    params.$limit = limit + 1
+    return db.prepare<CronJobRow, Record<string, string | number>>(sql).all(params)
   }
 
   return {
@@ -379,6 +514,147 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
           recent_24h: recent24h,
         }
       })()
+    },
+
+    // Cron job methods
+    createCronJob(job) {
+      stmts.createCronJob.run({
+        $id: job.id,
+        $name: job.name,
+        $cron_expression: job.cron_expression,
+        $prompt: job.prompt,
+        $entity_key: job.entity_key,
+        $agent: job.agent,
+        $timezone: job.timezone,
+        $run_once: job.run_once ? 1 : 0,
+        $created_by: job.created_by,
+        $next_run_at: job.next_run_at ?? null,
+      })
+    },
+
+    updateCronJob(id, updates) {
+      const fields: string[] = []
+      const params: Record<string, string | number | null> = { $id: id }
+
+      if (updates.name !== undefined) {
+        fields.push("name = $name")
+        params.$name = updates.name
+      }
+      if (updates.cron_expression !== undefined) {
+        fields.push("cron_expression = $cron_expression")
+        params.$cron_expression = updates.cron_expression
+      }
+      if (updates.prompt !== undefined) {
+        fields.push("prompt = $prompt")
+        params.$prompt = updates.prompt
+      }
+      if (updates.entity_key !== undefined) {
+        fields.push("entity_key = $entity_key")
+        params.$entity_key = updates.entity_key
+      }
+      if (updates.agent !== undefined) {
+        fields.push("agent = $agent")
+        params.$agent = updates.agent
+      }
+      if (updates.timezone !== undefined) {
+        fields.push("timezone = $timezone")
+        params.$timezone = updates.timezone
+      }
+      if (updates.enabled !== undefined) {
+        fields.push("enabled = $enabled")
+        params.$enabled = updates.enabled ? 1 : 0
+      }
+      if (updates.next_run_at !== undefined) {
+        fields.push("next_run_at = $next_run_at")
+        params.$next_run_at = updates.next_run_at ?? null
+      }
+
+      if (fields.length === 0) return
+
+      fields.push("updated_at = datetime('now')")
+      const sql = `UPDATE cron_jobs SET ${fields.join(", ")} WHERE id = $id`
+      db.prepare(sql).run(params)
+    },
+
+    deleteCronJob(id) {
+      stmts.deleteCronJob.run(id)
+    },
+
+    getCronJob(id) {
+      return stmts.getCronJob.get(id) ?? null
+    },
+
+    getCronJobByName(name) {
+      return stmts.getCronJobByName.get(name) ?? null
+    },
+
+    listCronJobs(opts = {}) {
+      const limit = Math.min(opts.limit ?? 50, 200)
+      const rows = queryCronJobs(limit, opts.cursor ?? null, opts.enabled ?? null)
+      const hasMore = rows.length > limit
+      if (hasMore) rows.pop()
+      return {
+        jobs: rows,
+        next_cursor: hasMore && rows.length > 0 ? rows[rows.length - 1].created_at : null,
+      }
+    },
+
+    listEnabledCronJobs() {
+      return stmts.listEnabledCronJobs.all()
+    },
+
+    updateCronJobLastRun(id, lastRunAt, nextRunAt) {
+      stmts.updateCronJobLastRun.run({
+        $id: id,
+        $last_run_at: lastRunAt,
+        $next_run_at: nextRunAt,
+      })
+    },
+
+    disableCronJob(id) {
+      stmts.disableCronJob.run(id)
+    },
+
+    // Cron execution methods
+    insertCronExecution(row) {
+      stmts.insertCronExecution.run({
+        $id: row.id,
+        $cron_job_id: row.cron_job_id,
+        $scheduled_at: row.scheduled_at,
+        $status: row.status,
+      })
+    },
+
+    updateCronExecution(id, updates) {
+      const fields: string[] = []
+      const params: Record<string, string | null> = { $id: id }
+
+      if (updates.dispatch_id !== undefined) {
+        fields.push("dispatch_id = $dispatch_id")
+        params.$dispatch_id = updates.dispatch_id ?? null
+      }
+      if (updates.status !== undefined) {
+        fields.push("status = $status")
+        params.$status = updates.status
+      }
+      if (updates.started_at !== undefined) {
+        fields.push("started_at = $started_at")
+        params.$started_at = updates.started_at ?? null
+      }
+      if (updates.completed_at !== undefined) {
+        fields.push("completed_at = $completed_at")
+        params.$completed_at = updates.completed_at ?? null
+      }
+
+      if (fields.length === 0) return
+
+      const sql = `UPDATE cron_executions SET ${fields.join(", ")} WHERE id = $id`
+      db.prepare(sql).run(params)
+    },
+
+    listCronExecutions(jobId, opts = {}) {
+      const limit = Math.min(opts.limit ?? 50, 200)
+      return stmts.listCronExecutions.all(jobId, limit)
     },
 
     close() {

@@ -1,3 +1,4 @@
+import { getOpencodeUrl } from "@/lib/api"
 import { opencodeSessionUrl } from "@/lib/format"
 import { ExternalLink, Terminal } from "lucide-react"
 
@@ -13,7 +14,8 @@ export function SessionLink({
   showLabel?: boolean
 }) {
   if (!sessionId?.trim()) return null
-  const url = opencodeSessionUrl(sessionId, shareUrl, cwd)
+  const opencodeBaseUrl = getOpencodeUrl()
+  const url = opencodeSessionUrl(sessionId, shareUrl, cwd, opencodeBaseUrl)
   if (!url) return null
 
   return (
@@ -39,7 +41,8 @@ export function SessionLinkPrimary({
   shareUrl: string | null | undefined
   cwd: string | null | undefined
 }) {
-  const url = opencodeSessionUrl(sessionId, shareUrl, cwd)
+  const opencodeBaseUrl = getOpencodeUrl()
+  const url = opencodeSessionUrl(sessionId, shareUrl, cwd, opencodeBaseUrl)
   if (!url) return <span className="text-sm text-muted-foreground">N/A</span>
   return (
     <a

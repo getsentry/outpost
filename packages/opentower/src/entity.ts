@@ -159,3 +159,22 @@ export function extractLinkedIssues(body: string): number[] {
   LINKED_ISSUE_RE.lastIndex = 0
   return [...nums]
 }
+
+// Parse an entity key string like "owner/repo#123" into an EntityKey.
+// Returns null if the string is not a valid entity key format.
+const ENTITY_KEY_RE = /^([^/]+\/[^#]+)#(\d+)$/
+
+export function parseEntityKey(keyStr: string): EntityKey | null {
+  const match = keyStr.match(ENTITY_KEY_RE)
+  if (!match) return null
+  const repo = match[1]
+  const number = Number.parseInt(match[2], 10)
+  if (!Number.isFinite(number)) return null
+  return {
+    key: keyStr,
+    repo,
+    number,
+    kind: "issue",
+    linkedIssues: [],
+  }
+}

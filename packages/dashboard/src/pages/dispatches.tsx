@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { useApiClient } from "@/hooks/use-api"
 import { useUrlFilter, useUrlPagination } from "@/hooks/use-url-pagination"
-import type { PaginatedDispatches } from "@/lib/api"
+import { type PaginatedDispatches, getOpencodeUrl } from "@/lib/api"
 import { formatDuration, opencodeSessionUrl, timeAgo } from "@/lib/format"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
 import { Search, Terminal } from "lucide-react"
@@ -136,7 +136,7 @@ export default function DispatchesPage() {
                       )}
                       {(() => {
                         const sid = d.session_id?.trim()
-                        const url = sid ? opencodeSessionUrl(sid, d.share_url, d.cwd) : null
+                        const url = sid ? opencodeSessionUrl(sid, d.share_url, d.cwd, getOpencodeUrl()) : null
                         return url && sid ? (
                           <a
                             href={url}
