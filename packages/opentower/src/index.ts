@@ -17,6 +17,7 @@ import { createApp } from "./handler"
 import { makePipeline } from "./pipeline"
 import { makeDrainCounter, makeSemaphore } from "./semaphore"
 import { openLifecycleStore } from "./storage"
+import { makeCronTools } from "./tools/cron"
 export type {
   Trigger,
   TriggerSource,
@@ -198,7 +199,16 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     process.once("SIGTERM", () => void onShutdown("SIGTERM"))
     process.once("SIGINT", () => void onShutdown("SIGINT"))
 
-    return {}
+    // Create cron tools for agent use
+    const cronTools = makeCronTools({
+      store,
+      scheduler: cronScheduler,
+      defaultAgent,
+    })
+
+    return {
+      tool: cronTools,
+    }
   } catch (err) {
     g.__webhookServerStarted = false
     console.error("[opentower] FATAL: plugin failed to start:", err)
