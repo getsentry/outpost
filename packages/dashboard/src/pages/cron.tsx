@@ -174,6 +174,7 @@ function CronJobCard({
   isTriggering: boolean
 }) {
   const isEnabled = job.enabled === 1
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   return (
     <div className={`rounded-lg border p-3 ${!isEnabled ? "opacity-60" : ""}`}>
@@ -198,9 +199,38 @@ function CronJobCard({
           >
             {isTriggering ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           </Button>
-          <Button variant="ghost" size="sm" onClick={onDelete} disabled={isDeleting} title="Delete">
-            {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-          </Button>
+          <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+            <DialogTrigger asChild>
+              <Button variant="ghost" size="sm" disabled={isDeleting} title="Delete">
+                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Delete Cron Job</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to delete "{job.name}"? This action cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  onClick={() => {
+                    onDelete()
+                    setDeleteDialogOpen(false)
+                  }}
+                  disabled={isDeleting}
+                >
+                  {isDeleting && <Loader2 className="animate-spin" />}
+                  Delete
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
       <div className="mt-2 space-y-1">
