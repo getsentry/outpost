@@ -10,12 +10,14 @@ import type { Plugin } from "@opencode-ai/plugin"
 import * as Sentry from "@sentry/bun"
 import { resolveBotLogin } from "./bot-identity"
 import { configPath, normalizeTrigger, readWebhookConfig } from "./config"
+import { makeCronScheduler } from "./cron"
 import { makeDedup } from "./dedup"
 import { createEntityResolver } from "./entity-resolver"
 import { createApp } from "./handler"
 import { makePipeline } from "./pipeline"
 import { makeDrainCounter, makeSemaphore } from "./semaphore"
 import { openLifecycleStore } from "./storage"
+import { makeCronTools } from "./tools/cron"
 export type {
   Trigger,
   TriggerSource,
@@ -132,6 +134,21 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
       console.warn("[opentower] WARNING: OPENTOWER_API_TOKEN not set -- /api/* endpoints will reject with 503")
     }
 
+    // Find the default cron trigger (if any) for agent name fallback
+    const cronTriggers = triggers.filter((t) => t.source === "cron")
+    const defaultCronTrigger = cronTriggers[0] ?? null
+    const defaultAgent = defaultCronTrigger?.agent ?? triggers[0]?.agent ?? "github-agent"
+
+    // Initialize the cron scheduler
+    const cronScheduler = makeCronScheduler({
+      store,
+      pipeline,
+      defaultAgent,
+      cronTrigger: defaultCronTrigger,
+    })
+    cronScheduler.start()
+    console.log("[opentower] cron scheduler started")
+
     const app = createApp({
       secret,
       emailSecret,
@@ -142,6 +159,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
       store,
       apiToken,
       entityResolver,
+      cronScheduler,
     })
 
     console.log(`[opentower] starting Bun.serve on port ${port}...`)
@@ -151,8 +169,9 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
       fetch: app.fetch,
     })
 
+    const cronTriggerCount = cronTriggers.length
     console.log(
-      `[opentower] listening on http://0.0.0.0:${server.port} (triggers: github=${githubTriggerCount}, email=${emailTriggerCount})`,
+      `[opentower] listening on http://0.0.0.0:${server.port} (triggers: github=${githubTriggerCount}, email=${emailTriggerCount}, cron=${cronTriggerCount})`,
     )
 
     let stopping = false
@@ -173,13 +192,23 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
           `[opentower] drain timeout after ${drainTimeoutMs}ms -- ${drainCounter.inFlight()} dispatch(es) still in flight`,
         )
       }
+      cronScheduler.stop()
       store.close()
       await Sentry.close(2000)
     }
     process.once("SIGTERM", () => void onShutdown("SIGTERM"))
     process.once("SIGINT", () => void onShutdown("SIGINT"))
 
-    return {}
+    // Create cron tools for agent use
+    const cronTools = makeCronTools({
+      store,
+      scheduler: cronScheduler,
+      defaultAgent,
+    })
+
+    return {
+      tool: cronTools,
+    }
   } catch (err) {
     g.__webhookServerStarted = false
     console.error("[opentower] FATAL: plugin failed to start:", err)

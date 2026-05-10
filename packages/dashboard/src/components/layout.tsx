@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import {
   ChevronLeft,
   ChevronRight,
+  Clock,
   GitPullRequest,
   LayoutDashboard,
   LogOut,
@@ -21,6 +22,7 @@ const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/entities", label: "Entities", icon: GitPullRequest },
   { to: "/dispatches", label: "Dispatches", icon: Zap },
+  { to: "/cron", label: "Cron Jobs", icon: Clock },
 ]
 
 export default function Layout() {

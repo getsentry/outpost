@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { emitTokenChange } from "@/hooks/use-api"
-import { ApiClient, setToken } from "@/lib/api"
+import { ApiClient, setOpencodeUrl, setToken } from "@/lib/api"
 import { Loader2 } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom"
 export default function SetupPage() {
   const navigate = useNavigate()
   const [token, setTokenInput] = useState("")
+  const [opencodeUrl, setOpencodeUrlInput] = useState("")
   const [error, setError] = useState("")
   const [testing, setTesting] = useState(false)
 
@@ -18,20 +19,27 @@ export default function SetupPage() {
     e.preventDefault()
     setError("")
 
-    const trimmed = token.trim()
-    if (!trimmed) {
+    const trimmedToken = token.trim()
+    if (!trimmedToken) {
       setError("Token is required")
+      return
+    }
+
+    const trimmedUrl = opencodeUrl.trim()
+    if (trimmedUrl && !isValidUrl(trimmedUrl)) {
+      setError("Invalid OpenCode URL format")
       return
     }
 
     setTesting(true)
     try {
-      const ok = await ApiClient.testToken(trimmed)
+      const ok = await ApiClient.testToken(trimmedToken)
       if (!ok) {
         setError("Invalid token or server unreachable")
         return
       }
-      setToken(trimmed)
+      setToken(trimmedToken)
+      setOpencodeUrl(trimmedUrl)
       emitTokenChange()
       navigate("/")
     } catch (err) {
@@ -51,7 +59,7 @@ export default function SetupPage() {
             </span>
           </div>
           <CardTitle className="text-2xl">Outpost Dashboard</CardTitle>
-          <CardDescription>Enter your API token to access the dashboard.</CardDescription>
+          <CardDescription>Enter your API token and OpenCode URL to access the dashboard.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -65,6 +73,19 @@ export default function SetupPage() {
                 onChange={(e) => setTokenInput(e.target.value)}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="opencodeUrl">OpenCode URL</Label>
+              <Input
+                id="opencodeUrl"
+                type="url"
+                placeholder="https://your-opencode-instance.com"
+                value={opencodeUrl}
+                onChange={(e) => setOpencodeUrlInput(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Base URL for your OpenCode instance. Session links will open in this instance.
+              </p>
+            </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={testing}>
               {testing && <Loader2 className="animate-spin" />}
@@ -75,4 +96,13 @@ export default function SetupPage() {
       </Card>
     </div>
   )
+}
+
+function isValidUrl(str: string): boolean {
+  try {
+    const url = new URL(str)
+    return url.protocol === "http:" || url.protocol === "https:"
+  } catch {
+    return false
+  }
 }
