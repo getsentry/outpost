@@ -81,12 +81,8 @@ RUN install -d -m 0755 /out/etc/apt/keyrings \
       -o /out/etc/apt/keyrings/githubcli-archive-keyring.gpg
 
 
-# ---- Stage 1b: build the dashboard SPA ----
-# The dashboard is a Vite/React SPA under packages/dashboard/. Its build
-# output (dist/) is copied into packages/opentower/public/ so the
-# opentower plugin can serve it as a single-origin dashboard. We build in
-# a separate stage so devDependencies (vite, typescript, etc.) never
-# bloat the runtime image. Bun from the downloader stage is reused.
+# ---- Stage 1b: build dashboard SPA ----
+# Separate stage so vite/typescript devDeps don't bloat the runtime image.
 FROM debian:bookworm-slim AS dashboard-builder
 
 COPY --from=downloader /out/opt/bun/bin /opt/bun/bin
@@ -223,10 +219,7 @@ COPY --chown=developer:developer skills \
 COPY --chown=developer:developer packages \
      /home/developer/.config/opencode/packages
 
-# Copy pre-built dashboard assets from the builder stage into the
-# opentower plugin's public/ directory. The plugin's serveStatic guard
-# checks existsSync(public/) at startup — without these files the
-# dashboard silently won't be served.
+# Dashboard assets — handler.ts skips static serving when public/ is missing.
 COPY --from=dashboard-builder --chown=developer:developer \
      /build/packages/dashboard/dist \
      /home/developer/.config/opencode/packages/opentower/public
