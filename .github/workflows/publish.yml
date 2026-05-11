@@ -78,6 +78,17 @@ jobs:
           sudo curl -fsSL -o /usr/local/bin/craft "$CRAFT_URL"
           sudo chmod +x /usr/local/bin/craft
 
+      # Wait for CI workflow to complete on the release branch.
+      # CI builds and pushes the Docker image; Craft's docker target needs it.
+      - name: Wait for CI
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          echo "Waiting for CI workflow on release/${{ steps.inputs.outputs.version }}..."
+          gh run list --workflow CI --branch "release/${{ steps.inputs.outputs.version }}" \
+            --json databaseId,status --jq '.[0].databaseId' | xargs -I{} \
+            gh run watch {} --exit-status
+
       - name: Publish
         run: craft publish "${{ steps.inputs.outputs.version }}" --no-input --no-status-check
         env:
