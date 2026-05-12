@@ -10,6 +10,16 @@ export type LifecycleToolsOptions = {
   client: PluginInput["client"]
 }
 
+function errorMessage(err: unknown, fallback: string): string {
+  if (err && typeof err === "object" && "data" in err) {
+    const data = (err as { data: unknown }).data
+    if (data && typeof data === "object" && "message" in data) {
+      return (data as { message: string }).message
+    }
+  }
+  return fallback
+}
+
 export function makeLifecycleTools(opts: LifecycleToolsOptions) {
   const { store, client } = opts
 
@@ -179,7 +189,7 @@ Updated: ${entity.updated_at}`
         })
 
         if (result.error) {
-          return { output: `Error reading session ${args.session_id}: ${(result.error as { data?: { message?: string } }).data?.message ?? "not found"}` }
+          return { output: `Error reading session ${args.session_id}: ${errorMessage(result.error, "not found")}` }
         }
 
         const messages = result.data
@@ -243,7 +253,7 @@ IMPORTANT: Before calling this tool, you MUST:
         })
 
         if (result.error) {
-          return { output: `Error posting to session ${args.session_id}: ${(result.error as { data?: { message?: string } }).data?.message ?? "failed"}` }
+          return { output: `Error posting to session ${args.session_id}: ${errorMessage(result.error, "failed")}` }
         }
 
         return {
