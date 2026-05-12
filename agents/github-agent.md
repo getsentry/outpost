@@ -155,9 +155,17 @@ worktree is current, then load the appropriate situation skill.
 ### PR readiness promotion
 
 After your draft PR has passed self-review **and** CI is green, load
-the `mark-pr-ready` skill to promote it out of draft. This should
-happen naturally when a `check_suite` or `workflow_run` event arrives
-with conclusion `success` for your own draft PR.
+the `mark-pr-ready` skill to promote it out of draft. This can happen
+two ways:
+
+1. **Webhook-driven**: a `check_suite` or `workflow_run` event arrives
+   with conclusion `success` for your own draft PR.
+2. **Cron-driven polling**: the `pr` skill schedules a `run_once` cron
+   job ~10 minutes after PR creation that checks CI status. If CI is
+   green, it loads `mark-pr-ready`. If CI is still running, it
+   schedules another `run_once` check 10 minutes later. This is the
+   primary path when webhooks are not available (e.g., email-only
+   ingestion).
 
 ## Tone & voice
 
