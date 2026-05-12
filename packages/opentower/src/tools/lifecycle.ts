@@ -35,10 +35,7 @@ export function makeLifecycleTools(opts: LifecycleToolsOptions) {
           .max(50)
           .optional()
           .describe("Maximum number of dispatches to return. Defaults to 10"),
-        status: tool.schema
-          .string()
-          .optional()
-          .describe("Filter by status: started, completed, failed, or timeout"),
+        status: tool.schema.string().optional().describe("Filter by status: started, completed, failed, or timeout"),
         event: tool.schema
           .string()
           .optional()
@@ -73,8 +70,7 @@ export function makeLifecycleTools(opts: LifecycleToolsOptions) {
     }),
 
     list_entities: tool({
-      description:
-        "List entities (issues and pull requests) tracked by opentower with their session mappings.",
+      description: "List entities (issues and pull requests) tracked by opentower with their session mappings.",
       args: {
         limit: tool.schema
           .number()
@@ -83,10 +79,7 @@ export function makeLifecycleTools(opts: LifecycleToolsOptions) {
           .max(50)
           .optional()
           .describe("Maximum number of entities to return. Defaults to 10"),
-        repo: tool.schema
-          .string()
-          .optional()
-          .describe("Filter by repository (e.g., 'owner/repo')"),
+        repo: tool.schema.string().optional().describe("Filter by repository (e.g., 'owner/repo')"),
       },
       async execute(args) {
         const result = store.listEntities({
@@ -115,13 +108,9 @@ export function makeLifecycleTools(opts: LifecycleToolsOptions) {
     }),
 
     get_entity: tool({
-      description:
-        "Get full details of a specific entity including all its dispatches and linked entities.",
+      description: "Get full details of a specific entity including all its dispatches and linked entities.",
       args: {
-        entity_key: tool.schema
-          .string()
-          .min(1)
-          .describe("Entity key (e.g., 'owner/repo#42')"),
+        entity_key: tool.schema.string().min(1).describe("Entity key (e.g., 'owner/repo#42')"),
       },
       async execute(args) {
         const entity = store.getEntity(args.entity_key)
@@ -235,14 +224,8 @@ IMPORTANT: Before calling this tool, you MUST:
           .string()
           .min(1)
           .describe("Session ID to post to (get this from list_dispatches or get_entity)"),
-        message: tool.schema
-          .string()
-          .min(1)
-          .describe("The message/prompt to send to the session"),
-        agent: tool.schema
-          .string()
-          .optional()
-          .describe("Override the agent handling the message"),
+        message: tool.schema.string().min(1).describe("The message/prompt to send to the session"),
+        agent: tool.schema.string().optional().describe("Override the agent handling the message"),
       },
       async execute(args, context) {
         const result = await client.session.prompt({
