@@ -61,12 +61,34 @@ short and to the point — not overly long or detailed.
    The heredoc is important — it preserves multi-line plans, special
    characters, and quotes without escaping headaches.
 
-3. **Print the PR URL** as the final line of your reply.
+3. **Schedule a CI check**. After the PR is created, schedule a
+   `run_once` cron job to check CI status in ~10 minutes. Use the
+   `create_cron_job` tool with:
+   - `run_once: true`
+   - `entity_key` set to the PR entity (e.g., `owner/repo#42`) so the
+     check runs in **this same session**
+   - A cron expression ~10 minutes from now (e.g., if it's 14:03 UTC,
+     use `13 14 * * *`)
+   - A prompt that tells the agent what to do:
+
+   ```
+   CI check for PR #<N> on <owner>/<repo>.
+   Run: gh pr checks <N> -R <owner>/<repo> --json name,state --jq '[.[] | select(.state != "SUCCESS" and .state != "SKIPPED" and .state != "NEUTRAL")]'
+   If the result is an empty array [], CI has passed — load the mark-pr-ready skill to promote the draft PR.
+   If checks are still running or failing, schedule another run_once cron job 10 minutes from now with this same prompt and entity_key to check again.
+   ```
+
+   This avoids relying on `check_suite` / `workflow_run` webhooks
+   (which may not arrive via email) and ensures the PR gets promoted
+   once CI passes.
+
+4. **Print the PR URL** as the final line of your reply.
 
 ## Notes
 
 - This skill creates a *draft* PR by design. A separate review/iterate
   step should mark it ready-for-review once self-review and CI pass.
+  The scheduled cron job handles this automatically.
 - Don't include diagrams, lengthy "context" sections, or duplicated
   information that's already on the issue. The reader can follow the
   link.
