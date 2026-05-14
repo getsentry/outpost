@@ -54,6 +54,7 @@ data "coder_parameter" "gh_token" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 1
 }
 
 data "coder_parameter" "anthropic_api_key" {
@@ -63,6 +64,7 @@ data "coder_parameter" "anthropic_api_key" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 10
 }
 
 data "coder_parameter" "openai_api_key" {
@@ -72,6 +74,7 @@ data "coder_parameter" "openai_api_key" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 11
 }
 
 data "coder_parameter" "github_webhook_secret" {
@@ -81,6 +84,7 @@ data "coder_parameter" "github_webhook_secret" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 2
 }
 
 data "coder_parameter" "webhook_port" {
@@ -90,6 +94,7 @@ data "coder_parameter" "webhook_port" {
   type         = "number"
   mutable      = true
   default      = "5050"
+  order        = 40
 }
 
 data "coder_parameter" "opentower_api_token" {
@@ -99,6 +104,7 @@ data "coder_parameter" "opentower_api_token" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 3
 }
 
 data "coder_parameter" "gemini_api_key" {
@@ -108,6 +114,7 @@ data "coder_parameter" "gemini_api_key" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 12
 }
 
 data "coder_parameter" "groq_api_key" {
@@ -117,6 +124,7 @@ data "coder_parameter" "groq_api_key" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 13
 }
 
 data "coder_parameter" "openrouter_api_key" {
@@ -126,6 +134,7 @@ data "coder_parameter" "openrouter_api_key" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 14
 }
 
 data "coder_parameter" "email_webhook_secret" {
@@ -135,6 +144,7 @@ data "coder_parameter" "email_webhook_secret" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 41
 }
 
 data "coder_parameter" "sentry_dsn" {
@@ -144,6 +154,7 @@ data "coder_parameter" "sentry_dsn" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 50
 }
 
 data "coder_parameter" "sentry_auth_token" {
@@ -153,6 +164,7 @@ data "coder_parameter" "sentry_auth_token" {
   type         = "string"
   mutable      = true
   default      = ""
+  order        = 51
 }
 
 # --- Persistent volume for ~/dev ---
