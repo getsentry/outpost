@@ -3,17 +3,23 @@
 // in-process SDK client. Uses Hono for routing, Sentry for
 // observability (traces, structured logs, error tracking).
 // Listener on WEBHOOK_PORT (default 5050). Trigger config in webhooks.json.
+//
+// This module is the plugin entry point. For standalone server mode,
+// see server.ts / bin.ts.
 
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { Plugin } from "@opencode-ai/plugin"
 import * as Sentry from "@sentry/bun"
+import { createOpencodeAgent } from "./agents/opencode"
 import { resolveBotLogin } from "./bot-identity"
 import { configPath, normalizeTrigger, readWebhookConfig } from "./config"
 import { makeCronScheduler } from "./cron"
 import { makeDedup } from "./dedup"
 import { createEntityResolver } from "./entity-resolver"
 import { createApp } from "./handler"
+import { createHandlers } from "./handlers/registry"
+import type { HandlerContext } from "./interfaces"
 import { makePipeline } from "./pipeline"
 import { makeDrainCounter, makeSemaphore } from "./semaphore"
 import { openLifecycleStore } from "./storage"
@@ -25,7 +31,9 @@ export type {
   WebhookConfig,
   NormalizedTrigger,
   SkippedDispatch,
+  GithubAppConfig,
 } from "./types"
+export type { AgentClient, WebhookHandler, HandlerContext } from "./interfaces"
 
 export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
   console.log("[opentower] plugin loading...")
@@ -90,6 +98,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     const triggers = (cfg.triggers ?? []).map((t) => normalizeTrigger(t, botLogin))
     const githubTriggerCount = triggers.filter((t) => t.source === "github_webhook").length
     const emailTriggerCount = triggers.filter((t) => t.source === "email").length
+    const githubAppTriggerCount = triggers.filter((t) => t.source === "github_app").length
 
     if (triggers.length === 0) {
       console.log(`[opentower] no triggers configured (looked at ${configPath()}) -- listener disabled`)
@@ -102,6 +111,14 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
       console.warn("[opentower] WARNING: no email HMAC secret configured -- /webhooks/email will reject with 503")
     }
 
+    // Resolve GitHub App config from config file or env vars.
+    const githubApp = cfg.github_app ?? resolveGithubAppFromEnv()
+    if (githubAppTriggerCount > 0 && !githubApp) {
+      console.warn(
+        "[opentower] WARNING: github_app triggers configured but no GitHub App credentials found -- /webhooks/github-app will not be registered",
+      )
+    }
+
     const batchWindowMs = cfg.batch_window_ms ?? 5_000
     const dedup = makeDedup()
     const semaphore = makeSemaphore(maxConcurrent)
@@ -111,8 +128,11 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     const store = openLifecycleStore(dbPath)
     console.log(`[opentower] lifecycle store opened at ${dbPath}`)
 
+    // Create agent client from plugin context.
+    const client = await createOpencodeAgent({ client: ctx.client })
+
     const pipeline = makePipeline({
-      client: ctx.client,
+      client,
       defaultCwd,
       timeoutMs,
       semaphore,
@@ -150,16 +170,27 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     cronScheduler.start()
     console.log("[opentower] cron scheduler started")
 
-    const app = createApp({
+    // Create webhook handlers via the registry.
+    const handlers = createHandlers({
       secret,
       emailSecret,
       triggers,
-      dedup,
+      githubApp,
+    })
+
+    const handlerContext: HandlerContext = {
       pipeline,
+      dedup,
+      store,
       botLogin,
+      entityResolver,
+    }
+
+    const app = createApp({
+      handlers,
+      handlerContext,
       store,
       apiToken,
-      entityResolver,
       cronScheduler,
     })
 
@@ -172,7 +203,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
 
     const cronTriggerCount = cronTriggers.length
     console.log(
-      `[opentower] listening on http://0.0.0.0:${server.port} (triggers: github=${githubTriggerCount}, email=${emailTriggerCount}, cron=${cronTriggerCount})`,
+      `[opentower] listening on http://0.0.0.0:${server.port} (triggers: github=${githubTriggerCount}, github_app=${githubAppTriggerCount}, email=${emailTriggerCount}, cron=${cronTriggerCount})`,
     )
 
     let stopping = false
@@ -209,7 +240,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
 
     const lifecycleTools = makeLifecycleTools({
       store,
-      client: ctx.client,
+      client,
     })
 
     return {
@@ -220,6 +251,14 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     console.error("[opentower] FATAL: plugin failed to start:", err)
     throw err
   }
+}
+
+function resolveGithubAppFromEnv() {
+  const appId = process.env.GITHUB_APP_ID
+  const privateKey = process.env.GITHUB_APP_PRIVATE_KEY
+  const webhookSecret = process.env.GITHUB_APP_WEBHOOK_SECRET
+  if (!appId || !privateKey || !webhookSecret) return null
+  return { app_id: appId, private_key: privateKey, webhook_secret: webhookSecret }
 }
 
 export default GitHubWebhooksPlugin
