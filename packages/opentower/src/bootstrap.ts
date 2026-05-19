@@ -37,7 +37,7 @@ export type BootstrapOptions = {
   defaultCwd: string
 }
 
-export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult> {
+export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult | null> {
   const cfg = await readWebhookConfig()
   console.log(`[opentower] config loaded from ${configPath()}`)
 
@@ -59,6 +59,11 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   }
 
   const triggers = (cfg.triggers ?? []).map((t) => normalizeTrigger(t, botLogin))
+  if (triggers.length === 0) {
+    console.log(`[opentower] no triggers configured (looked at ${configPath()}) -- listener disabled`)
+    return null
+  }
+
   const githubTriggerCount = triggers.filter((t) => t.source === "github_webhook").length
   const emailTriggerCount = triggers.filter((t) => t.source === "email").length
   const githubAppTriggerCount = triggers.filter((t) => t.source === "github_app").length

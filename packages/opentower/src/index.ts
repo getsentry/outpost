@@ -70,6 +70,10 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
       defaultCwd: ctx.directory,
     })
 
+    if (!result) {
+      return {}
+    }
+
     let stopping = false
     const onShutdown = async (sig: NodeJS.Signals) => {
       if (stopping) return

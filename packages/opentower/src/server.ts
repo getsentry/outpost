@@ -50,6 +50,11 @@ async function main() {
 
   const result = await bootstrap({ client, defaultCwd })
 
+  if (!result) {
+    console.log("[opentower] nothing to do, exiting")
+    process.exit(0)
+  }
+
   let stopping = false
   const onShutdown = async (sig: NodeJS.Signals) => {
     if (stopping) return

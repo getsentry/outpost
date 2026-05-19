@@ -24,9 +24,24 @@ export type GithubAppHandlerOptions = {
 export function createGithubAppHandler(opts: GithubAppHandlerOptions): WebhookHandler {
   const { webhookSecret, triggers, auth } = opts
 
-  // GitHub App bot login is "<slug>[bot]". Resolved lazily on
-  // first request and cached for the ignore_authors self-loop guard.
-  let appBotLogin: string | null = null
+  // GitHub App bot login is "<slug>[bot]". Resolved lazily on first
+  // request via a shared promise to avoid duplicate API calls from
+  // concurrent requests. Falls back to context.botLogin on failure.
+  let appBotLoginPromise: Promise<string | null> | null = null
+
+  function resolveAppBotLogin(fallback: string | null): Promise<string | null> {
+    if (!appBotLoginPromise) {
+      appBotLoginPromise = auth
+        .getAppSlug()
+        .then((slug) => {
+          const login = `${slug}[bot]`
+          Sentry.logger.info("github_app.bot_identity", { bot_login: login })
+          return login
+        })
+        .catch(() => fallback)
+    }
+    return appBotLoginPromise
+  }
 
   return {
     source: "github_app",
@@ -88,16 +103,7 @@ export function createGithubAppHandler(opts: GithubAppHandlerOptions): WebhookHa
           }
         }
 
-        // Resolve the app's bot login on first request for self-loop guard.
-        if (appBotLogin === null) {
-          try {
-            const slug = await auth.getAppSlug()
-            appBotLogin = `${slug}[bot]`
-            Sentry.logger.info("github_app.bot_identity", { bot_login: appBotLogin })
-          } catch {
-            appBotLogin = context.botLogin ?? ""
-          }
-        }
+        const appBotLogin = await resolveAppBotLogin(context.botLogin)
 
         Sentry.logger.info("webhook.received", {
           source: "github_app",
@@ -115,7 +121,7 @@ export function createGithubAppHandler(opts: GithubAppHandlerOptions): WebhookHa
           action,
           payload,
           sender: lookupString(payload, "sender.login"),
-          botLogin: appBotLogin || context.botLogin,
+          botLogin: appBotLogin ?? context.botLogin,
           deliveryId,
           templateContext: {
             event,

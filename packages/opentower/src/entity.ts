@@ -177,6 +177,9 @@ async function resolvePushEntity(
       }
     }
     if (allNums.size > 0) {
+      // Assume "issue" kind since we can't determine the type without
+      // an API call. If #N is actually a PR, the kind is corrected
+      // when a subsequent pull_request event triggers upsertEntity.
       const first = [...allNums][0]
       return { key: `${repo}#${first}`, repo, number: first, kind: "issue", linkedIssues: [] }
     }
