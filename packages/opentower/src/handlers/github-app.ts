@@ -38,7 +38,13 @@ export function createGithubAppHandler(opts: GithubAppHandlerOptions): WebhookHa
           Sentry.logger.info("github_app.bot_identity", { bot_login: login })
           return login
         })
-        .catch(() => fallback)
+        .catch(() => {
+          // Clear the cached promise so the next request retries.
+          // Transient failures (network, rate-limit) shouldn't
+          // permanently disable the app's self-loop guard.
+          appBotLoginPromise = null
+          return fallback
+        })
     }
     return appBotLoginPromise
   }

@@ -9,9 +9,9 @@ Self-hosted [OpenCode](https://opencode.ai) web UI in a Docker image, ready to d
 - **OpenCode** built from source from the [`BYK/opencode`](https://github.com/BYK/opencode/tree/byk/cumulative) fork (`byk/cumulative` branch) — carries question-dock UX, plan-mode, and db perf fixes that aren't yet in upstream. Built fresh into the image; auto-update is effectively disabled because the fork has no release feed.
 - [Sentry CLI](https://cli.sentry.dev), GitHub CLI, **nvm + Node 22 LTS** (`pnpm` / `yarn` via corepack), **Bun**, plus `git`, `ripgrep`, `fd`, `fzf`, `jq`, `yq`, and `build-essential`.
 - No MCP servers preconfigured — add your own via a project-local `opencode.json` or by editing [`opencode-user-config.json`](./opencode-user-config.json) before building.
-- **Bundled OpenCode plugin: [`opentower`](./packages/opentower)** — turns inbound GitHub webhook deliveries into OpenCode agent sessions running in the same `opencode` process. Ships with [`webhooks.json`](./webhooks.json) baked in (3 triggers covering all GitHub events and email notifications). Activates on container start once you set `GITHUB_WEBHOOK_SECRET`. The plugin lives as a standalone, publishable npm package under [`packages/opentower/`](./packages/opentower) — see its [README](./packages/opentower/README.md) for the full config schema and how to use it in your own OpenCode setup. See also [GitHub webhooks → agent sessions](#github-webhooks--agent-sessions) below for this image's specific wiring.
+- **Bundled OpenCode plugin: [`opentower`](./packages/opentower)** — turns inbound GitHub webhook deliveries into OpenCode agent sessions running in the same `opencode` process. Ships with [`opentower.config.json`](./opentower.config.json) baked in (3 triggers covering all GitHub events and email notifications). Activates on container start once you set `GITHUB_WEBHOOK_SECRET`. The plugin lives as a standalone, publishable npm package under [`packages/opentower/`](./packages/opentower) — see its [README](./packages/opentower/README.md) for the full config schema and how to use it in your own OpenCode setup. See also [GitHub webhooks → agent sessions](#github-webhooks--agent-sessions) below for this image's specific wiring.
 - **Bundled agent** (permissions pre-broadened so it doesn't stall on approval prompts):
-  - [`github-agent`](./agents/github-agent.md) — unified agent that receives raw webhook payloads, triages the event, and loads situation-specific skills to drive it to completion. Handles the full lifecycle: issue assignment → draft PR → review → CI fix → comment response.
+  - [`jared`](./agents/jared.md) — unified agent that receives raw webhook payloads, triages the event, and loads situation-specific skills to drive it to completion. Handles the full lifecycle: issue assignment → draft PR → review → CI fix → comment response.
 - **Bundled skills** (loadable on demand by the agent via the `skill` tool):
   - **Situation skills** (domain workflows the agent loads based on the event type):
     - [`repo-setup`](./skills/repo-setup/SKILL.md) — shared clone/checkout/branch boilerplate.
@@ -58,7 +58,7 @@ See [`.env.example`](./.env.example) for the full template.
 | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_URL` | For the bundled `sentry` CLI. |
 | `GH_TOKEN` | For the bundled `gh` CLI and the `opentower` plugin's bot identity resolution. PAT with the scopes you need (typical: `repo`, `read:org`, `workflow`). The plugin resolves the bot's login at boot for self-loop prevention (`$BOT_LOGIN` substitution); without `GH_TOKEN`, self-loop prevention is degraded. |
 | `GITHUB_WEBHOOK_SECRET` | HMAC secret for the `opentower` plugin. Required to receive webhooks. |
-| `WEBHOOK_PORT`, `WEBHOOKS_CONFIG` | Optional plugin tuning. See [`.env.example`](./.env.example). |
+| `WEBHOOK_PORT`, `OPENTOWER_CONFIG` | Optional plugin tuning. See [`.env.example`](./.env.example). |
 | `PORT` | Set automatically by most PaaS providers. Defaults to `4096`. |
 
 ## GitHub webhooks → agent sessions
@@ -71,15 +71,15 @@ deliveries into agent sessions via the in-process SDK client.
 
 ### Default behavior
 
-The image ships with [`webhooks.json`](./webhooks.json) baked in at
-`~/.config/opencode/webhooks.json`. It defines **3 triggers**
-that route all supported GitHub events to the unified `github-agent`:
+The image ships with [`opentower.config.json`](./opentower.config.json) baked in at
+`~/.config/opencode/opentower.config.json`. It defines **3 triggers**
+that route all supported GitHub events to the `jared` agent:
 
 | Trigger | Events | Self-loop guard | Agent |
 |---|---|---|---|
-| `github-event` | `issues`, `pull_request`, `check_suite` | none (bot's own actions should fire) | `github-agent` |
-| `github-comment` | `pull_request_review_comment`, `issue_comment`, `pull_request_review` | `ignore_authors: [$BOT_LOGIN]` | `github-agent` |
-| `email-event` | `email.*` (any email notification) | `ignore_authors: [$BOT_LOGIN]` | `github-agent` |
+| `github-event` | `issues`, `pull_request`, `check_suite` | none (bot's own actions should fire) | `jared` |
+| `github-comment` | `pull_request_review_comment`, `issue_comment`, `pull_request_review` | `ignore_authors: [$BOT_LOGIN]` | `jared` |
+| `email-event` | `email.*` (any email notification) | `ignore_authors: [$BOT_LOGIN]` | `jared` |
 
 The agent receives the **raw webhook payload** and decides what to do.
 It triages the event and loads the appropriate skills to execute the
@@ -125,7 +125,7 @@ Self-loop prevention works at two levels:
    activity (e.g., opening a PR, posting a comment) from re-triggering
    a new session.
 
-2. **Agent level** — the `github-agent` runs a self-loop guard as a
+2. **Agent level** — the `jared` agent runs a self-loop guard as a
    pre-flight check: if `payload.sender.login` equals the bot's
    identity, it stops with `SKIPPED: self-triggered`. The exception is
    `check_suite.completed` where the sender is the CI app, not the
@@ -141,9 +141,9 @@ check provides a second layer of defense.
 The bundled file gives you all four agent flows out of the box. To
 customize:
 
-- **Edit before building** — change [`webhooks.json`](./webhooks.json) in
+- **Edit before building** — change [`opentower.config.json`](./opentower.config.json) in
   this repo and rebuild the image. Triggers stay version-controlled.
-- **Override at runtime** — set `WEBHOOKS_CONFIG=/home/developer/dev/.opencode/webhooks.json`
+- **Override at runtime** — set `OPENTOWER_CONFIG=/home/developer/dev/.opencode/opentower.config.json`
   (or any other path) and put your own file there. Handy for adding
   per-deployment triggers without rebuilding.
 
@@ -160,14 +160,14 @@ The minimum-viable trigger:
     {
       "name": "all-events",
       "event": ["issues", "pull_request"],
-      "agent": "github-agent",
+      "agent": "jared",
       "prompt_template": "A GitHub webhook arrived.\n\nEvent: {{ event }}\nAction: {{ action }}\n\nPayload:\n{{ payload }}"
     }
   ]
 }
 ```
 
-The bundled [`webhooks.json`](./webhooks.json) passes the raw payload
+The bundled [`opentower.config.json`](./opentower.config.json) passes the raw payload
 to the agent, which decides what to do. The plugin's job is kept
 minimal: HMAC verification, dedup, self-loop guard, and dispatch.
 
@@ -225,7 +225,7 @@ docker run --rm -it \
 ```
 
 Open <http://localhost:4096> for OpenCode. Hit
-<http://localhost:5050/healthz> if you've set up a `webhooks.json` and
+<http://localhost:5050/healthz> if you've set up an `opentower.config.json` and
 want to verify the plugin loaded.
 
 ## Notes
