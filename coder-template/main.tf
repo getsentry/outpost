@@ -28,7 +28,7 @@ variable "use_kubeconfig" {
 variable "namespace" {
   type        = string
   description = "Kubernetes namespace to create workspaces in (must already exist)."
-  default     = "coder"
+  default     = "coder-prod"
 }
 
 provider "kubernetes" {
@@ -230,21 +230,21 @@ resource "coder_agent" "main" {
   dir  = "/home/developer/dev"
 
   env = {
-    GH_TOKEN              = data.coder_parameter.gh_token.value
-    ANTHROPIC_API_KEY     = data.coder_parameter.anthropic_api_key.value
-    OPENAI_API_KEY        = data.coder_parameter.openai_api_key.value
-    GEMINI_API_KEY        = data.coder_parameter.gemini_api_key.value
-    GROQ_API_KEY          = data.coder_parameter.groq_api_key.value
-    OPENROUTER_API_KEY    = data.coder_parameter.openrouter_api_key.value
-    GITHUB_WEBHOOK_SECRET      = data.coder_parameter.github_webhook_secret.value
-    GITHUB_APP_ID              = data.coder_parameter.github_app_id.value
-    GITHUB_APP_PRIVATE_KEY     = data.coder_parameter.github_app_private_key.value
-    GITHUB_APP_WEBHOOK_SECRET  = data.coder_parameter.github_app_webhook_secret.value
-    EMAIL_WEBHOOK_SECRET       = data.coder_parameter.email_webhook_secret.value
-    WEBHOOK_PORT          = tostring(data.coder_parameter.webhook_port.value)
-    OPENTOWER_API_TOKEN   = data.coder_parameter.opentower_api_token.value
-    SENTRY_DSN            = data.coder_parameter.sentry_dsn.value
-    SENTRY_AUTH_TOKEN     = data.coder_parameter.sentry_auth_token.value
+    GH_TOKEN                  = data.coder_parameter.gh_token.value
+    ANTHROPIC_API_KEY         = data.coder_parameter.anthropic_api_key.value
+    OPENAI_API_KEY            = data.coder_parameter.openai_api_key.value
+    GEMINI_API_KEY            = data.coder_parameter.gemini_api_key.value
+    GROQ_API_KEY              = data.coder_parameter.groq_api_key.value
+    OPENROUTER_API_KEY        = data.coder_parameter.openrouter_api_key.value
+    GITHUB_WEBHOOK_SECRET     = data.coder_parameter.github_webhook_secret.value
+    GITHUB_APP_ID             = data.coder_parameter.github_app_id.value
+    GITHUB_APP_PRIVATE_KEY    = data.coder_parameter.github_app_private_key.value
+    GITHUB_APP_WEBHOOK_SECRET = data.coder_parameter.github_app_webhook_secret.value
+    EMAIL_WEBHOOK_SECRET      = data.coder_parameter.email_webhook_secret.value
+    WEBHOOK_PORT              = tostring(data.coder_parameter.webhook_port.value)
+    OPENTOWER_API_TOKEN       = data.coder_parameter.opentower_api_token.value
+    SENTRY_DSN                = data.coder_parameter.sentry_dsn.value
+    SENTRY_AUTH_TOKEN         = data.coder_parameter.sentry_auth_token.value
     # git identity is set by docker-entrypoint.sh from GH_TOKEN/gh api user;
     # do not set GIT_AUTHOR_* here — it would attribute bot commits to the
     # Coder workspace owner instead of the GitHub bot account.
