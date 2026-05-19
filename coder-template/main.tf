@@ -39,6 +39,13 @@ data "coder_provisioner" "me" {}
 data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
 
+locals {
+  # Human-readable slug used for Kubernetes resource names, matching the
+  # naming convention from getsentry/devinfra-coder-infra:
+  #   opencode-{owner}-{workspace}
+  workspace_slug = "opencode-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
+}
+
 # --- Parameters (prompted when creating a workspace) ---
 
 data "coder_parameter" "gh_token" {
@@ -195,11 +202,11 @@ data "coder_parameter" "sentry_auth_token" {
 
 resource "kubernetes_persistent_volume_claim_v1" "dev" {
   metadata {
-    name      = "opencode-${data.coder_workspace.me.id}-dev"
+    name      = "${local.workspace_slug}-dev"
     namespace = var.namespace
     labels = {
       "app.kubernetes.io/name"     = "opencode-pvc"
-      "app.kubernetes.io/instance" = "opencode-pvc-${data.coder_workspace.me.id}"
+      "app.kubernetes.io/instance" = "opencode-pvc-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
       "app.kubernetes.io/part-of"  = "coder"
       "com.coder.resource"         = "true"
       "com.coder.workspace.id"     = data.coder_workspace.me.id
@@ -382,11 +389,11 @@ resource "kubernetes_deployment_v1" "workspace" {
   wait_for_rollout = false
 
   metadata {
-    name      = "opencode-${data.coder_workspace.me.id}"
+    name      = local.workspace_slug
     namespace = var.namespace
     labels = {
       "app.kubernetes.io/name"     = "opencode-workspace"
-      "app.kubernetes.io/instance" = "opencode-workspace-${data.coder_workspace.me.id}"
+      "app.kubernetes.io/instance" = "opencode-workspace-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
       "app.kubernetes.io/part-of"  = "coder"
       "com.coder.resource"         = "true"
       "com.coder.workspace.id"     = data.coder_workspace.me.id
@@ -401,7 +408,7 @@ resource "kubernetes_deployment_v1" "workspace" {
     selector {
       match_labels = {
         "app.kubernetes.io/name"     = "opencode-workspace"
-        "app.kubernetes.io/instance" = "opencode-workspace-${data.coder_workspace.me.id}"
+        "app.kubernetes.io/instance" = "opencode-workspace-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
       }
     }
     strategy {
@@ -412,7 +419,7 @@ resource "kubernetes_deployment_v1" "workspace" {
       metadata {
         labels = {
           "app.kubernetes.io/name"     = "opencode-workspace"
-          "app.kubernetes.io/instance" = "opencode-workspace-${data.coder_workspace.me.id}"
+          "app.kubernetes.io/instance" = "opencode-workspace-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
           "app.kubernetes.io/part-of"  = "coder"
           "com.coder.resource"         = "true"
           "com.coder.workspace.id"     = data.coder_workspace.me.id
