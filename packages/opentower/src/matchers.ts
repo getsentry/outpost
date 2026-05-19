@@ -6,6 +6,7 @@
 import * as Sentry from "@sentry/bun"
 import { extractEntityKey } from "./entity"
 import type { EntityResolver } from "./entity-resolver"
+import type { GitHubFetcher } from "./github-api"
 import type { Pipeline } from "./pipeline"
 import { renderTemplate } from "./template"
 import type { NormalizedTrigger, SkippedDispatch } from "./types"
@@ -64,11 +65,12 @@ export async function evaluateAndDispatch(opts: {
   templateContext: Record<string, unknown>
   pipeline: Pipeline
   entityResolver?: EntityResolver | null
+  githubFetcher?: GitHubFetcher | null
 }): Promise<{ dispatched: string[]; skipped: SkippedDispatch[] }> {
   const dispatched: string[] = []
   const skipped: SkippedDispatch[] = []
 
-  const entityKey = await extractEntityKey(opts.event, opts.payload, opts.entityResolver)
+  const entityKey = await extractEntityKey(opts.event, opts.payload, opts.entityResolver, opts.githubFetcher)
 
   const matched = findMatching(opts.triggers, opts.event, opts.action)
   if (matched.length === 0) {

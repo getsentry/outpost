@@ -6,6 +6,7 @@
 
 import * as Sentry from "@sentry/bun"
 import type { Hono } from "hono"
+import { createGitHubFetcher } from "../github-api"
 import type { GitHubAppAuth } from "../github-app-auth"
 import { verifyGithubSignature } from "../hmac"
 import { readBodyBytes } from "../http"
@@ -65,13 +66,15 @@ export function createGithubAppHandler(opts: GithubAppHandlerOptions): WebhookHa
           return c.json({ ok: true, delivery_id: deliveryId, duplicate: true, dispatched: [] })
         }
 
-        // Extract installation ID and acquire a token for cache warming.
-        // The token is NOT injected into the payload or template context to
-        // avoid leaking credentials into LLM prompts and session transcripts.
+        // Acquire an installation token for entity enrichment (fetching PR
+        // bodies, resolving branches). The token is used for API calls but
+        // NOT injected into the payload or template context.
         const installationId = (payload as { installation?: { id?: number } })?.installation?.id
+        let githubFetcher = null
         if (installationId) {
           try {
-            await auth.getInstallationToken(installationId)
+            const token = await auth.getInstallationToken(installationId)
+            githubFetcher = createGitHubFetcher(token)
             Sentry.logger.info("github_app.token_acquired", {
               installation_id: installationId,
               delivery_id: deliveryId,
@@ -122,6 +125,7 @@ export function createGithubAppHandler(opts: GithubAppHandlerOptions): WebhookHa
             installation_id: installationId,
           },
           pipeline: context.pipeline,
+          githubFetcher,
         })
 
         return c.json({

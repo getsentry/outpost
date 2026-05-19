@@ -4,6 +4,7 @@
 
 import * as Sentry from "@sentry/bun"
 import type { Hono } from "hono"
+import { type GitHubFetcher, createGitHubFetcher } from "../github-api"
 import { verifyGithubSignature } from "../hmac"
 import { readBodyBytes } from "../http"
 import type { HandlerContext, WebhookHandler } from "../interfaces"
@@ -18,6 +19,11 @@ export type GithubWebhookHandlerOptions = {
 
 export function createGithubWebhookHandler(opts: GithubWebhookHandlerOptions): WebhookHandler {
   const { secret, triggers } = opts
+
+  // Create a fetcher from GH_TOKEN if available for entity enrichment
+  // (fetching PR bodies for check_suite/workflow_run, resolving push branches).
+  const ghToken = process.env.GH_TOKEN ?? ""
+  const githubFetcher: GitHubFetcher | null = ghToken ? createGitHubFetcher(ghToken) : null
 
   return {
     source: "github_webhook",
@@ -81,6 +87,7 @@ export function createGithubWebhookHandler(opts: GithubWebhookHandlerOptions): W
             payload,
           },
           pipeline: context.pipeline,
+          githubFetcher,
         })
 
         return c.json({
