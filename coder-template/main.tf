@@ -213,7 +213,7 @@ resource "kubernetes_persistent_volume_claim_v1" "dev" {
     access_modes = ["ReadWriteOnce"]
     resources {
       requests = {
-        storage = "10Gi"
+        storage = "50Gi"
       }
     }
   }
@@ -514,11 +514,11 @@ resource "kubernetes_deployment_v1" "workspace" {
           resources {
             requests = {
               "cpu"    = "500m"
-              "memory" = "1Gi"
+              "memory" = "2Gi"
             }
             limits = {
               "cpu"    = "4"
-              "memory" = "4Gi"
+              "memory" = "8Gi"
             }
           }
 
