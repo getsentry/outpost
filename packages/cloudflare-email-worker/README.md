@@ -91,13 +91,13 @@ GitHub  ──email──▶  gh@yourdomain.com
    - GitHub → Settings → Emails → add `gh@yourdomain.com`, verify.
    - Settings → Notifications → set custom routing per-org (or set it as your default email) so notifications land at this address.
 
-7. **Add an email trigger to `webhooks.json`** in the container, e.g.:
+7. **Add an email trigger to `opentower.config.json`** in the container, e.g.:
    ```json
    {
      "name": "email-event",
      "source": "email",
      "event": ["email.*"],
-     "agent": "github-agent",
+     "agent": "jared",
      "prompt_template": "A GitHub notification arrived via email.\n\nEvent: {{ event }}\nAction: {{ action }}\nDelivery: {{ delivery_id }}\n\nPayload:\n{{ payload }}"
    }
    ```

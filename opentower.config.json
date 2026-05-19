@@ -11,7 +11,7 @@
         "workflow_run:completed",
         "push"
       ],
-      "agent": "github-agent",
+      "agent": "jared",
       "prompt_template": "A GitHub webhook just arrived. Read the payload and decide what to do.\n\nEvent: {{ event }}\nAction: {{ action }}\nDelivery: {{ delivery_id }}\n\nPayload:\n{{ payload }}"
     },
     {
@@ -21,7 +21,7 @@
         "issue_comment",
         "pull_request_review"
       ],
-      "agent": "github-agent",
+      "agent": "jared",
       "ignore_authors": ["$BOT_LOGIN"],
       "prompt_template": "A GitHub webhook just arrived. Read the payload and decide what to do.\n\nEvent: {{ event }}\nAction: {{ action }}\nDelivery: {{ delivery_id }}\n\nPayload:\n{{ payload }}"
     },
@@ -29,7 +29,7 @@
       "name": "email-event",
       "source": "email",
       "event": ["email.*"],
-      "agent": "github-agent",
+      "agent": "jared",
       "prompt_template": "An email was received. Read it and decide what to do. It could be a GitHub notification, a Sentry alert, a forwarded issue, or anything else. Use the email content to determine the appropriate action.\n\nDelivery: {{ delivery_id }}\n\nFrom: {{ payload.from }}\nTo: {{ payload.to }}\nSubject: {{ payload.subject }}\nMessage-ID: {{ payload.message_id }}\nIn-Reply-To: {{ payload.in_reply_to }}\nReferences: {{ payload.references }}\nList-ID: {{ payload.list_id }}\nX-GitHub-Reason: {{ payload.x_github_reason }}\nX-GitHub-Sender: {{ payload.x_github_sender }}\n\nBody:\n{{ payload.body_text }}"
     }
   ]

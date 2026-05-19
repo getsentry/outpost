@@ -24,7 +24,7 @@ checks and have no review objections. Acts as the final step after
 
 ## Invocation
 
-Loaded by `github-agent` after `mark-pr-ready` completes, or in
+Loaded by `jared` after `mark-pr-ready` completes, or in
 response to a `pull_request.ready_for_review` webhook for a PR
 that transitioned from draft.
 

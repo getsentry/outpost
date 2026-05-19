@@ -22,7 +22,7 @@ prerequisite skill for every situation skill.
 
 ## Invocation
 
-Loaded first by `github-agent` before every situation skill. Every
+Loaded first by `jared` before every situation skill. Every
 code-touching workflow starts with `repo-setup`.
 
 ## Runtime contract

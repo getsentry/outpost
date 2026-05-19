@@ -24,7 +24,7 @@ budget of 3 attempts to prevent infinite fix loops.
 
 ## Invocation
 
-Loaded by `github-agent` when a `check_suite` or `workflow_run` event
+Loaded by `jared` when a `check_suite` or `workflow_run` event
 arrives with `conclusion: failure` for a PR the bot authored.
 Requires `repo-setup` first.
 

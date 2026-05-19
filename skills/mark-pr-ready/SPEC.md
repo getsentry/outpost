@@ -24,7 +24,7 @@ non-disruptive changes, but this skill itself never merges.
 
 ## Invocation
 
-Loaded by `github-agent` after a `check_suite` or `workflow_run`
+Loaded by `jared` after a `check_suite` or `workflow_run`
 event with `conclusion: success` on a draft PR where the bot is
 the author.
 

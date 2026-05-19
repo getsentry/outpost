@@ -259,7 +259,7 @@ function CreateCronJobDialog({
   const [name, setName] = useState("")
   const [cronExpression, setCronExpression] = useState("")
   const [prompt, setPrompt] = useState("")
-  const [agent, setAgent] = useState("github-agent")
+  const [agent, setAgent] = useState("jared")
   const [entityKey, setEntityKey] = useState("")
   const [timezone, setTimezone] = useState("UTC")
   const [runOnce, setRunOnce] = useState(false)
@@ -347,7 +347,7 @@ function CreateCronJobDialog({
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="agent">Agent</Label>
-            <Input id="agent" value={agent} onChange={(e) => setAgent(e.target.value)} placeholder="github-agent" />
+            <Input id="agent" value={agent} onChange={(e) => setAgent(e.target.value)} placeholder="jared" />
           </div>
           <div className="space-y-2">
             <Label htmlFor="timezone">Timezone</Label>

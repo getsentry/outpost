@@ -37,7 +37,7 @@ Once published to npm, add the package name to your OpenCode config's `plugin` a
 
 ## Configure
 
-The plugin reads `webhooks.json` from `~/.config/opencode/webhooks.json` by default. Override with the `WEBHOOKS_CONFIG` env var.
+The plugin reads `opentower.config.json` from `~/.config/opencode/opentower.config.json` by default. Override with the `OPENTOWER_CONFIG` env var.
 
 Minimal config:
 
@@ -50,7 +50,7 @@ Minimal config:
     {
       "name": "github-event",
       "event": ["issues", "pull_request"],
-      "agent": "github-agent",
+      "agent": "jared",
       "prompt_template": "Event: {{ event }}\nAction: {{ action }}\n\nPayload:\n{{ payload }}"
     }
   ]
@@ -105,7 +105,7 @@ If `gh` isn't installed or `GH_TOKEN` isn't set, the `$BOT_LOGIN` placeholder is
 | `EMAIL_WEBHOOK_SECRET` | Shared HMAC secret with the Cloudflare email worker, verified against `X-Email-Signature-256` on `/webhooks/email`. |
 | `GH_TOKEN` | GitHub PAT, read by `gh` CLI for `gh api user` (bot identity for `$BOT_LOGIN` substitution) and for synthesizing email payloads via `gh api`. Required for self-loop prevention and all email triggers. |
 | `WEBHOOK_PORT` | Override listener port (default 5050). |
-| `WEBHOOKS_CONFIG` | Path to `webhooks.json` (default `~/.config/opencode/webhooks.json`). |
+| `OPENTOWER_CONFIG` | Path to `opentower.config.json` (default `~/.config/opencode/opentower.config.json`). |
 | `SENTRY_DSN` | Sentry DSN for error tracking. If set, `Sentry.init()` is called at plugin startup and unhandled rejections are captured. |
 | `SENTRY_TRACES_SAMPLE_RATE` | Fraction of requests traced (0.0–1.0). Default 0.1. Set to 1.0 for debugging, 0 to disable tracing. |
 

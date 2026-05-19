@@ -22,7 +22,7 @@ its own PRs or posting review feedback on others' PRs.
 
 ## Invocation
 
-Loaded by `github-agent` when a PR event involves the bot (as author,
+Loaded by `jared` when a PR event involves the bot (as author,
 reviewer, or assignee). Requires `repo-setup` first.
 
 ## Runtime contract
