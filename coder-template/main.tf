@@ -432,7 +432,7 @@ resource "kubernetes_deployment_v1" "workspace" {
 
         container {
           name              = "opencode"
-          image             = "ghcr.io/mathuraditya724/outpost:0.3.1"
+          image             = "ghcr.io/mathuraditya724/outpost:0.4.0"
           image_pull_policy = "Always"
 
           # Official Coder Kubernetes template pattern:
