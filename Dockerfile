@@ -176,14 +176,14 @@ COPY --chown=developer:developer \
      opencode-user-config.json \
      /home/developer/.config/opencode/opencode.json
 
-# Bundled agent (github-agent). Single unified agent that triages
+# Bundled agent (jared). Single unified agent that triages
 # webhook events and loads situation-specific skills on demand.
 COPY --chown=developer:developer agents \
      /home/developer/.config/opencode/agents
 
 # Bundled skills. Each skill lives at
 # ~/.config/opencode/skills/<name>/SKILL.md and is auto-discovered by
-# OpenCode's skill tool. The github-agent loads these on demand:
+# OpenCode's skill tool. The jared agent loads these on demand:
 #   - repo-setup: shared clone/checkout boilerplate
 #   - resolve-issue, review-pr, fix-ci, respond-to-comment, apply-fixes:
 #     situation-specific workflows
@@ -211,15 +211,15 @@ RUN cd /home/developer/.config/opencode \
  && rm -rf ~/.bun/install/cache
 
 # Default config for the opentower plugin: 3 broad triggers
-# routing all GitHub events and email notifications to the unified
-# github-agent. The plugin reads this on startup; without it, the
-# listener stays off (no surprise port). Override per-deploy by setting
-# WEBHOOKS_CONFIG to a path on your persistent volume (e.g.
-# ~/dev/.opencode/webhooks.json) and putting your own file there. The
-# HMAC secret is intentionally NOT in this file — set
+# routing all GitHub events and email notifications to the jared agent.
+# The plugin reads this on startup; without it, the listener stays off
+# (no surprise port). Override per-deploy by setting OPENTOWER_CONFIG
+# to a path on your persistent volume (e.g.
+# ~/dev/.opencode/opentower.config.json) and putting your own file there.
+# The HMAC secret is intentionally NOT in this file — set
 # GITHUB_WEBHOOK_SECRET as an env var so it isn't baked into the image.
-COPY --chown=developer:developer webhooks.json \
-     /home/developer/.config/opencode/webhooks.json
+COPY --chown=developer:developer opentower.config.json \
+     /home/developer/.config/opencode/opentower.config.json
 
 # Tiny entrypoint that mkdir's ~/dev/.opencode at runtime so a single
 # Railway Volume mounted at ~/dev persists projects + OpenCode session/auth

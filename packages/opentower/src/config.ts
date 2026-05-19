@@ -4,8 +4,8 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import type { GithubAppConfig, NormalizedTrigger, Trigger, WebhookConfig } from "./types"
 
-// Read webhooks.json. Default ~/.config/opencode/webhooks.json,
-// override via WEBHOOKS_CONFIG. Missing file = no triggers.
+// Read opentower.config.json. Default ~/.config/opencode/opentower.config.json,
+// override via OPENTOWER_CONFIG (legacy: WEBHOOKS_CONFIG). Missing file = no triggers.
 export async function readWebhookConfig(): Promise<WebhookConfig> {
   const path = configPath()
   if (!existsSync(path)) return {}
@@ -21,7 +21,9 @@ export async function readWebhookConfig(): Promise<WebhookConfig> {
 }
 
 export function configPath(): string {
-  return process.env.WEBHOOKS_CONFIG ?? `${homedir()}/.config/opencode/webhooks.json`
+  return (
+    process.env.OPENTOWER_CONFIG ?? process.env.WEBHOOKS_CONFIG ?? `${homedir()}/.config/opencode/opentower.config.json`
+  )
 }
 
 // Normalize a trigger's ignore_authors:

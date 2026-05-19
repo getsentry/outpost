@@ -2,7 +2,7 @@
 // email worker forwards) and dispatches to OpenCode agents via the
 // in-process SDK client. Uses Hono for routing, Sentry for
 // observability (traces, structured logs, error tracking).
-// Listener on WEBHOOK_PORT (default 5050). Trigger config in webhooks.json.
+// Listener on WEBHOOK_PORT (default 5050). Trigger config in opentower.config.json.
 //
 // This module is the plugin entry point. For standalone server mode,
 // see server.ts / bin.ts.

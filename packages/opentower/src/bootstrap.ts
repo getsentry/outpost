@@ -115,7 +115,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
 
   const cronTriggers = triggers.filter((t) => t.source === "cron")
   const defaultCronTrigger = cronTriggers[0] ?? null
-  const defaultAgent = defaultCronTrigger?.agent ?? triggers[0]?.agent ?? "github-agent"
+  const defaultAgent = defaultCronTrigger?.agent ?? triggers[0]?.agent ?? "jared"
 
   const cronScheduler = makeCronScheduler({
     store,

@@ -26,7 +26,7 @@ over blocking on ambiguity.
 
 ## Invocation
 
-Loaded by `github-agent` when an issue is assigned to the bot.
+Loaded by `jared` when an issue is assigned to the bot.
 Requires `repo-setup` to run first.
 
 ## Runtime contract

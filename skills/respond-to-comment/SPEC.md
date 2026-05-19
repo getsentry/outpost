@@ -24,7 +24,7 @@ for non-actionable feedback.
 
 ## Invocation
 
-Loaded by `github-agent` when a `pull_request_review_comment`,
+Loaded by `jared` when a `pull_request_review_comment`,
 `issue_comment`, or `pull_request_review` event arrives for a PR the
 bot is involved in. Requires `repo-setup` first.
 

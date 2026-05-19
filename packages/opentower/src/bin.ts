@@ -3,6 +3,6 @@
 // Usage: opentower
 //
 // Requires OPENCODE_URL to be set, pointing to a running OpenCode instance.
-// Configuration is read from webhooks.json (see WEBHOOKS_CONFIG env var).
+// Configuration is read from opentower.config.json (see OPENTOWER_CONFIG env var).
 
 import "./server"
