@@ -1,4 +1,18 @@
 # Changelog
+## 0.4.0
+
+### New Features ✨
+
+- (opentower) Handler/agent factory architecture with standalone server by @MathurAditya724 in [#90](https://github.com/MathurAditya724/outpost/pull/90)
+- Add GitHub App configuration (env vars, coder template, triggers) by @MathurAditya724 in [#91](https://github.com/MathurAditya724/outpost/pull/91)
+
+### Bug Fixes 🐛
+
+#### Coder Template
+
+- Make opentower app public for webhooks by @MathurAditya724 in [#89](https://github.com/MathurAditya724/outpost/pull/89)
+- Hardcode docker image to avoid variable caching by @MathurAditya724 in [#88](https://github.com/MathurAditya724/outpost/pull/88)
+
 ## 0.3.1
 
 ### New Features ✨
