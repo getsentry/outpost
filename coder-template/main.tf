@@ -81,6 +81,36 @@ data "coder_parameter" "github_webhook_secret" {
   order        = 2
 }
 
+data "coder_parameter" "github_app_id" {
+  name         = "github_app_id"
+  display_name = "GitHub App ID"
+  description  = "App ID from the GitHub App settings page. Required for GitHub App webhook handler."
+  type         = "string"
+  mutable      = true
+  default      = ""
+  order        = 4
+}
+
+data "coder_parameter" "github_app_private_key" {
+  name         = "github_app_private_key"
+  display_name = "GitHub App Private Key"
+  description  = "PEM private key generated when creating the GitHub App. Literal \\n is auto-converted to newlines."
+  type         = "string"
+  mutable      = true
+  default      = ""
+  order        = 5
+}
+
+data "coder_parameter" "github_app_webhook_secret" {
+  name         = "github_app_webhook_secret"
+  display_name = "GitHub App Webhook Secret"
+  description  = "Webhook secret configured in the GitHub App settings. Used for HMAC signature verification."
+  type         = "string"
+  mutable      = true
+  default      = ""
+  order        = 6
+}
+
 data "coder_parameter" "webhook_port" {
   name         = "webhook_port"
   display_name = "Webhook Port"
@@ -206,8 +236,11 @@ resource "coder_agent" "main" {
     GEMINI_API_KEY        = data.coder_parameter.gemini_api_key.value
     GROQ_API_KEY          = data.coder_parameter.groq_api_key.value
     OPENROUTER_API_KEY    = data.coder_parameter.openrouter_api_key.value
-    GITHUB_WEBHOOK_SECRET = data.coder_parameter.github_webhook_secret.value
-    EMAIL_WEBHOOK_SECRET  = data.coder_parameter.email_webhook_secret.value
+    GITHUB_WEBHOOK_SECRET      = data.coder_parameter.github_webhook_secret.value
+    GITHUB_APP_ID              = data.coder_parameter.github_app_id.value
+    GITHUB_APP_PRIVATE_KEY     = data.coder_parameter.github_app_private_key.value
+    GITHUB_APP_WEBHOOK_SECRET  = data.coder_parameter.github_app_webhook_secret.value
+    EMAIL_WEBHOOK_SECRET       = data.coder_parameter.email_webhook_secret.value
     WEBHOOK_PORT          = tostring(data.coder_parameter.webhook_port.value)
     OPENTOWER_API_TOKEN   = data.coder_parameter.opentower_api_token.value
     SENTRY_DSN            = data.coder_parameter.sentry_dsn.value
@@ -440,6 +473,18 @@ resource "kubernetes_deployment_v1" "workspace" {
           env {
             name  = "GITHUB_WEBHOOK_SECRET"
             value = data.coder_parameter.github_webhook_secret.value
+          }
+          env {
+            name  = "GITHUB_APP_ID"
+            value = data.coder_parameter.github_app_id.value
+          }
+          env {
+            name  = "GITHUB_APP_PRIVATE_KEY"
+            value = data.coder_parameter.github_app_private_key.value
+          }
+          env {
+            name  = "GITHUB_APP_WEBHOOK_SECRET"
+            value = data.coder_parameter.github_app_webhook_secret.value
           }
           env {
             name  = "EMAIL_WEBHOOK_SECRET"
