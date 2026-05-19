@@ -299,6 +299,24 @@ resource "coder_app" "opencode" {
   }
 }
 
+# Lore AI gateway — transparent LLM proxy with three-tier memory.
+# Dashboard available at /ui. Owner-only since it exposes project memory.
+resource "coder_app" "loreai" {
+  agent_id     = coder_agent.main.id
+  slug         = "loreai"
+  display_name = "Lore AI"
+  url          = "http://localhost:3207"
+  icon         = "/icon/brain.svg"
+  subdomain    = true
+  share        = "owner"
+
+  healthcheck {
+    url       = "http://localhost:3207/health"
+    interval  = 10
+    threshold = 6
+  }
+}
+
 # Opentower webhook listener — exposed via Coder's reverse proxy.
 # Public so GitHub/email webhooks can POST without Coder auth.
 resource "coder_app" "opentower" {
