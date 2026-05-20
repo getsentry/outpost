@@ -1,3 +1,4 @@
+import { ErrorBoundary } from "@/components/error-boundary"
 import Layout from "@/components/layout"
 import { useToken } from "@/hooks/use-api"
 import CronPage from "@/pages/cron"
@@ -38,8 +39,10 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AppRoutes />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </ErrorBoundary>
   )
 }

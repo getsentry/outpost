@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { emitTokenChange } from "@/hooks/use-api"
 import { ApiClient, setOpencodeUrl, setToken } from "@/lib/api"
+import { isValidUrl } from "@/lib/validation"
 import { Loader2 } from "lucide-react"
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
@@ -96,13 +97,4 @@ export default function SetupPage() {
       </Card>
     </div>
   )
-}
-
-function isValidUrl(str: string): boolean {
-  try {
-    const url = new URL(str)
-    return url.protocol === "http:" || url.protocol === "https:"
-  } catch {
-    return false
-  }
 }

@@ -53,8 +53,14 @@ export default {
     }
 
     // 2. Webhook gate: query D1 for allowlisted patterns.
+    //    Auto-seed the default patterns on first email if the table is empty,
+    //    so operators don't need to remember to call POST /seed manually.
     if (!isFromForwardTo) {
-      const patterns = await loadPatterns(env.DB)
+      let patterns = await loadPatterns(env.DB)
+      if (patterns.length === 0) {
+        await autoSeed(env.DB)
+        patterns = await loadPatterns(env.DB)
+      }
       if (!matchesAnyPattern(message.from, patterns)) {
         console.log(`webhook skipped: from=${message.from} (not in allowlist)`)
         return
@@ -171,7 +177,7 @@ function compileRows(rows: { pattern: string; kind: string }[]): Pattern[] {
   return out
 }
 
-async function handleSeed(db: D1Database): Promise<Response> {
+async function autoSeed(db: D1Database): Promise<number> {
   let inserted = 0
   for (const s of SEED_SENDERS) {
     const { meta } = await db
@@ -180,6 +186,14 @@ async function handleSeed(db: D1Database): Promise<Response> {
       .run()
     if (meta.changes > 0) inserted++
   }
+  if (inserted > 0) {
+    console.log(`auto-seeded ${inserted} default sender pattern(s)`)
+  }
+  return inserted
+}
+
+async function handleSeed(db: D1Database): Promise<Response> {
+  const inserted = await autoSeed(db)
   return Response.json({ seeded: inserted })
 }
 

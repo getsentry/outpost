@@ -2,7 +2,7 @@
 // ingest (delegated to WebhookHandlers), JSON API, and static
 // dashboard serving. Per-route logic lives under ./handlers/.
 
-import { timingSafeEqual } from "node:crypto"
+import { createHmac, timingSafeEqual } from "node:crypto"
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import * as Sentry from "@sentry/bun"
@@ -10,9 +10,18 @@ import { Hono } from "hono"
 import { serveStatic } from "hono/bun"
 import { cors } from "hono/cors"
 import type { CronScheduler } from "./cron"
-import { apiDispatchesHandler, apiEntitiesHandler, apiEntityDetailHandler, apiStatsHandler } from "./handlers/api"
+import {
+  apiDispatchesHandler,
+  apiEntitiesHandler,
+  apiEntityDetailHandler,
+  apiGetRetentionHandler,
+  apiPruneHandler,
+  apiSetRetentionHandler,
+  apiStatsHandler,
+} from "./handlers/api"
 import { makeCronHandlers } from "./handlers/cron"
 import type { HandlerContext, WebhookHandler } from "./interfaces"
+import { logger } from "./logger"
 import type { LifecycleStore } from "./storage"
 
 export type AppEnv = {
@@ -22,8 +31,13 @@ export type AppEnv = {
 }
 
 function safeTokenCompare(a: string, b: string): boolean {
-  if (a.length !== b.length) return false
-  return timingSafeEqual(Buffer.from(a), Buffer.from(b))
+  // HMAC-based comparison avoids leaking length information. Both
+  // inputs are hashed to a fixed-size digest before comparing, so
+  // the comparison is always constant-time regardless of input length.
+  const key = Buffer.from("opentower-token-compare")
+  const ha = createHmac("sha256", key).update(a).digest()
+  const hb = createHmac("sha256", key).update(b).digest()
+  return timingSafeEqual(ha, hb)
 }
 
 export function createApp(opts: {
@@ -35,21 +49,27 @@ export function createApp(opts: {
 }): Hono<AppEnv> {
   const app = new Hono<AppEnv>()
 
-  // CORS -- allows the dashboard SPA (e.g. localhost:5173) to reach
-  // all routes including /healthz and /api/*.
-  app.use(
-    "*",
-    cors({
-      origin: "*",
-      allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-      allowHeaders: ["Authorization", "Content-Type"],
-      maxAge: 86400,
-    }),
-  )
+  // CORS -- restrict to configured origins. In production the dashboard
+  // is served from the same origin so CORS isn't needed, but during
+  // development (e.g. Vite on localhost:5173) a configured origin is
+  // required. Set OPENTOWER_CORS_ORIGIN to allow a specific origin, or
+  // "*" to allow all origins (not recommended in production).
+  const corsOrigin = process.env.OPENTOWER_CORS_ORIGIN || null
+  if (corsOrigin) {
+    app.use(
+      "*",
+      cors({
+        origin: corsOrigin,
+        allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allowHeaders: ["Authorization", "Content-Type"],
+        maxAge: 86400,
+      }),
+    )
+  }
 
   app.onError((err, c) => {
     Sentry.captureException(err)
-    console.error("[opentower] unhandled route error:", err)
+    logger.error("unhandled route error", { error: err instanceof Error ? err.message : String(err) })
     return c.json({ error: "internal server error" }, 500)
   })
 
@@ -116,6 +136,9 @@ export function createApp(opts: {
   app.get("/api/entities", apiEntitiesHandler)
   app.get("/api/entities/:key", apiEntityDetailHandler)
   app.get("/api/dispatches", apiDispatchesHandler)
+  app.get("/api/retention", apiGetRetentionHandler)
+  app.put("/api/retention", apiSetRetentionHandler)
+  app.post("/api/retention/prune", apiPruneHandler)
 
   // Cron job management routes
   if (opts.cronScheduler) {

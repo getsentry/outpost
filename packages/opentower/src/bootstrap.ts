@@ -14,6 +14,7 @@ import { type EntityResolver, createEntityResolver } from "./entity-resolver"
 import { type AppEnv, createApp } from "./handler"
 import { createHandlers } from "./handlers/registry"
 import type { AgentClient, HandlerContext } from "./interfaces"
+import { logger } from "./logger"
 import { type Pipeline, makePipeline } from "./pipeline"
 import { type DrainCounter, makeDrainCounter, makeSemaphore } from "./semaphore"
 import { type LifecycleStore, openLifecycleStore } from "./storage"
@@ -30,6 +31,7 @@ export type BootstrapResult = {
   entityResolver: EntityResolver | null
   defaultAgent: string
   client: AgentClient
+  retentionInterval: ReturnType<typeof setInterval>
 }
 
 export type BootstrapOptions = {
@@ -39,7 +41,7 @@ export type BootstrapOptions = {
 
 export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult | null> {
   const cfg = await readWebhookConfig()
-  console.log(`[opentower] config loaded from ${configPath()}`)
+  logger.info("config loaded", { path: configPath() })
 
   const port = cfg.port ?? Number(process.env.WEBHOOK_PORT ?? "5050")
   const secret = cfg.secret ?? process.env.GITHUB_WEBHOOK_SECRET ?? ""
@@ -50,17 +52,17 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
 
   const botLogin = await resolveBotLogin()
   if (botLogin) {
-    console.log(`[opentower] bot identity: ${botLogin}`)
+    logger.info("bot identity resolved", { login: botLogin })
     Sentry.setTag("bot.login", botLogin)
   } else {
-    console.warn(
-      "[opentower] WARNING: could not resolve bot identity via 'gh api user' -- $BOT_LOGIN in ignore_authors will not be substituted.",
+    logger.warn(
+      "could not resolve bot identity via 'gh api user' -- $BOT_LOGIN in ignore_authors will not be substituted",
     )
   }
 
   const triggers = (cfg.triggers ?? []).map((t) => normalizeTrigger(t, botLogin))
   if (triggers.length === 0) {
-    console.log(`[opentower] no triggers configured (looked at ${configPath()}) -- listener disabled`)
+    logger.info("no triggers configured -- listener disabled", { path: configPath() })
     return null
   }
 
@@ -69,16 +71,16 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   const githubAppTriggerCount = triggers.filter((t) => t.source === "github_app").length
 
   if (githubTriggerCount > 0 && !secret) {
-    console.warn("[opentower] WARNING: no GitHub HMAC secret configured -- /webhooks/github will reject with 503")
+    logger.warn("no GitHub HMAC secret configured -- /webhooks/github will reject with 503")
   }
   if (emailTriggerCount > 0 && !emailSecret) {
-    console.warn("[opentower] WARNING: no email HMAC secret configured -- /webhooks/email will reject with 503")
+    logger.warn("no email HMAC secret configured -- /webhooks/email will reject with 503")
   }
 
   const githubApp = cfg.github_app ?? resolveGithubAppFromEnv()
   if (githubAppTriggerCount > 0 && !githubApp) {
-    console.warn(
-      "[opentower] WARNING: github_app triggers configured but no GitHub App credentials found -- /webhooks/github-app will not be registered",
+    logger.warn(
+      "github_app triggers configured but no GitHub App credentials found -- /webhooks/github-app will not be registered",
     )
   }
 
@@ -89,7 +91,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
 
   const dbPath = process.env.LIFECYCLE_DB_PATH ?? join(homedir(), "dev", ".opencode", "lifecycle.db")
   const store = openLifecycleStore(dbPath)
-  console.log(`[opentower] lifecycle store opened at ${dbPath}`)
+  logger.info("lifecycle store opened", { path: dbPath })
 
   const pipeline = makePipeline({
     client: opts.client,
@@ -103,15 +105,37 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
 
   const entityResolver = createEntityResolver()
   if (entityResolver) {
-    console.log("[opentower] AI entity resolver enabled (ANTHROPIC_API_KEY set)")
+    logger.info("AI entity resolver enabled (ANTHROPIC_API_KEY set)")
   } else if (emailTriggerCount > 0) {
-    console.warn("[opentower] WARNING: ANTHROPIC_API_KEY not set -- AI entity resolution for emails disabled")
+    logger.warn("ANTHROPIC_API_KEY not set -- AI entity resolution for emails disabled")
   }
 
   const apiToken = process.env.OPENTOWER_API_TOKEN ?? ""
   if (!apiToken) {
-    console.warn("[opentower] WARNING: OPENTOWER_API_TOKEN not set -- /api/* endpoints will reject with 503")
+    logger.warn("OPENTOWER_API_TOKEN not set -- /api/* endpoints will reject with 503")
   }
+
+  // Data retention: prune old dispatches/entities on startup and every 24h.
+  const DEFAULT_RETENTION_DAYS = 30
+  const retentionDays = cfg.retention_days ?? store.getRetentionDays() ?? DEFAULT_RETENTION_DAYS
+  // Persist the default so the dashboard API can read it.
+  if (!store.getRetentionDays()) store.setRetentionDays(retentionDays)
+  const pruneResult = store.pruneOlderThan(retentionDays)
+  const totalPruned = pruneResult.dispatches + pruneResult.entities + pruneResult.cronExecutions
+  if (totalPruned > 0) {
+    logger.info("retention prune", { days: retentionDays, pruned: pruneResult })
+  }
+  const retentionInterval = setInterval(
+    () => {
+      const days = store.getRetentionDays() ?? DEFAULT_RETENTION_DAYS
+      const r = store.pruneOlderThan(days)
+      const total = r.dispatches + r.entities + r.cronExecutions
+      if (total > 0) {
+        logger.info("retention prune", { days, pruned: r })
+      }
+    },
+    24 * 60 * 60 * 1000,
+  )
 
   const cronTriggers = triggers.filter((t) => t.source === "cron")
   const defaultCronTrigger = cronTriggers[0] ?? null
@@ -124,7 +148,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     cronTrigger: defaultCronTrigger,
   })
   cronScheduler.start()
-  console.log("[opentower] cron scheduler started")
+  logger.info("cron scheduler started")
 
   const handlers = createHandlers({
     secret,
@@ -156,9 +180,15 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   })
 
   const cronTriggerCount = cronTriggers.length
-  console.log(
-    `[opentower] listening on http://0.0.0.0:${server.port} (triggers: github=${githubTriggerCount}, github_app=${githubAppTriggerCount}, email=${emailTriggerCount}, cron=${cronTriggerCount})`,
-  )
+  logger.info("listening", {
+    url: `http://0.0.0.0:${server.port}`,
+    triggers: {
+      github: githubTriggerCount,
+      github_app: githubAppTriggerCount,
+      email: emailTriggerCount,
+      cron: cronTriggerCount,
+    },
+  })
 
   return {
     app,
@@ -172,14 +202,16 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     entityResolver,
     defaultAgent,
     client: opts.client,
+    retentionInterval,
   }
 }
 
 export async function gracefulShutdown(
-  result: Pick<BootstrapResult, "server" | "drainCounter" | "cronScheduler" | "store">,
+  result: Pick<BootstrapResult, "server" | "drainCounter" | "cronScheduler" | "store" | "retentionInterval">,
   sig: string,
 ): Promise<void> {
-  console.log(`[opentower] received ${sig}, closing listener (in-flight: ${result.drainCounter.inFlight()})`)
+  clearInterval(result.retentionInterval)
+  logger.info("shutting down", { signal: sig, inFlight: result.drainCounter.inFlight() })
   result.server.stop(true)
   const drainTimeoutMs = 25_000
   try {
@@ -187,11 +219,9 @@ export async function gracefulShutdown(
       result.drainCounter.wait(),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error("drain timeout")), drainTimeoutMs)),
     ])
-    console.log("[opentower] all dispatches drained")
+    logger.info("all dispatches drained")
   } catch {
-    console.warn(
-      `[opentower] drain timeout after ${drainTimeoutMs}ms -- ${result.drainCounter.inFlight()} dispatch(es) still in flight`,
-    )
+    logger.warn("drain timeout", { timeoutMs: drainTimeoutMs, inFlight: result.drainCounter.inFlight() })
   }
   result.cronScheduler.stop()
   result.store.close()

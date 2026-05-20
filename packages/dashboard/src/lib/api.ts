@@ -244,6 +244,22 @@ export class ApiClient {
     })
   }
 
+  // Retention settings
+  getRetention(): Promise<{ retention_days: number }> {
+    return this.request("/api/retention")
+  }
+
+  setRetention(days: number): Promise<{ retention_days: number }> {
+    return this.request("/api/retention", undefined, { method: "PUT", body: { retention_days: days } })
+  }
+
+  pruneNow(): Promise<{
+    pruned: { dispatches: number; entities: number; cronExecutions: number }
+    retention_days: number
+  }> {
+    return this.request("/api/retention/prune", undefined, { method: "POST" })
+  }
+
   static async healthz(): Promise<boolean> {
     try {
       const res = await fetch("/healthz")

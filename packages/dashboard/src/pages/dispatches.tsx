@@ -3,16 +3,17 @@ import { LastUpdated } from "@/components/last-updated"
 import { LoadingSkeleton } from "@/components/loading-skeleton"
 import { PageSizeSelect } from "@/components/page-size-select"
 import { Pagination } from "@/components/pagination"
+import { SessionLink } from "@/components/session-link"
 import { StatusBadge } from "@/components/status-badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { useApiClient } from "@/hooks/use-api"
 import { useUrlFilter, useUrlPagination } from "@/hooks/use-url-pagination"
-import { type PaginatedDispatches, getOpencodeUrl } from "@/lib/api"
-import { formatDuration, opencodeSessionUrl, timeAgo } from "@/lib/format"
+import type { PaginatedDispatches } from "@/lib/api"
+import { formatDuration, timeAgo } from "@/lib/format"
 import { keepPreviousData, useQuery } from "@tanstack/react-query"
-import { Search, Terminal } from "lucide-react"
+import { Search } from "lucide-react"
 import { useEffect, useState } from "react"
 import { Link } from "react-router-dom"
 
@@ -134,22 +135,7 @@ export default function DispatchesPage() {
                           {d.entity_key}
                         </Link>
                       )}
-                      {(() => {
-                        const sid = d.session_id?.trim()
-                        const url = sid ? opencodeSessionUrl(sid, d.share_url, d.cwd, getOpencodeUrl()) : null
-                        return url && sid ? (
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 font-mono text-primary hover:underline"
-                            title="OpenCode session"
-                          >
-                            <Terminal className="h-3 w-3" />
-                            {sid.slice(0, 8)}
-                          </a>
-                        ) : null
-                      })()}
+                      <SessionLink sessionId={d.session_id} shareUrl={d.share_url} cwd={d.cwd} />
                       <span>Duration: {formatDuration(d.created_at, d.completed_at)}</span>
                       <span className="font-mono" title={d.id}>
                         {d.id.slice(0, 8)}
