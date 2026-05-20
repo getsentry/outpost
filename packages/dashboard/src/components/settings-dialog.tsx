@@ -51,7 +51,7 @@ export function SettingsDialog({ collapsed }: SettingsDialogProps) {
     }
 
     const days = Number(retentionDays)
-    if (!Number.isFinite(days) || days < 1 || days > 365) {
+    if (client && (!Number.isFinite(days) || days < 1 || days > 365)) {
       setError("Retention must be between 1 and 365 days")
       return
     }
@@ -59,7 +59,7 @@ export function SettingsDialog({ collapsed }: SettingsDialogProps) {
     setSaving(true)
     try {
       setOpencodeUrl(trimmed)
-      if (client) {
+      if (client && Number.isFinite(days) && days >= 1) {
         await client.setRetention(Math.floor(days))
       }
       showToast("Settings saved")

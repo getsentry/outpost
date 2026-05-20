@@ -34,6 +34,8 @@ function safeTokenCompare(a: string, b: string): boolean {
   // HMAC-based comparison avoids leaking length information. Both
   // inputs are hashed to a fixed-size digest before comparing, so
   // the comparison is always constant-time regardless of input length.
+  // Static key is intentional — the HMAC only serves to normalize both
+  // inputs to fixed-length digests for timingSafeEqual.
   const key = Buffer.from("opentower-token-compare")
   const ha = createHmac("sha256", key).update(a).digest()
   const hb = createHmac("sha256", key).update(b).digest()

@@ -17,7 +17,7 @@ import type { AgentClient, HandlerContext } from "./interfaces"
 import { logger } from "./logger"
 import { type Pipeline, makePipeline } from "./pipeline"
 import { type DrainCounter, makeDrainCounter, makeSemaphore } from "./semaphore"
-import { type LifecycleStore, openLifecycleStore } from "./storage"
+import { DEFAULT_RETENTION_DAYS, type LifecycleStore, openLifecycleStore } from "./storage"
 
 export type BootstrapResult = {
   app: Hono<AppEnv>
@@ -116,7 +116,6 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   }
 
   // Data retention: prune old dispatches/entities on startup and every 24h.
-  const DEFAULT_RETENTION_DAYS = 30
   const retentionDays = cfg.retention_days ?? store.getRetentionDays() ?? DEFAULT_RETENTION_DAYS
   // Persist the default so the dashboard API can read it.
   if (!store.getRetentionDays()) store.setRetentionDays(retentionDays)

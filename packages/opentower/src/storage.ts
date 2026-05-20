@@ -15,6 +15,8 @@ import { Database } from "bun:sqlite"
 import { existsSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 
+export const DEFAULT_RETENTION_DAYS = 30
+
 export type EntityRow = {
   entity_key: string
   repo: string
@@ -154,7 +156,7 @@ export type LifecycleStore = {
 
   // Retention: delete dispatches and orphaned entities older than the
   // given number of days. Returns the count of pruned rows.
-  pruneOlderThan(days: number): { dispatches: number; entities: number; cronExecutions: number }
+  pruneOlderThan(days: number): { dispatches: number; entities: number; cronExecutions: number; links: number }
 
   // Get/set the configured retention in days. Stored in a tiny metadata
   // table so the dashboard can read/write it without restarting.
@@ -700,20 +702,32 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
     pruneOlderThan(days: number) {
       const cutoff = new Date(Date.now() - days * 86_400_000).toISOString().replace("T", " ").slice(0, 19)
       return db.transaction(() => {
-        const dResult = db.prepare("DELETE FROM dispatches WHERE created_at < ?").run(cutoff)
+        // Only prune completed dispatches — never delete in-flight ones.
+        const dResult = db
+          .prepare("DELETE FROM dispatches WHERE created_at < ? AND status NOT IN ('started')")
+          .run(cutoff)
         const ceResult = db.prepare("DELETE FROM cron_executions WHERE scheduled_at < ?").run(cutoff)
         // Prune entities that have no dispatches left and were last updated
-        // before the cutoff — this avoids deleting entities with recent activity.
+        // before the cutoff — this avoids deleting entities with recent activity
+        // or entities that still have in-flight dispatches.
         const eResult = db
           .prepare(
             `DELETE FROM entities WHERE updated_at < ?
              AND entity_key NOT IN (SELECT DISTINCT entity_key FROM dispatches WHERE entity_key IS NOT NULL)`,
           )
           .run(cutoff)
+        // Clean up orphaned links where both sides have been pruned.
+        const lResult = db
+          .prepare(
+            `DELETE FROM links WHERE source_key NOT IN (SELECT entity_key FROM entities)
+             AND target_key NOT IN (SELECT entity_key FROM entities)`,
+          )
+          .run()
         return {
           dispatches: dResult.changes,
           entities: eResult.changes,
           cronExecutions: ceResult.changes,
+          links: lResult.changes,
         }
       })()
     },

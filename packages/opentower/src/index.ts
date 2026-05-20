@@ -11,6 +11,7 @@ import type { Plugin } from "@opencode-ai/plugin"
 import * as Sentry from "@sentry/bun"
 import { createOpencodeAgent } from "./agents/opencode"
 import { bootstrap, gracefulShutdown } from "./bootstrap"
+import { logger } from "./logger"
 import { makeCronTools } from "./tools/cron"
 import { makeLifecycleTools } from "./tools/lifecycle"
 export type {
@@ -24,11 +25,11 @@ export type {
 export type { AgentClient, WebhookHandler, HandlerContext } from "./interfaces"
 
 export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
-  console.log("[opentower] plugin loading...")
+  logger.info("plugin loading...")
 
   const g = globalThis as { __webhookServerStarted?: boolean }
   if (g.__webhookServerStarted) {
-    console.log("[opentower] server already running, skipping duplicate init")
+    logger.info("server already running, skipping duplicate init")
     return {}
   }
   g.__webhookServerStarted = true
@@ -51,13 +52,13 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
           return Number.isFinite(rate) ? rate : 0.1
         })(),
       })
-      console.log("[opentower] Sentry initialized (logs + traces enabled)")
+      logger.info("Sentry initialized (logs + traces enabled)")
     }
 
     const guard = globalThis as { __ghWebhookGuard?: boolean }
     if (!guard.__ghWebhookGuard) {
       process.on("unhandledRejection", (err) => {
-        console.error("[opentower] unhandledRejection:", err)
+        logger.error("unhandledRejection", { error: err instanceof Error ? err.message : String(err) })
         Sentry.captureException(err)
       })
       guard.__ghWebhookGuard = true
@@ -99,7 +100,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     }
   } catch (err) {
     g.__webhookServerStarted = false
-    console.error("[opentower] FATAL: plugin failed to start:", err)
+    logger.error("FATAL: plugin failed to start", { error: err instanceof Error ? err.message : String(err) })
     throw err
   }
 }

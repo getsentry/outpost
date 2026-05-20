@@ -20,6 +20,7 @@ import { join } from "node:path"
 import * as Sentry from "@sentry/bun"
 import type { EntityKey } from "./entity"
 import type { AgentClient } from "./interfaces"
+import { logger } from "./logger"
 import type { DrainCounter, Semaphore } from "./semaphore"
 import type { LifecycleStore } from "./storage"
 import type { NormalizedTrigger } from "./types"
@@ -517,10 +518,12 @@ export function makePipeline(opts: {
     matchedEvent: string,
     trigger: NormalizedTrigger,
   ): void {
-    console.error(
-      `[pipeline] ${entry.entityKey} -> session ${entry.sessionId} ${entry.abort.signal.aborted ? "timed out" : "failed"}:`,
-      err,
-    )
+    logger.error("pipeline dispatch failed", {
+      entity: entry.entityKey,
+      sessionId: entry.sessionId,
+      reason: entry.abort.signal.aborted ? "timeout" : "error",
+      error: err instanceof Error ? err.message : String(err),
+    })
     Sentry.withScope((scope) => {
       scope.setTag("trigger.name", trigger.name)
       scope.setTag("trigger.event", matchedEvent)

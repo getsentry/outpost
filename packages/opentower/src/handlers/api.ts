@@ -1,7 +1,6 @@
 import type { Context } from "hono"
 import type { AppEnv } from "../handler"
-
-const DEFAULT_RETENTION_DAYS = 30
+import { DEFAULT_RETENTION_DAYS } from "../storage"
 
 export function apiStatsHandler(c: Context<AppEnv>) {
   const store = c.get("store")

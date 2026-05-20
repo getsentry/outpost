@@ -113,14 +113,16 @@ export default function CronPage() {
                 New Job
               </Button>
             </DialogTrigger>
-            <CreateCronJobDialog
-              client={client}
-              onClose={() => setCreateDialogOpen(false)}
-              onSuccess={() => {
-                setCreateDialogOpen(false)
-                queryClient.invalidateQueries({ queryKey: ["cron-jobs"] })
-              }}
-            />
+            {createDialogOpen && (
+              <CreateCronJobDialog
+                client={client}
+                onClose={() => setCreateDialogOpen(false)}
+                onSuccess={() => {
+                  setCreateDialogOpen(false)
+                  queryClient.invalidateQueries({ queryKey: ["cron-jobs"] })
+                }}
+              />
+            )}
           </Dialog>
         </div>
       </div>
