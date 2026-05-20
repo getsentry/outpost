@@ -26,7 +26,7 @@ import { timeAgo } from "@/lib/format"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Clock, Loader2, Play, Plus, Trash2 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
 
@@ -113,16 +113,15 @@ export default function CronPage() {
                 New Job
               </Button>
             </DialogTrigger>
-            {createDialogOpen && (
-              <CreateCronJobDialog
-                client={client}
-                onClose={() => setCreateDialogOpen(false)}
-                onSuccess={() => {
-                  setCreateDialogOpen(false)
-                  queryClient.invalidateQueries({ queryKey: ["cron-jobs"] })
-                }}
-              />
-            )}
+            <CreateCronJobDialog
+              open={createDialogOpen}
+              client={client}
+              onClose={() => setCreateDialogOpen(false)}
+              onSuccess={() => {
+                setCreateDialogOpen(false)
+                queryClient.invalidateQueries({ queryKey: ["cron-jobs"] })
+              }}
+            />
           </Dialog>
         </div>
       </div>
@@ -265,10 +264,12 @@ function CronJobCard({
 }
 
 function CreateCronJobDialog({
+  open,
   client,
   onClose,
   onSuccess,
 }: {
+  open: boolean
   client: ReturnType<typeof useApiClient>
   onClose: () => void
   onSuccess: () => void
@@ -278,6 +279,7 @@ function CreateCronJobDialog({
     handleSubmit,
     setValue,
     watch,
+    reset,
     formState: { errors },
   } = useForm<CronJobFormData>({
     resolver: zodResolver(cronJobSchema),
@@ -292,6 +294,14 @@ function CreateCronJobDialog({
     },
   })
   const [serverError, setServerError] = useState("")
+
+  // Reset form state when dialog opens
+  useEffect(() => {
+    if (open) {
+      reset()
+      setServerError("")
+    }
+  }, [open, reset])
 
   const runOnce = watch("run_once")
 

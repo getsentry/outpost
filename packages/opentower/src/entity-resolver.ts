@@ -16,6 +16,7 @@ import { createAnthropic } from "@ai-sdk/anthropic"
 import * as Sentry from "@sentry/bun"
 import { generateObject } from "ai"
 import { z } from "zod"
+import { formatError } from "./logger"
 
 const entityResultSchema = z.object({
   entity: z
@@ -217,13 +218,13 @@ export function createEntityResolver(): EntityResolver | null {
       } catch (err) {
         Sentry.logger.error("entity_resolver.failed", {
           message_id: email.message_id,
-          error: err instanceof Error ? err.message : String(err),
+          error: formatError(err),
         })
         return {
           entity: null,
           source: "other",
           confidence: "low",
-          reasoning: `resolver error: ${err instanceof Error ? err.message : String(err)}`,
+          reasoning: `resolver error: ${formatError(err)}`,
         }
       }
     },

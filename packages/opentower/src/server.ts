@@ -10,7 +10,7 @@
 import * as Sentry from "@sentry/bun"
 import { createOpencodeAgent } from "./agents/opencode"
 import { bootstrap, gracefulShutdown } from "./bootstrap"
-import { logger } from "./logger"
+import { formatError, logger } from "./logger"
 
 async function main() {
   logger.info("starting standalone server...")
@@ -34,7 +34,7 @@ async function main() {
   }
 
   process.on("unhandledRejection", (err) => {
-    logger.error("unhandledRejection", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("unhandledRejection", { error: formatError(err) })
     Sentry.captureException(err)
   })
 
@@ -68,6 +68,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  logger.error("FATAL", { error: err instanceof Error ? err.message : String(err) })
+  logger.error("FATAL", { error: formatError(err) })
   process.exit(1)
 })

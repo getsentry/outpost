@@ -7,6 +7,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -73,14 +74,22 @@ export function SettingsDialog({ collapsed }: SettingsDialogProps) {
 
   async function handlePrune() {
     if (!client) return
+    const days = Number(retentionDays)
+    if (!Number.isFinite(days) || days < 1 || days > 365) {
+      showToast("Set a valid retention period (1-365 days) first", "error")
+      return
+    }
     setPruning(true)
     try {
+      // Save the current retention value before pruning so the server
+      // uses the value the user sees in the input field.
+      await client.setRetention(Math.floor(days))
       const result = await client.pruneNow()
-      const { dispatches, entities, cronExecutions, links } = result.pruned
-      const total = dispatches + entities + cronExecutions + links
+      const { dispatches, entities, cron_executions, links } = result.pruned
+      const total = dispatches + entities + cron_executions + links
       showToast(
         total > 0
-          ? `Pruned ${dispatches} dispatches, ${entities} entities, ${cronExecutions} cron executions`
+          ? `Pruned ${dispatches} dispatches, ${entities} entities, ${cron_executions} cron executions, ${links} links`
           : "Nothing to prune",
       )
     } catch (err) {
@@ -92,25 +101,25 @@ export function SettingsDialog({ collapsed }: SettingsDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      {collapsed ? (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="mx-auto flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-          title="Settings"
-        >
-          <Settings className="h-4 w-4" />
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-        >
-          <Settings className="h-4 w-4" />
-          Settings
-        </button>
-      )}
+      <DialogTrigger asChild>
+        {collapsed ? (
+          <button
+            type="button"
+            className="mx-auto flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            title="Settings"
+          >
+            <Settings className="h-4 w-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          >
+            <Settings className="h-4 w-4" />
+            Settings
+          </button>
+        )}
+      </DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>

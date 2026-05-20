@@ -121,7 +121,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   // Persist the default so the dashboard API can read it.
   if (!storedRetention) store.setRetentionDays(retentionDays)
   const pruneResult = store.pruneOlderThan(retentionDays)
-  const totalPruned = pruneResult.dispatches + pruneResult.entities + pruneResult.cronExecutions
+  const totalPruned = pruneResult.dispatches + pruneResult.entities + pruneResult.cron_executions + pruneResult.links
   if (totalPruned > 0) {
     logger.info("retention prune", { days: retentionDays, pruned: pruneResult })
   }
@@ -129,7 +129,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     () => {
       const days = store.getRetentionDays() ?? DEFAULT_RETENTION_DAYS
       const r = store.pruneOlderThan(days)
-      const total = r.dispatches + r.entities + r.cronExecutions
+      const total = r.dispatches + r.entities + r.cron_executions + r.links
       if (total > 0) {
         logger.info("retention prune", { days, pruned: r })
       }

@@ -21,7 +21,7 @@ import {
 } from "./handlers/api"
 import { makeCronHandlers } from "./handlers/cron"
 import type { HandlerContext, WebhookHandler } from "./interfaces"
-import { logger } from "./logger"
+import { formatError, logger } from "./logger"
 import type { LifecycleStore } from "./storage"
 
 export type AppEnv = {
@@ -71,7 +71,7 @@ export function createApp(opts: {
 
   app.onError((err, c) => {
     Sentry.captureException(err)
-    logger.error("unhandled route error", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("unhandled route error", { error: formatError(err) })
     return c.json({ error: "internal server error" }, 500)
   })
 

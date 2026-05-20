@@ -156,7 +156,7 @@ export type LifecycleStore = {
 
   // Retention: delete dispatches and orphaned entities older than the
   // given number of days. Returns the count of pruned rows.
-  pruneOlderThan(days: number): { dispatches: number; entities: number; cronExecutions: number; links: number }
+  pruneOlderThan(days: number): { dispatches: number; entities: number; cron_executions: number; links: number }
 
   // Get/set the configured retention in days. Stored in a tiny metadata
   // table so the dashboard can read/write it without restarting.
@@ -706,7 +706,9 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
         const dResult = db
           .prepare("DELETE FROM dispatches WHERE created_at < ? AND status NOT IN ('started')")
           .run(cutoff)
-        const ceResult = db.prepare("DELETE FROM cron_executions WHERE scheduled_at < ?").run(cutoff)
+        const ceResult = db
+          .prepare("DELETE FROM cron_executions WHERE scheduled_at < ? AND status NOT IN ('pending', 'running')")
+          .run(cutoff)
         // Prune entities that have no dispatches left and were last updated
         // before the cutoff — this avoids deleting entities with recent activity
         // or entities that still have in-flight dispatches.
@@ -726,7 +728,7 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
         return {
           dispatches: dResult.changes,
           entities: eResult.changes,
-          cronExecutions: ceResult.changes,
+          cron_executions: ceResult.changes,
           links: lResult.changes,
         }
       })()

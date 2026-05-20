@@ -1,7 +1,7 @@
 // Resolve the bot's GitHub login via `gh api user --jq .login`.
 // gh reads GH_TOKEN from env. Returns null on any failure.
 
-import { logger } from "./logger"
+import { formatError, logger } from "./logger"
 
 export async function resolveBotLogin(): Promise<string | null> {
   try {
@@ -25,7 +25,7 @@ export async function resolveBotLogin(): Promise<string | null> {
     const login = stdout.trim()
     return login.length > 0 ? login : null
   } catch (err) {
-    logger.warn("resolveBotLogin failed", { error: err instanceof Error ? err.message : String(err) })
+    logger.warn("resolveBotLogin failed", { error: formatError(err) })
     return null
   }
 }

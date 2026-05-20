@@ -20,7 +20,7 @@ import { join } from "node:path"
 import * as Sentry from "@sentry/bun"
 import type { EntityKey } from "./entity"
 import type { AgentClient } from "./interfaces"
-import { logger } from "./logger"
+import { formatError, logger } from "./logger"
 import type { DrainCounter, Semaphore } from "./semaphore"
 import type { LifecycleStore } from "./storage"
 import type { NormalizedTrigger } from "./types"
@@ -522,7 +522,7 @@ export function makePipeline(opts: {
       entity: entry.entityKey,
       sessionId: entry.sessionId,
       reason: entry.abort.signal.aborted ? "timeout" : "error",
-      error: err instanceof Error ? err.message : String(err),
+      error: formatError(err),
     })
     Sentry.withScope((scope) => {
       scope.setTag("trigger.name", trigger.name)
@@ -758,11 +758,6 @@ function formatBatchPrompt(events: QueuedEvent[]): string {
     lines.push("")
   }
   return lines.join("\n")
-}
-
-function formatError(err: unknown): string {
-  if (err instanceof Error) return err.stack ?? `${err.name}: ${err.message}`
-  return String(err)
 }
 
 function isSessionNotFound(err: unknown): boolean {

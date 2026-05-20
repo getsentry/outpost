@@ -5,7 +5,7 @@
 import * as Sentry from "@sentry/bun"
 import { Cron } from "croner"
 import { parseEntityKey } from "./entity"
-import { logger } from "./logger"
+import { formatError, logger } from "./logger"
 import type { Pipeline } from "./pipeline"
 import type { CronJobRow, LifecycleStore } from "./storage"
 import type { NormalizedTrigger } from "./types"
@@ -111,7 +111,7 @@ export function makeCronScheduler(opts: CronSchedulerOptions): CronScheduler {
     } catch (err) {
       logger.error("failed to schedule cron job", {
         job: config.name,
-        error: err instanceof Error ? err.message : String(err),
+        error: formatError(err),
       })
       Sentry.captureException(err, {
         tags: { "cron.job_id": config.id, "cron.job_name": config.name },
@@ -201,7 +201,7 @@ export function makeCronScheduler(opts: CronSchedulerOptions): CronScheduler {
 
       logger.error("cron job execution failed", {
         job: config.name,
-        error: err instanceof Error ? err.message : String(err),
+        error: formatError(err),
       })
       Sentry.captureException(err, {
         tags: {

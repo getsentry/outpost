@@ -3,6 +3,7 @@
 // Works with either a GitHub App installation token or a GH_TOKEN PAT.
 
 import * as Sentry from "@sentry/bun"
+import { formatError } from "./logger"
 
 const GITHUB_API = "https://api.github.com"
 
@@ -29,7 +30,7 @@ export function createGitHubFetcher(token: string): GitHubFetcher {
         Sentry.logger.warn("github_api.fetch_pr_failed", {
           repo,
           number,
-          error: err instanceof Error ? err.message : String(err),
+          error: formatError(err),
         })
         return null
       }
@@ -50,7 +51,7 @@ export function createGitHubFetcher(token: string): GitHubFetcher {
         Sentry.logger.warn("github_api.find_pr_failed", {
           repo,
           branch,
-          error: err instanceof Error ? err.message : String(err),
+          error: formatError(err),
         })
         return null
       }

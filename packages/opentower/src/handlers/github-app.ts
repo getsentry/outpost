@@ -11,6 +11,7 @@ import type { GitHubAppAuth } from "../github-app-auth"
 import { verifyGithubSignature } from "../hmac"
 import { readBodyBytes } from "../http"
 import type { HandlerContext, WebhookHandler } from "../interfaces"
+import { formatError } from "../logger"
 import { evaluateAndDispatch } from "../matchers"
 import { lookupString } from "../template"
 import type { NormalizedTrigger } from "../types"
@@ -104,7 +105,7 @@ export function createGithubAppHandler(opts: GithubAppHandlerOptions): WebhookHa
             Sentry.logger.error("github_app.token_failed", {
               installation_id: installationId,
               delivery_id: deliveryId,
-              error: err instanceof Error ? err.message : String(err),
+              error: formatError(err),
             })
           }
         }

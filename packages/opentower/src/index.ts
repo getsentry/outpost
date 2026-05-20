@@ -11,7 +11,7 @@ import type { Plugin } from "@opencode-ai/plugin"
 import * as Sentry from "@sentry/bun"
 import { createOpencodeAgent } from "./agents/opencode"
 import { bootstrap, gracefulShutdown } from "./bootstrap"
-import { logger } from "./logger"
+import { formatError, logger } from "./logger"
 import { makeCronTools } from "./tools/cron"
 import { makeLifecycleTools } from "./tools/lifecycle"
 export type {
@@ -58,7 +58,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     const guard = globalThis as { __ghWebhookGuard?: boolean }
     if (!guard.__ghWebhookGuard) {
       process.on("unhandledRejection", (err) => {
-        logger.error("unhandledRejection", { error: err instanceof Error ? err.message : String(err) })
+        logger.error("unhandledRejection", { error: formatError(err) })
         Sentry.captureException(err)
       })
       guard.__ghWebhookGuard = true
@@ -100,7 +100,7 @@ export const GitHubWebhooksPlugin: Plugin = async (ctx) => {
     }
   } catch (err) {
     g.__webhookServerStarted = false
-    logger.error("FATAL: plugin failed to start", { error: err instanceof Error ? err.message : String(err) })
+    logger.error("FATAL: plugin failed to start", { error: formatError(err) })
     throw err
   }
 }

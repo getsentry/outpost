@@ -7,7 +7,11 @@ export type LogLevel = "debug" | "info" | "warn" | "error"
 
 const LEVEL_ORDER: Record<LogLevel, number> = { debug: 0, info: 1, warn: 2, error: 3 }
 
-let minLevel: LogLevel = "info"
+let minLevel: LogLevel = ((): LogLevel => {
+  const env = process.env.OPENTOWER_LOG_LEVEL?.toLowerCase()
+  if (env && env in LEVEL_ORDER) return env as LogLevel
+  return "info"
+})()
 
 export function setLogLevel(level: LogLevel) {
   minLevel = level
@@ -25,6 +29,13 @@ function formatLog(level: LogLevel, msg: string, ctx?: Record<string, unknown>):
     ...ctx,
   }
   return JSON.stringify(entry)
+}
+
+/** Extract a human-readable message from an unknown error value.
+ *  Includes the stack trace when available. */
+export function formatError(err: unknown): string {
+  if (err instanceof Error) return err.stack ?? `${err.name}: ${err.message}`
+  return String(err)
 }
 
 export const logger = {
