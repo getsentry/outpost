@@ -116,9 +116,10 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   }
 
   // Data retention: prune old dispatches/entities on startup and every 24h.
-  const retentionDays = cfg.retention_days ?? store.getRetentionDays() ?? DEFAULT_RETENTION_DAYS
+  const storedRetention = store.getRetentionDays()
+  const retentionDays = cfg.retention_days ?? storedRetention ?? DEFAULT_RETENTION_DAYS
   // Persist the default so the dashboard API can read it.
-  if (!store.getRetentionDays()) store.setRetentionDays(retentionDays)
+  if (!storedRetention) store.setRetentionDays(retentionDays)
   const pruneResult = store.pruneOlderThan(retentionDays)
   const totalPruned = pruneResult.dispatches + pruneResult.entities + pruneResult.cronExecutions
   if (totalPruned > 0) {

@@ -76,10 +76,11 @@ export function SettingsDialog({ collapsed }: SettingsDialogProps) {
     setPruning(true)
     try {
       const result = await client.pruneNow()
-      const total = result.pruned.dispatches + result.pruned.entities + result.pruned.cronExecutions
+      const { dispatches, entities, cronExecutions, links } = result.pruned
+      const total = dispatches + entities + cronExecutions + links
       showToast(
         total > 0
-          ? `Pruned ${result.pruned.dispatches} dispatches, ${result.pruned.entities} entities, ${result.pruned.cronExecutions} cron executions`
+          ? `Pruned ${dispatches} dispatches, ${entities} entities, ${cronExecutions} cron executions`
           : "Nothing to prune",
       )
     } catch (err) {

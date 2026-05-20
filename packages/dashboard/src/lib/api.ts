@@ -254,7 +254,7 @@ export class ApiClient {
   }
 
   pruneNow(): Promise<{
-    pruned: { dispatches: number; entities: number; cronExecutions: number }
+    pruned: { dispatches: number; entities: number; cronExecutions: number; links: number }
     retention_days: number
   }> {
     return this.request("/api/retention/prune", undefined, { method: "POST" })
