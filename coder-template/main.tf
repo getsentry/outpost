@@ -39,6 +39,13 @@ data "coder_provisioner" "me" {}
 data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
 
+locals {
+  # Human-readable slug used for Kubernetes resource names, matching the
+  # naming convention from getsentry/devinfra-coder-infra:
+  #   opencode-{owner}-{workspace}
+  workspace_slug = "opencode-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
+}
+
 # --- Parameters (prompted when creating a workspace) ---
 
 data "coder_parameter" "gh_token" {
@@ -292,6 +299,24 @@ resource "coder_app" "opencode" {
   }
 }
 
+# Lore AI gateway — transparent LLM proxy with three-tier memory.
+# Dashboard available at /ui. Owner-only since it exposes project memory.
+resource "coder_app" "loreai" {
+  agent_id     = coder_agent.main.id
+  slug         = "loreai"
+  display_name = "Lore AI"
+  url          = "http://localhost:3207"
+  icon         = "/icon/brain.svg"
+  subdomain    = true
+  share        = "owner"
+
+  healthcheck {
+    url       = "http://localhost:3207/health"
+    interval  = 10
+    threshold = 6
+  }
+}
+
 # Opentower webhook listener — exposed via Coder's reverse proxy.
 # Public so GitHub/email webhooks can POST without Coder auth.
 resource "coder_app" "opentower" {
@@ -382,11 +407,11 @@ resource "kubernetes_deployment_v1" "workspace" {
   wait_for_rollout = false
 
   metadata {
-    name      = "opencode-${data.coder_workspace.me.id}"
+    name      = local.workspace_slug
     namespace = var.namespace
     labels = {
       "app.kubernetes.io/name"     = "opencode-workspace"
-      "app.kubernetes.io/instance" = "opencode-workspace-${data.coder_workspace.me.id}"
+      "app.kubernetes.io/instance" = "opencode-workspace-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
       "app.kubernetes.io/part-of"  = "coder"
       "com.coder.resource"         = "true"
       "com.coder.workspace.id"     = data.coder_workspace.me.id
@@ -401,7 +426,7 @@ resource "kubernetes_deployment_v1" "workspace" {
     selector {
       match_labels = {
         "app.kubernetes.io/name"     = "opencode-workspace"
-        "app.kubernetes.io/instance" = "opencode-workspace-${data.coder_workspace.me.id}"
+        "app.kubernetes.io/instance" = "opencode-workspace-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
       }
     }
     strategy {
@@ -412,7 +437,7 @@ resource "kubernetes_deployment_v1" "workspace" {
       metadata {
         labels = {
           "app.kubernetes.io/name"     = "opencode-workspace"
-          "app.kubernetes.io/instance" = "opencode-workspace-${data.coder_workspace.me.id}"
+          "app.kubernetes.io/instance" = "opencode-workspace-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
           "app.kubernetes.io/part-of"  = "coder"
           "com.coder.resource"         = "true"
           "com.coder.workspace.id"     = data.coder_workspace.me.id
