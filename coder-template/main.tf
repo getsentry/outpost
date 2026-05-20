@@ -202,11 +202,11 @@ data "coder_parameter" "sentry_auth_token" {
 
 resource "kubernetes_persistent_volume_claim_v1" "dev" {
   metadata {
-    name      = "${local.workspace_slug}-dev"
+    name      = "opencode-${data.coder_workspace.me.id}-dev"
     namespace = var.namespace
     labels = {
       "app.kubernetes.io/name"     = "opencode-pvc"
-      "app.kubernetes.io/instance" = "opencode-pvc-${lower(data.coder_workspace_owner.me.name)}-${lower(data.coder_workspace.me.name)}"
+      "app.kubernetes.io/instance" = "opencode-pvc-${data.coder_workspace.me.id}"
       "app.kubernetes.io/part-of"  = "coder"
       "com.coder.resource"         = "true"
       "com.coder.workspace.id"     = data.coder_workspace.me.id
