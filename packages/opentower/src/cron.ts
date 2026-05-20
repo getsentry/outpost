@@ -5,6 +5,7 @@
 import * as Sentry from "@sentry/bun"
 import { Cron } from "croner"
 import { parseEntityKey } from "./entity"
+import { formatError, logger } from "./logger"
 import type { Pipeline } from "./pipeline"
 import type { CronJobRow, LifecycleStore } from "./storage"
 import type { NormalizedTrigger } from "./types"
@@ -108,7 +109,10 @@ export function makeCronScheduler(opts: CronSchedulerOptions): CronScheduler {
         next_run: nextRun?.toISOString() ?? null,
       })
     } catch (err) {
-      console.error(`[cron] failed to schedule job ${config.name}:`, err)
+      logger.error("failed to schedule cron job", {
+        job: config.name,
+        error: formatError(err),
+      })
       Sentry.captureException(err, {
         tags: { "cron.job_id": config.id, "cron.job_name": config.name },
       })
@@ -195,7 +199,10 @@ export function makeCronScheduler(opts: CronSchedulerOptions): CronScheduler {
         completed_at: new Date().toISOString(),
       })
 
-      console.error(`[cron] job ${config.name} failed:`, err)
+      logger.error("cron job execution failed", {
+        job: config.name,
+        error: formatError(err),
+      })
       Sentry.captureException(err, {
         tags: {
           "cron.job_id": config.id,
@@ -209,7 +216,7 @@ export function makeCronScheduler(opts: CronSchedulerOptions): CronScheduler {
   return {
     start() {
       const allJobs = store.listEnabledCronJobs()
-      console.log(`[cron] starting scheduler with ${allJobs.length} enabled job(s)`)
+      logger.info("starting cron scheduler", { enabledJobs: allJobs.length })
 
       for (const job of allJobs) {
         scheduleJob(job)
@@ -217,7 +224,7 @@ export function makeCronScheduler(opts: CronSchedulerOptions): CronScheduler {
     },
 
     stop() {
-      console.log(`[cron] stopping scheduler, ${jobs.size} job(s) active`)
+      logger.info("stopping cron scheduler", { activeJobs: jobs.size })
       for (const job of jobs.values()) {
         job.stop()
       }

@@ -16,13 +16,16 @@
 //   POST /senders          — create a pattern
 //   DELETE /senders/:pattern — remove a pattern
 // All endpoints require Bearer <EMAIL_WEBHOOK_SECRET>.
-
-// Seed patterns inserted into D1 on first run. Once in the DB they
-// are ordinary rows — deletable via the API like any other entry.
-const SEED_SENDERS: readonly { pattern: string; kind: "exact" | "regex" }[] = [
-  { pattern: "notifications@github.com", kind: "exact" },
-  { pattern: "/^.*@github\\.com$/", kind: "regex" },
-]
+//
+// SETUP: After deploying a new instance, add sender patterns so the
+// worker knows which emails to forward to the webhook. For GitHub
+// notification emails, create these two patterns via POST /senders:
+//
+//   1. { "pattern": "notifications@github.com", "kind": "exact" }
+//   2. { "pattern": "/^.*@github\\.com$/", "kind": "regex" }
+//
+// Without at least one pattern in the allowlist, all emails are
+// silently dropped (the FORWARD_TO forwarding still works).
 
 export interface Env {
   WEBHOOK_URL: string
@@ -120,11 +123,6 @@ export default {
       return Response.json({ error: "unauthorized" }, { status: 401 })
     }
 
-    // POST /seed — one-time seed of default patterns.
-    if (request.method === "POST" && url.pathname === "/seed") {
-      return handleSeed(env.DB)
-    }
-
     // GET /senders — list with pagination and search.
     if (request.method === "GET" && url.pathname === "/senders") {
       return handleListSenders(env.DB, url)
@@ -169,18 +167,6 @@ function compileRows(rows: { pattern: string; kind: string }[]): Pattern[] {
     }
   }
   return out
-}
-
-async function handleSeed(db: D1Database): Promise<Response> {
-  let inserted = 0
-  for (const s of SEED_SENDERS) {
-    const { meta } = await db
-      .prepare("INSERT INTO allowed_senders (pattern, kind) VALUES (?, ?) ON CONFLICT (pattern) DO NOTHING")
-      .bind(s.pattern, s.kind)
-      .run()
-    if (meta.changes > 0) inserted++
-  }
-  return Response.json({ seeded: inserted })
 }
 
 async function handleListSenders(db: D1Database, url: URL): Promise<Response> {

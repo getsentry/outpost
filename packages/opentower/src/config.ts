@@ -2,6 +2,7 @@
 
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
+import { formatError, logger } from "./logger"
 import type { GithubAppConfig, NormalizedTrigger, Trigger, WebhookConfig } from "./types"
 
 // Read opentower.config.json. Default ~/.config/opencode/opentower.config.json,
@@ -15,7 +16,7 @@ export async function readWebhookConfig(): Promise<WebhookConfig> {
     if (!parsed || typeof parsed !== "object") return {}
     return parsed as WebhookConfig
   } catch (err) {
-    console.error(`[opentower] failed to parse config at ${path}:`, err)
+    logger.error("failed to parse config", { path, error: formatError(err) })
     return {}
   }
 }

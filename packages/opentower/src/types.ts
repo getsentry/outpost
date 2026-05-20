@@ -24,6 +24,10 @@ export type WebhookConfig = {
   default_cwd?: string
   triggers?: Trigger[]
 
+  // Data retention in days. Dispatches and entities older than this are
+  // pruned on startup and then periodically. Defaults to 30 days.
+  retention_days?: number
+
   // GitHub App configuration (optional — enables the GitHub App handler)
   github_app?: GithubAppConfig
 }

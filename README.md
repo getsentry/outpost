@@ -59,6 +59,7 @@ See [`.env.example`](./.env.example) for the full template.
 | `GH_TOKEN` | For the bundled `gh` CLI and the `opentower` plugin's bot identity resolution. PAT with the scopes you need (typical: `repo`, `read:org`, `workflow`). The plugin resolves the bot's login at boot for self-loop prevention (`$BOT_LOGIN` substitution); without `GH_TOKEN`, self-loop prevention is degraded. |
 | `GITHUB_WEBHOOK_SECRET` | HMAC secret for the `opentower` plugin. Required to receive webhooks. |
 | `WEBHOOK_PORT`, `OPENTOWER_CONFIG` | Optional plugin tuning. See [`.env.example`](./.env.example). |
+| `OPENTOWER_CORS_ORIGIN` | CORS origin for the opentower API. Not needed in production (dashboard is same-origin). Set to the dashboard dev server URL (e.g. `http://localhost:5173`) during development. |
 | `PORT` | Set automatically by most PaaS providers. Defaults to `4096`. |
 
 ## GitHub webhooks → agent sessions
@@ -186,7 +187,8 @@ Field reference:
 | `secret` | optional | HMAC secret. Falls back to `GITHUB_WEBHOOK_SECRET`. |
 | `max_concurrent` | optional | Cap on concurrent agent sessions across all triggers (default 2). |
 | `timeout_ms` | optional | Per-session abort timeout (default 30 min). |
-| `retention` | optional | Cap on persisted delivery rows for dedup (default 1000). |
+| `retention_days` | optional | Data retention in days. Dispatches and entities older than this are pruned on startup and every 24h (default 30). Also configurable from the dashboard Settings. |
+| `batch_window_ms` | optional | How long the pipeline waits for additional events before flushing the queue (default 5000). |
 | `default_cwd` | optional | Fallback `cwd` for triggers without one. |
 
 In the GitHub webhook UI:

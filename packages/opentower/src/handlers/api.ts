@@ -1,9 +1,34 @@
 import type { Context } from "hono"
 import type { AppEnv } from "../handler"
+import { DEFAULT_RETENTION_DAYS } from "../storage"
 
 export function apiStatsHandler(c: Context<AppEnv>) {
   const store = c.get("store")
   return c.json(store.getStats())
+}
+
+export function apiGetRetentionHandler(c: Context<AppEnv>) {
+  const store = c.get("store")
+  const days = store.getRetentionDays() ?? DEFAULT_RETENTION_DAYS
+  return c.json({ retention_days: days })
+}
+
+export async function apiSetRetentionHandler(c: Context<AppEnv>) {
+  const store = c.get("store")
+  const body = await c.req.json<{ retention_days?: unknown }>().catch((): { retention_days?: unknown } => ({}))
+  const days = Number(body.retention_days)
+  if (!Number.isFinite(days) || days < 1 || days > 365) {
+    return c.json({ error: "retention_days must be between 1 and 365" }, 400)
+  }
+  store.setRetentionDays(Math.floor(days))
+  return c.json({ retention_days: Math.floor(days) })
+}
+
+export function apiPruneHandler(c: Context<AppEnv>) {
+  const store = c.get("store")
+  const days = store.getRetentionDays() ?? DEFAULT_RETENTION_DAYS
+  const result = store.pruneOlderThan(days)
+  return c.json({ pruned: result, retention_days: days })
 }
 
 export function apiEntitiesHandler(c: Context<AppEnv>) {

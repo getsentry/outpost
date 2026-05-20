@@ -1,6 +1,8 @@
 // Resolve the bot's GitHub login via `gh api user --jq .login`.
 // gh reads GH_TOKEN from env. Returns null on any failure.
 
+import { formatError, logger } from "./logger"
+
 export async function resolveBotLogin(): Promise<string | null> {
   try {
     const proc = Bun.spawn(["gh", "api", "user", "--jq", ".login"], {
@@ -17,13 +19,13 @@ export async function resolveBotLogin(): Promise<string | null> {
     ])
     clearTimeout(timer)
     if (exitCode !== 0) {
-      console.warn(`[opentower] gh api user exit=${exitCode} stderr=${stderr.trim().slice(0, 200)}`)
+      logger.warn("gh api user failed", { exitCode, stderr: stderr.trim().slice(0, 200) })
       return null
     }
     const login = stdout.trim()
     return login.length > 0 ? login : null
   } catch (err) {
-    console.warn("[opentower] resolveBotLogin failed:", err)
+    logger.warn("resolveBotLogin failed", { error: formatError(err) })
     return null
   }
 }

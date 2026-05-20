@@ -10,9 +10,10 @@
 import * as Sentry from "@sentry/bun"
 import { createOpencodeAgent } from "./agents/opencode"
 import { bootstrap, gracefulShutdown } from "./bootstrap"
+import { formatError, logger } from "./logger"
 
 async function main() {
-  console.log("[opentower] starting standalone server...")
+  logger.info("starting standalone server...")
 
   if (typeof Bun === "undefined") {
     throw new Error("opentower requires Bun (uses Bun.serve, Bun.spawn, Bun.file). Install Bun >=1.2.0: https://bun.sh")
@@ -29,11 +30,11 @@ async function main() {
         return Number.isFinite(rate) ? rate : 0.1
       })(),
     })
-    console.log("[opentower] Sentry initialized (logs + traces enabled)")
+    logger.info("Sentry initialized (logs + traces enabled)")
   }
 
   process.on("unhandledRejection", (err) => {
-    console.error("[opentower] unhandledRejection:", err)
+    logger.error("unhandledRejection", { error: formatError(err) })
     Sentry.captureException(err)
   })
 
@@ -46,12 +47,12 @@ async function main() {
 
   const defaultCwd = process.env.DEFAULT_CWD ?? process.cwd()
   const client = await createOpencodeAgent({ baseUrl: opencodeUrl, directory: defaultCwd })
-  console.log(`[opentower] connected to OpenCode at ${opencodeUrl}`)
+  logger.info("connected to OpenCode", { url: opencodeUrl })
 
   const result = await bootstrap({ client, defaultCwd })
 
   if (!result) {
-    console.log("[opentower] nothing to do, exiting")
+    logger.info("nothing to do, exiting")
     process.exit(0)
   }
 
@@ -67,6 +68,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("[opentower] FATAL:", err)
+  logger.error("FATAL", { error: formatError(err) })
   process.exit(1)
 })

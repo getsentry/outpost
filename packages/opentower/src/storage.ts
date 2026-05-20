@@ -15,6 +15,8 @@ import { Database } from "bun:sqlite"
 import { existsSync, mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 
+export const DEFAULT_RETENTION_DAYS = 30
+
 export type EntityRow = {
   entity_key: string
   repo: string
@@ -152,6 +154,15 @@ export type LifecycleStore = {
   ): void
   listCronExecutions(jobId: string, opts?: { limit?: number }): CronExecutionRow[]
 
+  // Retention: delete dispatches and orphaned entities older than the
+  // given number of days. Returns the count of pruned rows.
+  pruneOlderThan(days: number): { dispatches: number; entities: number; cron_executions: number; links: number }
+
+  // Get/set the configured retention in days. Stored in a tiny metadata
+  // table so the dashboard can read/write it without restarting.
+  getRetentionDays(): number | null
+  setRetentionDays(days: number): void
+
   close(): void
 }
 
@@ -223,6 +234,11 @@ CREATE TABLE IF NOT EXISTS cron_executions (
   FOREIGN KEY (cron_job_id) REFERENCES cron_jobs(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_cron_executions_job ON cron_executions(cron_job_id);
+
+CREATE TABLE IF NOT EXISTS metadata (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `
 
 export function openLifecycleStore(dbPath: string): LifecycleStore {
@@ -319,6 +335,13 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
        WHERE id = $id`,
     ),
     disableCronJob: db.prepare("UPDATE cron_jobs SET enabled = 0, updated_at = datetime('now') WHERE id = ?"),
+
+    // Metadata statements
+    getMetadata: db.prepare<{ value: string }, [string]>("SELECT value FROM metadata WHERE key = ?"),
+    upsertMetadata: db.prepare(
+      `INSERT INTO metadata (key, value) VALUES ($key, $value)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    ),
 
     // Cron execution statements
     insertCronExecution: db.prepare(
@@ -674,6 +697,52 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
     listCronExecutions(jobId, opts = {}) {
       const limit = Math.min(opts.limit ?? 50, 200)
       return stmts.listCronExecutions.all(jobId, limit)
+    },
+
+    pruneOlderThan(days: number) {
+      const cutoff = new Date(Date.now() - days * 86_400_000).toISOString().replace("T", " ").slice(0, 19)
+      return db.transaction(() => {
+        // Only prune completed dispatches — never delete in-flight ones.
+        const dResult = db
+          .prepare("DELETE FROM dispatches WHERE created_at < ? AND status NOT IN ('started')")
+          .run(cutoff)
+        const ceResult = db
+          .prepare("DELETE FROM cron_executions WHERE scheduled_at < ? AND status NOT IN ('pending', 'running')")
+          .run(cutoff)
+        // Prune entities that have no dispatches left and were last updated
+        // before the cutoff — this avoids deleting entities with recent activity
+        // or entities that still have in-flight dispatches.
+        const eResult = db
+          .prepare(
+            `DELETE FROM entities WHERE updated_at < ?
+             AND entity_key NOT IN (SELECT DISTINCT entity_key FROM dispatches WHERE entity_key IS NOT NULL)`,
+          )
+          .run(cutoff)
+        // Clean up orphaned links where both sides have been pruned.
+        const lResult = db
+          .prepare(
+            `DELETE FROM links WHERE source_key NOT IN (SELECT entity_key FROM entities)
+             AND target_key NOT IN (SELECT entity_key FROM entities)`,
+          )
+          .run()
+        return {
+          dispatches: dResult.changes,
+          entities: eResult.changes,
+          cron_executions: ceResult.changes,
+          links: lResult.changes,
+        }
+      })()
+    },
+
+    getRetentionDays() {
+      const row = stmts.getMetadata.get("retention_days")
+      if (!row) return null
+      const n = Number(row.value)
+      return Number.isFinite(n) && n > 0 ? n : null
+    },
+
+    setRetentionDays(days: number) {
+      stmts.upsertMetadata.run({ $key: "retention_days", $value: String(days) })
     },
 
     close() {

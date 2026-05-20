@@ -23,9 +23,24 @@ import { useApiClient } from "@/hooks/use-api"
 import { useUrlPagination } from "@/hooks/use-url-pagination"
 import type { CronJobRow, PaginatedCronJobs } from "@/lib/api"
 import { timeAgo } from "@/lib/format"
+import { zodResolver } from "@hookform/resolvers/zod"
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Clock, Loader2, Play, Plus, Trash2 } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useForm } from "react-hook-form"
+import { z } from "zod"
+
+const cronJobSchema = z.object({
+  name: z.string().trim().min(1, "Name is required"),
+  cron_expression: z.string().trim().min(1, "Cron expression is required"),
+  prompt: z.string().trim().min(1, "Prompt is required"),
+  agent: z.string().trim().min(1, "Agent is required"),
+  entity_key: z.string().optional(),
+  timezone: z.string().min(1),
+  run_once: z.boolean(),
+})
+
+type CronJobFormData = z.infer<typeof cronJobSchema>
 
 export default function CronPage() {
   const client = useApiClient()
@@ -99,6 +114,7 @@ export default function CronPage() {
               </Button>
             </DialogTrigger>
             <CreateCronJobDialog
+              open={createDialogOpen}
               client={client}
               onClose={() => setCreateDialogOpen(false)}
               onSuccess={() => {
@@ -130,9 +146,9 @@ export default function CronPage() {
                     onToggle={(enabled) => toggleMutation.mutate({ id: job.id, enabled })}
                     onDelete={() => deleteMutation.mutate(job.id)}
                     onTrigger={() => triggerMutation.mutate(job.id)}
-                    isToggling={toggleMutation.isPending}
-                    isDeleting={deleteMutation.isPending}
-                    isTriggering={triggerMutation.isPending}
+                    isToggling={toggleMutation.isPending && toggleMutation.variables?.id === job.id}
+                    isDeleting={deleteMutation.isPending && deleteMutation.variables === job.id}
+                    isTriggering={triggerMutation.isPending && triggerMutation.variables === job.id}
                   />
                 ))}
                 {data?.jobs.length === 0 && (
@@ -248,33 +264,57 @@ function CronJobCard({
 }
 
 function CreateCronJobDialog({
+  open,
   client,
   onClose,
   onSuccess,
 }: {
+  open: boolean
   client: ReturnType<typeof useApiClient>
   onClose: () => void
   onSuccess: () => void
 }) {
-  const [name, setName] = useState("")
-  const [cronExpression, setCronExpression] = useState("")
-  const [prompt, setPrompt] = useState("")
-  const [agent, setAgent] = useState("jared")
-  const [entityKey, setEntityKey] = useState("")
-  const [timezone, setTimezone] = useState("UTC")
-  const [runOnce, setRunOnce] = useState(false)
-  const [error, setError] = useState("")
+  const {
+    register,
+    handleSubmit,
+    setValue,
+    watch,
+    reset,
+    formState: { errors },
+  } = useForm<CronJobFormData>({
+    resolver: zodResolver(cronJobSchema),
+    defaultValues: {
+      name: "",
+      cron_expression: "",
+      prompt: "",
+      agent: "jared",
+      entity_key: "",
+      timezone: "UTC",
+      run_once: false,
+    },
+  })
+  const [serverError, setServerError] = useState("")
+
+  // Reset form state when dialog opens
+  useEffect(() => {
+    if (open) {
+      reset()
+      setServerError("")
+    }
+  }, [open, reset])
+
+  const runOnce = watch("run_once")
 
   const createMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (data: CronJobFormData) => {
       return client!.createCronJob({
-        name,
-        cron_expression: cronExpression,
-        prompt,
-        agent,
-        entity_key: entityKey || null,
-        timezone,
-        run_once: runOnce,
+        name: data.name,
+        cron_expression: data.cron_expression,
+        prompt: data.prompt,
+        agent: data.agent,
+        entity_key: data.entity_key || null,
+        timezone: data.timezone,
+        run_once: data.run_once,
       })
     },
     onSuccess: () => {
@@ -282,32 +322,13 @@ function CreateCronJobDialog({
       onSuccess()
     },
     onError: (err) => {
-      setError(err instanceof Error ? err.message : "Failed to create cron job")
+      setServerError(err instanceof Error ? err.message : "Failed to create cron job")
     },
   })
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    setError("")
-
-    if (!name.trim()) {
-      setError("Name is required")
-      return
-    }
-    if (!cronExpression.trim()) {
-      setError("Cron expression is required")
-      return
-    }
-    if (!prompt.trim()) {
-      setError("Prompt is required")
-      return
-    }
-    if (!agent.trim()) {
-      setError("Agent is required")
-      return
-    }
-
-    createMutation.mutate()
+  function onSubmit(data: CronJobFormData) {
+    setServerError("")
+    createMutation.mutate(data)
   }
 
   return (
@@ -316,62 +337,55 @@ function CreateCronJobDialog({
         <DialogTitle>Create Cron Job</DialogTitle>
         <DialogDescription>Schedule a recurring task that triggers an agent prompt.</DialogDescription>
       </DialogHeader>
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="name">Name</Label>
-          <Input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="daily-triage" />
+          <Input id="name" placeholder="daily-triage" {...register("name")} />
+          {errors.name && <p className="text-sm text-destructive">{errors.name.message}</p>}
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="cron">Cron Expression</Label>
-          <Input
-            id="cron"
-            value={cronExpression}
-            onChange={(e) => setCronExpression(e.target.value)}
-            placeholder="0 9 * * MON-FRI"
-          />
+          <Label htmlFor="cron_expression">Cron Expression</Label>
+          <Input id="cron_expression" placeholder="0 9 * * MON-FRI" {...register("cron_expression")} />
           <p className="text-xs text-muted-foreground">Standard cron format: minute hour day month weekday</p>
+          {errors.cron_expression && <p className="text-sm text-destructive">{errors.cron_expression.message}</p>}
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="prompt">Prompt</Label>
           <Textarea
             id="prompt"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
             placeholder="Review all open issues and triage them..."
             rows={4}
+            {...register("prompt")}
           />
+          {errors.prompt && <p className="text-sm text-destructive">{errors.prompt.message}</p>}
         </div>
 
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="agent">Agent</Label>
-            <Input id="agent" value={agent} onChange={(e) => setAgent(e.target.value)} placeholder="jared" />
+            <Input id="agent" placeholder="jared" {...register("agent")} />
+            {errors.agent && <p className="text-sm text-destructive">{errors.agent.message}</p>}
           </div>
           <div className="space-y-2">
             <Label htmlFor="timezone">Timezone</Label>
-            <Input id="timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="UTC" />
+            <Input id="timezone" placeholder="UTC" {...register("timezone")} />
           </div>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="entityKey">Entity Key (optional)</Label>
-          <Input
-            id="entityKey"
-            value={entityKey}
-            onChange={(e) => setEntityKey(e.target.value)}
-            placeholder="owner/repo#123"
-          />
+          <Label htmlFor="entity_key">Entity Key (optional)</Label>
+          <Input id="entity_key" placeholder="owner/repo#123" {...register("entity_key")} />
           <p className="text-xs text-muted-foreground">If set, the job will use session affinity for this entity.</p>
         </div>
 
         <div className="flex items-center gap-2">
-          <Switch id="runOnce" checked={runOnce} onCheckedChange={setRunOnce} />
-          <Label htmlFor="runOnce">Run once (disable after first execution)</Label>
+          <Switch id="run_once" checked={runOnce} onCheckedChange={(checked) => setValue("run_once", checked)} />
+          <Label htmlFor="run_once">Run once (disable after first execution)</Label>
         </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        {serverError && <p className="text-sm text-destructive">{serverError}</p>}
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
