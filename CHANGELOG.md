@@ -1,4 +1,23 @@
 # Changelog
+## 0.4.1
+
+### New Features ✨
+
+- (coder-template) Human-readable resource names and Lore AI app by @MathurAditya724 in [#93](https://github.com/getsentry/outpost/pull/93)
+
+### Bug Fixes 🐛
+
+- Update craft workflows to use Sentry release bot credentials by @MathurAditya724 in [#97](https://github.com/getsentry/outpost/pull/97)
+- Dashboard & backend improvements by @MathurAditya724 in [#94](https://github.com/getsentry/outpost/pull/94)
+
+### Documentation 📚
+
+- Add FSL-1.1-Apache-2.0 license by @MathurAditya724 in [#95](https://github.com/getsentry/outpost/pull/95)
+
+### Other
+
+- updated the coder namespace by @MathurAditya724 in [470436a5](https://github.com/getsentry/outpost/commit/470436a519722eed267aea79910fa48e57c7b95a)
+
 ## 0.4.0
 
 ### New Features ✨
