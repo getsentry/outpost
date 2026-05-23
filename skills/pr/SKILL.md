@@ -61,26 +61,37 @@ short and to the point — not overly long or detailed.
    The heredoc is important — it preserves multi-line plans, special
    characters, and quotes without escaping headaches.
 
-3. **Schedule a CI check**. After the PR is created, schedule a
-   `run_once` cron job to check CI status in ~10 minutes. Use the
+3. **Schedule a CI check**. Determine the wait time based on the
+   repo's CI check count. If the caller (resolve-issue) provided a
+   CI check count, use it. Otherwise count via the API:
+   ```sh
+   CHECK_COUNT=$(gh api "repos/<owner>/<repo>/commits/$(git rev-parse HEAD)/check-runs" \
+     --jq '.total_count' 2>/dev/null || echo "0")
+   ```
+   Calculate wait time: `WAIT_MINS = max(1, min(CHECK_COUNT, 20))`.
+   Default to 10 if the count is 0 or unavailable.
+
+   If CHECK_COUNT is 0 **and** no CI workflows exist in the repo
+   (check `.github/workflows/`), skip scheduling — the work is done.
+   Load `mark-pr-ready` immediately.
+
+   Otherwise, schedule a `run_once` cron job. Use the
    `create_cron_job` tool with:
    - `run_once: true`
    - `entity_key` set to the PR entity (e.g., `owner/repo#42`) so the
      check runs in **this same session**
-   - A cron expression ~10 minutes from now (e.g., if it's 14:03 UTC,
-     use `13 14 * * *`)
+   - A cron expression `$WAIT_MINS` minutes from now
    - A prompt that tells the agent what to do:
 
    ```
    CI check for PR #<N> on <owner>/<repo>.
    Run: gh pr checks <N> -R <owner>/<repo> --json name,state --jq '[.[] | select(.state != "SUCCESS" and .state != "SKIPPED" and .state != "NEUTRAL")]'
-   If the result is an empty array [], CI has passed — load the mark-pr-ready skill to promote the draft PR.
-   If checks are still running or failing, schedule another run_once cron job 10 minutes from now with this same prompt and entity_key to check again.
+   If the result is an empty array [], CI has passed — load the mark-pr-ready skill to promote the draft PR. Then load auto-merge to check if this PR qualifies for automatic merging.
+   If checks are still running or failing, schedule another run_once cron job with the same wait time, prompt, and entity_key to check again.
    ```
 
-   This avoids relying on `check_suite` / `workflow_run` webhooks
-   (which may not arrive via email) and ensures the PR gets promoted
-   once CI passes.
+   This ensures the PR gets promoted once CI passes, with the wait
+   time scaled to the repo's CI complexity.
 
 4. **Print the PR URL** as the final line of your reply.
 

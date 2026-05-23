@@ -4,7 +4,6 @@
 // and agent backends.
 
 import type { Dedup } from "./dedup"
-import type { EntityResolver } from "./entity-resolver"
 import type { Pipeline } from "./pipeline"
 import type { LifecycleStore } from "./storage"
 
@@ -44,7 +43,6 @@ export type HandlerContext = {
   dedup: Dedup
   store: LifecycleStore
   botLogin: string | null
-  entityResolver: EntityResolver | null
 }
 
 // Interface for pluggable webhook/event handlers.

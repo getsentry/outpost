@@ -1,12 +1,11 @@
 // Extract the GitHub entity key from a webhook payload. The entity key
 // is the natural "thing being worked on": owner/repo#N where N is the
-// issue or PR number. All events related to the same issue or PR share
-// the same entity key, enabling session affinity.
+// issue or PR number. All events related to the same entity share the
+// same key, enabling session affinity.
 //
 // Also extracts linked issue numbers from PR bodies so the lifecycle
 // store can link issue->PR for session reuse.
 
-import type { EntityResolver } from "./entity-resolver"
 import type { GitHubFetcher } from "./github-api"
 import { lookup, lookupString } from "./template"
 
@@ -20,23 +19,16 @@ export type EntityKey = {
   linkedIssues: number[]
 }
 
-// Extract entity key from a GitHub webhook payload or email event.
+// Extract entity key from a GitHub webhook payload.
 // Returns null for events that don't map to a trackable entity.
-// Email events use the AI entity resolver to identify the GitHub
-// entity from any email source (GitHub, Sentry, CI, etc.).
 // When a GitHubFetcher is provided, events that lack full context
 // (check_suite, workflow_run, push) will make API calls to enrich
 // the entity with linked issues.
 export async function extractEntityKey(
   event: string,
   payload: unknown,
-  resolver?: EntityResolver | null,
   fetcher?: GitHubFetcher | null,
 ): Promise<EntityKey | null> {
-  if (event.startsWith("email.")) {
-    return resolveEmailEntity(payload, resolver)
-  }
-
   const repo = lookupString(payload, "repository.full_name")
   if (!repo) return null
 
@@ -186,54 +178,6 @@ async function resolvePushEntity(
   }
 
   return null
-}
-
-// Resolve email entity key using the AI resolver, then verify via gh CLI.
-async function resolveEmailEntity(payload: unknown, resolver?: EntityResolver | null): Promise<EntityKey | null> {
-  if (!resolver) return null
-  const o = payload as Record<string, unknown> | null
-  if (!o || typeof o !== "object") return null
-
-  const bodyText = typeof o.body_text === "string" ? o.body_text : null
-
-  const result = await resolver.resolve({
-    from: typeof o.from === "string" ? o.from : "",
-    to: typeof o.to === "string" ? o.to : "",
-    subject: typeof o.subject === "string" ? o.subject : "",
-    message_id: typeof o.message_id === "string" ? o.message_id : "",
-    in_reply_to: typeof o.in_reply_to === "string" ? o.in_reply_to : null,
-    references: Array.isArray(o.references) ? o.references.filter((s): s is string => typeof s === "string") : [],
-    list_id: typeof o.list_id === "string" ? o.list_id : null,
-    x_github_reason: typeof o.x_github_reason === "string" ? o.x_github_reason : null,
-    x_github_sender: typeof o.x_github_sender === "string" ? o.x_github_sender : null,
-    body_text: bodyText,
-  })
-
-  if (!result.entity || result.confidence === "low") return null
-
-  const verified = await resolver.verify(result.entity)
-  if (!verified) {
-    const linkedIssues =
-      result.entity.kind === "pull_request" && bodyText ? extractLinkedIssues(bodyText, result.entity.repo) : []
-    return {
-      key: `${result.entity.repo}#${result.entity.number}`,
-      repo: result.entity.repo,
-      number: result.entity.number,
-      kind: result.entity.kind,
-      linkedIssues,
-    }
-  }
-
-  const linkedIssues =
-    verified.kind === "pull_request" && verified.body ? extractLinkedIssues(verified.body, verified.repo) : []
-
-  return {
-    key: `${verified.repo}#${verified.number}`,
-    repo: verified.repo,
-    number: verified.number,
-    kind: verified.kind,
-    linkedIssues,
-  }
 }
 
 // Extract issue numbers from PR bodies and commit messages.

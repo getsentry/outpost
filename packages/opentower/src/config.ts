@@ -47,7 +47,7 @@ export function normalizeTrigger(t: Trigger, botLogin: string | null): Normalize
   const { event: _drop, ...rest } = t
   return {
     ...rest,
-    source: t.source ?? "github_webhook",
+    source: t.source ?? "github_app",
     action: t.action ?? null,
     enabled: t.enabled !== false,
     events,

@@ -42,6 +42,7 @@ type SessionEntry = {
   abort: AbortController
   abortTimer: ReturnType<typeof setTimeout>
   batchTimer: ReturnType<typeof setTimeout> | null
+  batchStart: number | null
   idleTimer: ReturnType<typeof setTimeout> | null
 }
 
@@ -57,6 +58,7 @@ export type Pipeline = {
 }
 
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000
+const INITIAL_BATCH_WINDOW_MS = 2_000
 
 // Derive a per-repo session directory from an entity key's repo field.
 // e.g. "MathurAditya724/outpost" → ~/dev/MathurAditya724/outpost
@@ -361,6 +363,7 @@ export function makePipeline(opts: {
           abort: newAbort,
           abortTimer: newAbortTimer,
           batchTimer: null,
+          batchStart: null,
           idleTimer: null,
         }
         sessions.set(entityKey.key, fresh)
@@ -467,14 +470,25 @@ export function makePipeline(opts: {
   function flushQueue(entry: SessionEntry): void {
     if (entry.queue.length === 0) {
       resetIdleTimer(entry)
+      entry.batchStart = null
       return
     }
+    // Start with a short initial window. If events keep arriving
+    // while the batch timer is running, dispatch() will extend the
+    // timer up to batchWindowMs from the first queued event.
+    const now = Date.now()
+    if (!entry.batchStart) entry.batchStart = now
+    const elapsed = now - entry.batchStart
+    const remaining = Math.max(0, batchWindowMs - elapsed)
+    const delay = entry.batchStart === now ? Math.min(INITIAL_BATCH_WINDOW_MS, batchWindowMs) : remaining
+
     entry.batchTimer = setTimeout(() => {
       entry.batchTimer = null
+      entry.batchStart = null
       const batch = entry.queue.splice(0)
       if (batch.length === 0) return
       void followUp(entry, batch)
-    }, batchWindowMs)
+    }, delay)
   }
 
   function handleError(
@@ -686,6 +700,14 @@ export function makePipeline(opts: {
           })
           return
         }
+        // If a batch timer is already running, add to the queue and
+        // extend the timer (up to batchWindowMs from first event).
+        if (existing.batchTimer) {
+          existing.queue.push({ trigger, prompt, deliveryId, matchedEvent })
+          clearTimeout(existing.batchTimer)
+          flushQueue(existing)
+          return
+        }
         void followUp(existing, [{ trigger, prompt, deliveryId, matchedEvent }])
         return
       }
@@ -710,6 +732,7 @@ export function makePipeline(opts: {
           abort,
           abortTimer: null as unknown as ReturnType<typeof setTimeout>,
           batchTimer: null,
+          batchStart: null,
           idleTimer: null,
         }
         sessions.set(entityKey.key, entry)
@@ -738,6 +761,7 @@ export function makePipeline(opts: {
         abort,
         abortTimer: null as unknown as ReturnType<typeof setTimeout>,
         batchTimer: null,
+        batchStart: null,
         idleTimer: null,
       }
       sessions.set(entityKey.key, entry)

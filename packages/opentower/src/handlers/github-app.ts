@@ -88,19 +88,15 @@ export function createGithubAppHandler(opts: GithubAppHandlerOptions): WebhookHa
           return c.json({ ok: true, delivery_id: deliveryId, duplicate: true, dispatched: [] })
         }
 
-        // Acquire an installation token for entity enrichment (fetching PR
-        // bodies, resolving branches). The token is used for API calls but
-        // NOT injected into the payload or template context.
+        // Use the current GH_TOKEN (refreshed by the token loop in
+        // bootstrap) for entity enrichment. Also acquire a per-installation
+        // token if available for more targeted API access.
         const installationId = (payload as { installation?: { id?: number } })?.installation?.id
         let githubFetcher = null
         if (installationId) {
           try {
             const token = await auth.getInstallationToken(installationId)
             githubFetcher = createGitHubFetcher(token)
-            Sentry.logger.info("github_app.token_acquired", {
-              installation_id: installationId,
-              delivery_id: deliveryId,
-            })
           } catch (err) {
             Sentry.logger.error("github_app.token_failed", {
               installation_id: installationId,
@@ -108,6 +104,11 @@ export function createGithubAppHandler(opts: GithubAppHandlerOptions): WebhookHa
               error: formatError(err),
             })
           }
+        }
+        // Fall back to the process-level GH_TOKEN if no installation token
+        if (!githubFetcher) {
+          const envToken = process.env.GH_TOKEN ?? ""
+          if (envToken) githubFetcher = createGitHubFetcher(envToken)
         }
 
         const appBotLogin = await resolveAppBotLogin(context.botLogin)
@@ -136,6 +137,7 @@ export function createGithubAppHandler(opts: GithubAppHandlerOptions): WebhookHa
             delivery_id: deliveryId,
             payload,
             installation_id: installationId,
+            bot_login: appBotLogin ?? context.botLogin ?? "",
           },
           pipeline: context.pipeline,
           githubFetcher,

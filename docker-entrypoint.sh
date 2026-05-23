@@ -33,42 +33,25 @@ if [ ! -d "$DEV_DIR/.git" ]; then
 fi
 
 # --- Identity setup (fail-soft) -------------------------------------------
-# Everything below is best-effort: gh/git identity configuration must never
+# Everything below is best-effort: identity configuration must never
 # prevent the container from starting. Disable set -e for this section so
-# unexpected failures (e.g. gh internally calling git in a non-repo cwd,
-# network errors reaching api.github.com, jq parse failures) are logged as
-# warnings instead of crashing the container into a restart loop.
+# unexpected failures are logged as warnings instead of crashing the
+# container into a restart loop.
 set +e
 
-# If GH_TOKEN is set, configure git's credential helper to defer to
-# `gh auth git-credential`. Without this, `git push` over HTTPS prompts
-# for a username and fails non-interactively, even though gh itself
-# (and the agents' `gh` calls) work fine via GH_TOKEN env-var
-# auto-detection. The helper resolves the token fresh on every git
-# operation — no on-disk token state, matches the env-var-driven
-# pattern that survives Railway redeploys.
-# Idempotent: gh detects existing helpers and only writes if absent.
+# If GH_TOKEN is set (either from a PAT or injected by the bootstrap
+# process from a GitHub App installation token), configure git's
+# credential helper so `git push` / `git clone` over HTTPS work.
 if [ -n "$GH_TOKEN" ]; then
   gh auth setup-git 2>/dev/null \
     || echo "WARN: gh auth setup-git failed; agents that run 'git push' over HTTPS may stall" >&2
 fi
 
-# Set git author identity to the GH_TOKEN's owner so commits agents
-# push from cloned repos (~/dev/<owner>/<repo>) are attributed to the
-# bot's actual GitHub user. Without this, commits inherit either the
-# image's default identity or whatever git falls back to — which can
-# leak unrelated identities (e.g. an upstream bot baked into a parent
-# image) onto every commit the bot pushes.
-#
-# Uses GitHub's noreply pattern (<id>+<login>@users.noreply.github.com)
-# so the commit author resolves cleanly to the bot's GitHub user
-# without exposing a private email. Set globally so every clone
-# inherits it; also written to the ~/dev repo-local config to override
-# any pre-existing values there.
-#
-# Fail-soft: if `gh api user` errors, leave existing identity alone
-# and let the fallback below set a sane default.
-if [ -n "$GH_TOKEN" ]; then
+# Set git author identity. When a GitHub App is configured, the
+# bootstrap process (bootstrap.ts) handles identity setup from the
+# App's bot account. When only GH_TOKEN (PAT) is available, resolve
+# the identity from it.
+if [ -n "$GH_TOKEN" ] && [ -z "$GITHUB_APP_ID" ]; then
   GH_USER_JSON=$(gh api user 2>/dev/null) || GH_USER_JSON=""
   if [ -n "$GH_USER_JSON" ]; then
     GH_LOGIN=$(printf '%s' "$GH_USER_JSON" | jq -r '.login // empty')
@@ -80,19 +63,12 @@ if [ -n "$GH_TOKEN" ]; then
       git config --global user.email "$GH_EMAIL"
       git -C "$DEV_DIR" config user.name  "$GH_NAME"
       git -C "$DEV_DIR" config user.email "$GH_EMAIL"
-      echo "git author identity: $GH_NAME <$GH_EMAIL>"
-    else
-      echo "WARN: gh api user returned empty login/id; git author identity not set" >&2
+      echo "git author identity (PAT): $GH_NAME <$GH_EMAIL>"
     fi
-  else
-    echo "WARN: gh api user failed; git author identity not set" >&2
   fi
 fi
 
-# Fallback identity for the ~/dev worktree when GH_TOKEN is unset or
-# `gh api user` failed above. Only written if the repo-local config
-# is currently empty so we don't stomp the gh-derived identity on
-# subsequent boots.
+# Fallback identity when no identity is configured yet.
 if ! git -C "$DEV_DIR" config --get user.email >/dev/null 2>&1; then
   git -C "$DEV_DIR" config user.email "developer@outpost.local"
   git -C "$DEV_DIR" config user.name  "Developer"

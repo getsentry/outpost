@@ -25,6 +25,7 @@ type CachedToken = {
 export type GitHubAppAuth = {
   getInstallationToken(installationId: number): Promise<string>
   getAppSlug(): Promise<string>
+  getDefaultInstallationId(): Promise<number>
 }
 
 function base64url(input: Buffer | string): string {
@@ -106,5 +107,28 @@ export function createGitHubAppAuth(appId: string, privateKey: string): GitHubAp
     return data.slug
   }
 
-  return { getInstallationToken, getAppSlug }
+  async function getDefaultInstallationId(): Promise<number> {
+    const jwt = generateJWT(appId, privateKey)
+    const response = await fetch(`${GITHUB_API}/app/installations`, {
+      headers: {
+        Authorization: `Bearer ${jwt}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    })
+
+    if (!response.ok) {
+      const body = await response.text()
+      throw new Error(`Failed to list installations (HTTP ${response.status}): ${body}`)
+    }
+
+    const installations = (await response.json()) as Array<{ id: number; account: { login: string } }>
+    if (installations.length === 0) {
+      throw new Error("GitHub App has no installations. Install the app on at least one organization or repository.")
+    }
+
+    return installations[0].id
+  }
+
+  return { getInstallationToken, getAppSlug, getDefaultInstallationId }
 }

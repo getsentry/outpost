@@ -9,6 +9,8 @@ const GITHUB_API = "https://api.github.com"
 
 export type GitHubFetcher = {
   fetchPR(repo: string, number: number): Promise<{ body: string | null } | null>
+  fetchIssue(repo: string, number: number): Promise<{ body: string | null } | null>
+  fetchEntity(repo: string, number: number): Promise<{ kind: "issue" | "pull_request"; body: string | null } | null>
   findPRForBranch(repo: string, branch: string): Promise<{ number: number; body: string | null } | null>
 }
 
@@ -34,6 +36,31 @@ export function createGitHubFetcher(token: string): GitHubFetcher {
         })
         return null
       }
+    },
+
+    async fetchIssue(repo, number) {
+      try {
+        const res = await fetch(`${GITHUB_API}/repos/${repo}/issues/${number}`, { headers })
+        if (!res.ok) return null
+        const data = (await res.json()) as { body: string | null }
+        return { body: data.body }
+      } catch (err) {
+        Sentry.logger.warn("github_api.fetch_issue_failed", {
+          repo,
+          number,
+          error: formatError(err),
+        })
+        return null
+      }
+    },
+
+    async fetchEntity(repo, number) {
+      // Try PR first — issues API also returns PRs but with less detail
+      const pr = await this.fetchPR(repo, number)
+      if (pr) return { kind: "pull_request" as const, body: pr.body }
+      const issue = await this.fetchIssue(repo, number)
+      if (issue) return { kind: "issue" as const, body: issue.body }
+      return null
     },
 
     async findPRForBranch(repo, branch) {
