@@ -175,7 +175,7 @@ export function createEntityResolver(): EntityResolver | null {
   if (!apiKey) return null
 
   const anthropic = createAnthropic({ apiKey })
-  const model = anthropic("claude-sonnet-4-20250514")
+  const model = anthropic("claude-sonnet-4-6")
 
   return {
     async resolve(email) {
