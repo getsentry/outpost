@@ -85,8 +85,13 @@ short and to the point — not overly long or detailed.
 
    ```
    CI check for PR #<N> on <owner>/<repo>.
-   Run: gh pr checks <N> -R <owner>/<repo> --json name,state --jq '[.[] | select(.state != "SUCCESS" and .state != "SKIPPED" and .state != "NEUTRAL")]'
-   If the result is an empty array [], CI has passed — load the mark-pr-ready skill to promote the draft PR. Then load auto-merge to check if this PR qualifies for automatic merging.
+   First, check if any checks are registered:
+     TOTAL=$(gh pr checks <N> -R <owner>/<repo> --json name --jq length)
+   If TOTAL is 0 and CI workflows exist in the repo (.github/workflows/), CI hasn't started yet — schedule another check and stop.
+   If TOTAL is 0 and no CI workflows exist, CI is not configured — load mark-pr-ready immediately.
+   If TOTAL > 0, check for failures:
+     FAILING=$(gh pr checks <N> -R <owner>/<repo> --json name,state --jq '[.[] | select(.state != "SUCCESS" and .state != "SKIPPED" and .state != "NEUTRAL")]')
+   If FAILING is an empty array [], CI has passed — load the mark-pr-ready skill to promote the draft PR. Then load auto-merge to check if this PR qualifies for automatic merging.
    If checks are still running or failing, schedule another run_once cron job with the same wait time, prompt, and entity_key to check again.
    ```
 

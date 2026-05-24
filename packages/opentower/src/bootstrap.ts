@@ -57,11 +57,39 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     return null
   }
 
-  const triggers = (cfg.triggers ?? []).map((t) => normalizeTrigger(t, null))
+  // Resolve bot identity BEFORE normalizing triggers so that
+  // ignore_authors substitution ($BOT_LOGIN) works correctly.
+  const { auth } = createHandlers({ triggers: [], githubApp })
+  let botLogin: string | null = null
+  let tokenRefreshTimer: ReturnType<typeof setInterval> | null = null
+
+  try {
+    const { botLogin: resolvedLogin, tokenRefreshTimer: refreshTimer } = await initAppIdentity(auth)
+    botLogin = resolvedLogin
+    tokenRefreshTimer = refreshTimer
+    logger.info("GitHub App identity resolved", { login: botLogin })
+    Sentry.setTag("bot.login", botLogin)
+  } catch (_err) {
+    botLogin = await resolveBotLogin()
+    if (botLogin) {
+      logger.warn("GitHub App identity failed, using GH_TOKEN identity", { login: botLogin })
+      Sentry.setTag("bot.login", botLogin)
+    } else {
+      logger.warn("could not resolve bot identity -- self-loop guard degraded")
+    }
+  }
+
+  // Normalize triggers with the resolved bot login so ignore_authors
+  // substitution works. This must happen after identity resolution.
+  const triggers = (cfg.triggers ?? []).map((t) => normalizeTrigger(t, botLogin))
   if (triggers.length === 0) {
     logger.info("no triggers configured -- listener disabled", { path: configPath() })
     return null
   }
+
+  // Re-create handlers with properly normalized triggers (the initial
+  // createHandlers call above was only to get the auth object).
+  const { handlers: normalizedHandlers } = createHandlers({ triggers, githubApp })
 
   const batchWindowMs = cfg.batch_window_ms ?? 5_000
   const dedup = makeDedup()
@@ -121,37 +149,6 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   cronScheduler.start()
   logger.info("cron scheduler started")
 
-  const { handlers, auth } = createHandlers({
-    triggers,
-    githubApp,
-  })
-
-  // Resolve bot identity from the GitHub App. The app's bot login is
-  // "<slug>[bot]" and the installation token is set as GH_TOKEN so the
-  // agent's gh CLI calls are attributed to the app.
-  let botLogin: string | null = null
-  let tokenRefreshTimer: ReturnType<typeof setInterval> | null = null
-
-  try {
-    const { botLogin: resolvedLogin, tokenRefreshTimer: refreshTimer } = await initAppIdentity(auth)
-    botLogin = resolvedLogin
-    tokenRefreshTimer = refreshTimer
-    logger.info("GitHub App identity resolved", { login: botLogin })
-    Sentry.setTag("bot.login", botLogin)
-  } catch (_err) {
-    // Fall back to GH_TOKEN-based identity if App identity fails
-    botLogin = await resolveBotLogin()
-    if (botLogin) {
-      logger.warn("GitHub App identity failed, using GH_TOKEN identity", { login: botLogin })
-      Sentry.setTag("bot.login", botLogin)
-    } else {
-      logger.warn("could not resolve bot identity -- self-loop guard degraded")
-    }
-  }
-
-  // Re-normalize triggers with the resolved bot login for ignore_authors
-  const normalizedTriggers = (cfg.triggers ?? []).map((t) => normalizeTrigger(t, botLogin))
-
   const handlerContext: HandlerContext = {
     pipeline,
     dedup,
@@ -160,7 +157,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
   }
 
   const app = createApp({
-    handlers,
+    handlers: normalizedHandlers,
     handlerContext,
     store,
     apiToken,
@@ -173,7 +170,7 @@ export async function bootstrap(opts: BootstrapOptions): Promise<BootstrapResult
     fetch: app.fetch,
   })
 
-  const triggerCount = normalizedTriggers.filter((t) => t.source === "github_app").length
+  const triggerCount = triggers.filter((t) => t.source === "github_app").length
   logger.info("listening", {
     url: `http://0.0.0.0:${server.port}`,
     triggers: {
@@ -269,8 +266,8 @@ async function configureGitIdentity(botLogin: string): Promise<void> {
         await proc.exited
       }
 
-      await gitConfig([], "user.name", botLogin)
-      await gitConfig([], "user.email", email)
+      await gitConfig(["--global"], "user.name", botLogin)
+      await gitConfig(["--global"], "user.email", email)
       await gitConfig(["-C", devDir], "user.name", botLogin)
       await gitConfig(["-C", devDir], "user.email", email)
 

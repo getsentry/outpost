@@ -19,6 +19,15 @@ export type EntityKey = {
   linkedIssues: number[]
 }
 
+// PR-related events that all extract from payload.pull_request.
+const PR_EVENTS = new Set(["pull_request", "pull_request_review_comment", "pull_request_review"])
+
+// CI events that extract from a pull_requests array inside the event object.
+const CI_EVENTS: Record<string, string> = {
+  check_suite: "check_suite.pull_requests",
+  workflow_run: "workflow_run.pull_requests",
+}
+
 // Extract entity key from a GitHub webhook payload.
 // Returns null for events that don't map to a trackable entity.
 // When a GitHubFetcher is provided, events that lack full context
@@ -54,8 +63,9 @@ export async function extractEntityKey(
     return { key: `${repo}#${num}`, repo, number: num, kind: "issue", linkedIssues: [] }
   }
 
-  // pull_request.*
-  if (event === "pull_request") {
+  // pull_request, pull_request_review_comment, pull_request_review
+  // All extract from payload.pull_request with identical logic.
+  if (PR_EVENTS.has(event)) {
     const num = lookup(payload, "pull_request.number")
     if (typeof num !== "number") return null
     const body = lookupString(payload, "pull_request.body") ?? ""
@@ -68,37 +78,11 @@ export async function extractEntityKey(
     }
   }
 
-  // pull_request_review_comment.*
-  if (event === "pull_request_review_comment") {
-    const num = lookup(payload, "pull_request.number")
-    if (typeof num !== "number") return null
-    const body = lookupString(payload, "pull_request.body") ?? ""
-    return {
-      key: `${repo}#${num}`,
-      repo,
-      number: num,
-      kind: "pull_request",
-      linkedIssues: extractLinkedIssues(body, repo),
-    }
-  }
-
-  // pull_request_review.*
-  if (event === "pull_request_review") {
-    const num = lookup(payload, "pull_request.number")
-    if (typeof num !== "number") return null
-    const body = lookupString(payload, "pull_request.body") ?? ""
-    return {
-      key: `${repo}#${num}`,
-      repo,
-      number: num,
-      kind: "pull_request",
-      linkedIssues: extractLinkedIssues(body, repo),
-    }
-  }
-
-  // check_suite.* -- extract from pull_requests array, fetch PR body for links
-  if (event === "check_suite") {
-    const prs = lookup(payload, "check_suite.pull_requests")
+  // check_suite, workflow_run — extract from pull_requests array,
+  // fetch PR body for linked issue detection.
+  const ciPath = CI_EVENTS[event]
+  if (ciPath) {
+    const prs = lookup(payload, ciPath)
     if (!Array.isArray(prs) || prs.length === 0) return null
     const first = prs[0] as Record<string, unknown>
     const num = first?.number
@@ -107,18 +91,7 @@ export async function extractEntityKey(
     return { key: `${repo}#${num}`, repo, number: num, kind: "pull_request", linkedIssues }
   }
 
-  // workflow_run.* -- extract from pull_requests array, fetch PR body for links
-  if (event === "workflow_run") {
-    const prs = lookup(payload, "workflow_run.pull_requests")
-    if (!Array.isArray(prs) || prs.length === 0) return null
-    const first = prs[0] as Record<string, unknown>
-    const num = first?.number
-    if (typeof num !== "number") return null
-    const linkedIssues = fetcher ? await fetchLinkedIssues(fetcher, repo, num) : []
-    return { key: `${repo}#${num}`, repo, number: num, kind: "pull_request", linkedIssues }
-  }
-
-  // push -- resolve branch to PR, or parse commit messages for issue refs
+  // push — resolve branch to PR, or parse commit messages for issue refs
   if (event === "push") {
     return resolvePushEntity(payload, repo, fetcher)
   }

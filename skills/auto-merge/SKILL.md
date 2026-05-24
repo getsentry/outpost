@@ -60,7 +60,7 @@ needs human review and list which criteria it exceeded.
 0. **Check quiet period**. Verify the PR was marked ready at least
    10 minutes ago with no reviewer activity since:
    ```sh
-   READY_AT=$(gh api "repos/<owner>/<repo>/issues/<N>/events" \
+   READY_AT=$(gh api "repos/<owner>/<repo>/issues/<N>/timeline" --paginate \
      --jq '[.[] | select(.event=="ready_for_review")] | last | .created_at')
    ```
    Calculate elapsed time. If less than 10 minutes have passed,

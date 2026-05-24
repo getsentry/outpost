@@ -315,8 +315,11 @@ export function repairSchema(db: Database): RepairResult {
           break
         }
         case "missing_column": {
-          db.exec(`ALTER TABLE ${issue.table} ADD COLUMN ${issue.column} TEXT`)
-          result.fixed.push(`added column ${issue.table}.${issue.column}`)
+          const table = EXPECTED_TABLES.find((t) => t.name === issue.table)
+          const col = table?.columns.find((c) => c.name === issue.column)
+          const colType = col?.type ?? "TEXT"
+          db.exec(`ALTER TABLE ${issue.table} ADD COLUMN ${issue.column} ${colType}`)
+          result.fixed.push(`added column ${issue.table}.${issue.column} (${colType})`)
           break
         }
         case "missing_index": {

@@ -170,6 +170,16 @@ export function openLifecycleStore(dbPath: string): LifecycleStore {
 
   const db = drizzle(sqlite, { schema })
 
+  // Some methods use raw sqlite.prepare() instead of Drizzle:
+  //   - upsertEntity: COALESCE/CASE WHEN in ON CONFLICT not expressible in Drizzle
+  //   - addLink: INSERT OR IGNORE not expressible in Drizzle for composite PKs
+  //   - pruneOlderThan: bulk transactional deletes with subqueries, cleaner in raw SQL
+  //   - setRetentionDays: simple upsert, kept raw for consistency with getRetentionDays
+  //
+  // Timestamps: raw SQL uses datetime('now') (SQLite clock, UTC). Drizzle
+  // .values() calls use the JS now() helper which produces the same
+  // "YYYY-MM-DD HH:MM:SS" format in UTC. Both are equivalent when the
+  // process runs with TZ=UTC (the default in the Docker container).
   return {
     upsertEntity(row) {
       sqlite

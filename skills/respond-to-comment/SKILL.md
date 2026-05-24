@@ -12,8 +12,8 @@ Triage a comment on a PR the bot is involved in. Load `repo-setup` first.
 
 ## Self-loop guard
 
-If the comment author equals your identity (`gh api user --jq .login`),
-stop: `SKIPPED: own comment`.
+If the comment author equals your identity (`$ME` — see agent identity
+setup), stop: `SKIPPED: own comment`.
 
 ## Triage
 

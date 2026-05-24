@@ -16,7 +16,7 @@ Fix failing CI on a PR the bot authored. Load `repo-setup` first.
 
 ```sh
 ATTEMPTS=$(gh api "repos/<owner>/<repo>/issues/<number>/comments" --paginate \
-  --jq '[.[] | select(.body | startswith("fix-ci: attempt"))] | length')
+  --jq '[.[] | select(.user.login == "'"$ME"'" and (.body | startswith("fix-ci: attempt")))] | length')
 ```
 
 If >= 3, BLOCKED. Otherwise post a short comment like "fix-ci:

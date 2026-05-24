@@ -349,10 +349,10 @@ export function makePipeline(opts: {
         // call — createAndPrompt will start its own.
         drainCounter.end()
 
-        // Retry with a brand-new session.
+        // Retry with a brand-new session. Don't start an abort timer
+        // here — createAndPrompt sets its own after semaphore acquisition
+        // so wait time doesn't count against the timeout budget.
         const newAbort = new AbortController()
-        const newAbortTimer = setTimeout(() => newAbort.abort(), timeoutMs)
-        newAbortTimer.unref?.()
         const fresh: SessionEntry = {
           sessionId: "",
           entityKey: entityKey.key,
@@ -361,7 +361,7 @@ export function makePipeline(opts: {
           busy: true,
           queue: entry.queue,
           abort: newAbort,
-          abortTimer: newAbortTimer,
+          abortTimer: null as unknown as ReturnType<typeof setTimeout>,
           batchTimer: null,
           batchStart: null,
           idleTimer: null,

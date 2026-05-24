@@ -71,7 +71,8 @@ and self-review found no remaining issues.
 
 ## Notes
 
-- Don't merge the PR. Marking ready is the final step for the bot.
+- Don't merge the PR. This skill only marks the PR ready — the
+  coordinator may load `auto-merge` next if the PR qualifies.
 - If label creation fails (label doesn't exist in the repo), skip
   silently — don't create labels.
 - This skill is typically loaded by the coordinator agent after a

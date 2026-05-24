@@ -8,6 +8,9 @@ export const entities = sqliteTable(
     entity_key: text("entity_key").primaryKey(),
     repo: text("repo").notNull(),
     number: integer("number").notNull(),
+    // The enum restricts values at the TypeScript level only. The SQL-level
+    // CHECK(kind IN ('issue','pull_request')) constraint comes from the
+    // migration SQL in migrations.ts, which is the actual DB-level guard.
     kind: text("kind", { enum: ["issue", "pull_request"] }).notNull(),
     session_id: text("session_id").notNull(),
     share_url: text("share_url"),
