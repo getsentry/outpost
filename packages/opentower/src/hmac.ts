@@ -1,6 +1,5 @@
-// HMAC verification. Used for both GitHub's X-Hub-Signature-256 and
-// the email worker's X-Email-Signature-256 (same scheme: prefix
-// "sha256=" + hex-encoded HMAC of the raw body).
+// HMAC verification for GitHub's X-Hub-Signature-256 ("sha256=" +
+// hex-encoded HMAC of the raw body).
 
 import { createHmac, timingSafeEqual } from "node:crypto"
 

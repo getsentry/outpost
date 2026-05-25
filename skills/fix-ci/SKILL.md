@@ -12,11 +12,17 @@ Fix failing CI on a PR the bot authored. Load `repo-setup` first.
 
 ## Budget
 
-3 attempts max per PR. Count comments that start with
-`fix-ci: attempt` on the PR. If >= 3, BLOCKED. Otherwise post a
-short comment like "fix-ci: attempt 2 — looks like a type error in
-`foo.ts`, investigating" before starting work. The `fix-ci:`
-prefix is required for counting but the rest should read naturally.
+3 attempts max per PR. Count existing attempts:
+
+```sh
+ATTEMPTS=$(gh api "repos/<owner>/<repo>/issues/<number>/comments" --paginate \
+  --jq '[.[] | select(.user.login == "'"$ME"'" and (.body | startswith("fix-ci: attempt")))] | length')
+```
+
+If >= 3, BLOCKED. Otherwise post a short comment like "fix-ci:
+attempt 2 — looks like a type error in `foo.ts`, investigating"
+before starting work. The `fix-ci:` prefix is required for counting
+but the rest should read naturally.
 
 ## Workflow
 

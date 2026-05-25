@@ -27,9 +27,14 @@ that transitioned from draft.
 4. The diff is small and non-disruptive (see size gate below).
 5. No reviewer has requested changes.
 6. No unresolved review threads.
+7. At least 10 minutes have passed since the PR was marked ready
+   for review, with no new reviewer comments or change requests
+   during that window.
 
-If any precondition fails, stop — do not merge. Post a comment
-explaining which precondition was not met.
+If any precondition fails, stop — do not merge. For precondition 7,
+if the quiet period hasn't elapsed yet, schedule a `run_once` cron
+job for the remaining time and stop. The cron will re-trigger this
+skill when the period is up.
 
 ## Size gate
 
@@ -51,6 +56,25 @@ If the PR exceeds the size gate, stop. Post a comment noting the PR
 needs human review and list which criteria it exceeded.
 
 ## Workflow
+
+0. **Check quiet period**. Verify the PR was marked ready at least
+   10 minutes ago with no reviewer activity since:
+   ```sh
+   READY_AT=$(gh api "repos/<owner>/<repo>/issues/<N>/timeline" --paginate \
+     --jq '[.[] | select(.event=="ready_for_review")] | last | .created_at')
+   ```
+   Calculate elapsed time. If less than 10 minutes have passed,
+   schedule a `run_once` cron job for the remaining time with
+   `entity_key` set to the PR entity, and stop. The cron prompt
+   should instruct the agent to reload the `auto-merge` skill.
+
+   Also check for any reviewer comments or `changes_requested`
+   reviews that arrived after `READY_AT`:
+   ```sh
+   gh api "repos/<owner>/<repo>/pulls/<N>/reviews" \
+     --jq '[.[] | select(.submitted_at > "'$READY_AT'" and .state != "APPROVED" and .state != "COMMENTED")]'
+   ```
+   If any exist, stop — the PR needs human attention.
 
 1. **Verify PR state and target branch**:
    ```sh

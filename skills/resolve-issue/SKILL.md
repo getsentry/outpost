@@ -17,15 +17,18 @@ and respond to feedback.
 
 ## Workflow
 
-1. Read the issue body. Lean toward the smallest interpretation.
-2. Check for existing PRs that reference this issue:
-   ```sh
-   gh pr list --search "linked:issue:<number>" --repo <owner>/<repo> --json number,title,state,headRefName,url
-   ```
-   If that returns nothing, also try:
+### Phase 1: Context Gathering
+
+1. **Read the issue.** Lean toward the smallest interpretation.
+
+2. **Check for existing PRs** that reference this issue:
    ```sh
    gh api "repos/<owner>/<repo>/issues/<number>/timeline" --paginate \
-     --jq '[.[] | select(.event=="cross-referenced" and .source.issue.pull_request != null) | {number: .source.issue.number, state: .source.issue.state, title: .source.issue.title}]'
+     --jq '[.[] | select(.event=="cross-referenced" and .source.issue.pull_request != null) | {number: .source.issue.number, state: .source.issue.state, title: .source.issue.title, url: .source.issue.html_url}]'
+   ```
+   Also search PR titles and bodies for the issue number:
+   ```sh
+   gh pr list --search "<number>" --repo <owner>/<repo> --json number,title,state,headRefName,url
    ```
    - **Open PR exists** → check it out (`gh pr checkout <number>`),
      review what's done, and continue from there instead of starting
@@ -35,29 +38,98 @@ and respond to feedback.
    - **Only closed/merged PRs** → the issue may already be resolved.
      Verify before starting new work.
    - **No linked PRs** → proceed with fresh implementation.
-3. Explore the codebase before editing. If the issue references other
-   repos (e.g. a shared library, a backend API), clone them for
-   read-only investigation:
-   ```sh
-   gh repo clone <other-owner>/<other-repo> ~/dev/<other-owner>/<other-repo> -- --depth=50
-   ```
-   Only push changes to the repo where the fix belongs.
-4. **Investigate before implementing.** Before writing any code, you
-   should be able to state: "This breaks because **X**, in **Y** path,
-   after **Z** condition." If you cannot fill in X, Y, and Z, keep
-   investigating. See `references/investigation-protocol.md` for the
-   full protocol.
-5. Plan — state what you'll change and why it addresses the root cause.
-6. Implement. Keep the diff focused.
-7. **Verify the change.** Select the right verification method for the
-   shape of the change — see `references/verification-harness.md`.
-   Then run the project's test suite (see test discovery below).
-8. Load `deslop` skill — clean up AI noise.
-9. Load `review` skill — self-review. Fix issues and re-run deslop
-   until clean.
-10. Commit with `Fixes #<number>` in the message. Push.
-11. Load `pr` skill — open a draft PR. Be explicit about what's
-    complete vs. uncertain.
+
+3. **Understand repo conventions.** Spawn an `explore` sub-agent via
+   the `task` tool to read and summarize:
+   - `CONTRIBUTING.md`, `AGENTS.md`, `DEVELOPMENT.md`, or similar docs
+   - Recent commit history: `git log --oneline -20` (commit style)
+   - Linter config: `biome.json`, `.eslintrc*`, `.prettierrc*`,
+     `ruff.toml`, `pyproject.toml [tool.ruff]`, `.golangci.yml`, etc.
+   - Test framework config: `jest.config*`, `vitest.config*`,
+     `pytest.ini`, `pyproject.toml [tool.pytest]`, `go.mod`, etc.
+   - CI workflow files: `.github/workflows/*.yml` — note the test
+     command and count the number of check/job names
+   The sub-agent should return: coding conventions, test command,
+   lint command, PR template path (if any), and CI check count.
+
+### Phase 2: Bug Verification
+
+4. **Classify the issue**: bug report or feature request.
+   - **Feature request** → skip to step 6 (planning).
+   - **Bug report** → continue to verification.
+
+5. **Verify the bug exists.** Spawn a `general` sub-agent to:
+   a. Read the relevant code paths identified in the issue body.
+   b. Cross-check against the default branch HEAD — is the described
+      behavior actually present in the current code?
+   c. Try to write a minimal reproduction: a test case, a script, or
+      a specific input that triggers the bug.
+   d. If reproducible: report the root cause ("This breaks because
+      **X**, in **Y** path, after **Z** condition.").
+   e. If not reproducible: report what was tried and why it failed.
+
+   If the bug **cannot be reproduced**:
+   - Post a comment on the issue asking for specific details:
+     reproduction steps, environment, version, logs, or a minimal
+     example. Be specific about what you tried.
+   - **Stop.** Do not attempt a fix. A follow-up `issue_comment`
+     webhook will arrive in this session when the reporter replies,
+     and work will resume from this step.
+
+### Phase 3: Planning
+
+6. **Create a detailed plan.** This is your job as the orchestrator
+   (Opus). Based on the root cause (from step 5) or the feature
+   scope (from step 4), produce a plan that includes:
+   - The root cause or feature scope summary.
+   - Every file to change and what each change does.
+   - What tests to add or modify (if the repo has a test suite).
+   - The verification method: which test to run, which script to
+     execute, or what behavior to check.
+   This plan will be embedded in the PR description.
+
+### Phase 4: Implementation
+
+7. **Implement the plan.** Spawn a `general` sub-agent to make the
+   code changes. Provide:
+   - The full plan from step 6.
+   - The working directory (`$WORKTREE`).
+   - The coding conventions from step 3.
+   - Clear instructions: implement every item in the plan, write the
+     specified tests, and report what was done.
+
+8. **Verify the implementation.**
+   - Check that every item in the plan was implemented.
+   - Run the test suite (use the test command from step 3).
+   - If this was a bug fix, run the reproduction from step 5.
+
+9. **Loop if failing.** If tests fail or the issue isn't resolved:
+   - Return to step 6: re-plan with the new information (test output,
+     error messages, what the implementation got wrong).
+   - Maximum **2 retries** (3 total attempts including the first).
+   - After 3 failed attempts, commit what you have and note the
+     remaining issues in the PR description.
+
+### Phase 5: Cleanup and PR
+
+10. **Clean up.**
+    - Load `deslop` skill — strip AI noise from the diff.
+    - Load `review` skill — self-review. If findings exist, fix them,
+      re-run `deslop` and `review`. Repeat at most **3 rounds**.
+    - Run the lint command from step 3 (if one was found). Fix lint
+      issues before committing.
+
+11. **Commit and push.**
+    - Commit with `Fixes #<number>` in the message.
+    - Check for conflicts with the default branch and rebase if
+      needed (see conflict resolution below).
+    - Push.
+
+12. **Open a draft PR.** Load `pr` skill with:
+    - The implementation summary from step 6.
+    - What was tested (test command, results).
+    - The CI check count from step 3 (for dynamic cron scheduling).
+    - The issue number for linking (`Closes #<number>`).
 
 ## Conflict resolution
 

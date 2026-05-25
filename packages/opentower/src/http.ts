@@ -1,12 +1,7 @@
-// Shared HTTP helpers for the github + email handlers.
+// Shared HTTP helpers for webhook handlers.
 
 // Upper-bound for GitHub's 25 MB webhook payload cap.
 export const MAX_BODY_BYTES = 25 * 1024 * 1024
-
-// Cap for /webhooks/email -- the JSON payload now includes email body
-// content (text + HTML). Most emails are well under 256 KB but
-// forwarded emails with inline content can be larger.
-export const MAX_EMAIL_BODY_BYTES = 512 * 1024
 
 // Read the request body as raw bytes with a size cap enforced both
 // against the declared Content-Length and the actual buffered size

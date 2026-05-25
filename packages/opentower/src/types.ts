@@ -1,6 +1,6 @@
 // Shared types for the opentower plugin.
 
-export type TriggerSource = "github_webhook" | "github_app" | "email" | "cron"
+export type TriggerSource = "github_app" | "cron"
 
 export type Trigger = {
   name: string
@@ -16,8 +16,6 @@ export type Trigger = {
 
 export type WebhookConfig = {
   port?: number
-  secret?: string
-  email_secret?: string
   timeout_ms?: number
   max_concurrent?: number
   batch_window_ms?: number
@@ -28,7 +26,7 @@ export type WebhookConfig = {
   // pruned on startup and then periodically. Defaults to 30 days.
   retention_days?: number
 
-  // GitHub App configuration (optional — enables the GitHub App handler)
+  // GitHub App configuration (required for webhook handling).
   github_app?: GithubAppConfig
 }
 

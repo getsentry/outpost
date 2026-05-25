@@ -1,11 +1,10 @@
-// Per-trigger filters + the shared evaluate-and-dispatch loop used by
-// both the GitHub and email handlers. The agent handles identity gates
-// and payload filtering; the plugin only handles event matching,
-// self-loop guard (ignore_authors), and dispatch via the pipeline.
+// Per-trigger filters + the evaluate-and-dispatch loop used by the
+// GitHub App handler. The agent handles identity gates and payload
+// filtering; the plugin only handles event matching, self-loop guard
+// (ignore_authors), and dispatch via the pipeline.
 
 import * as Sentry from "@sentry/bun"
 import { extractEntityKey } from "./entity"
-import type { EntityResolver } from "./entity-resolver"
 import type { GitHubFetcher } from "./github-api"
 import type { Pipeline } from "./pipeline"
 import { renderTemplate } from "./template"
@@ -64,13 +63,12 @@ export async function evaluateAndDispatch(opts: {
   deliveryId: string
   templateContext: Record<string, unknown>
   pipeline: Pipeline
-  entityResolver?: EntityResolver | null
   githubFetcher?: GitHubFetcher | null
 }): Promise<{ dispatched: string[]; skipped: SkippedDispatch[] }> {
   const dispatched: string[] = []
   const skipped: SkippedDispatch[] = []
 
-  const entityKey = await extractEntityKey(opts.event, opts.payload, opts.entityResolver, opts.githubFetcher)
+  const entityKey = await extractEntityKey(opts.event, opts.payload, opts.githubFetcher)
 
   const matched = findMatching(opts.triggers, opts.event, opts.action)
   if (matched.length === 0) {

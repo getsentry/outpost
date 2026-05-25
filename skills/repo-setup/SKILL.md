@@ -37,7 +37,20 @@ and index, while sharing the object store.
    ```sh
    WORKTREE=~/dev/<owner>/<repo>-wt/<branch>
    ```
-   - If `$WORKTREE` already exists, just `cd "$WORKTREE"` and skip to step 4.
+   - If `$WORKTREE` already exists, verify it's healthy:
+     ```sh
+     git -C "$WORKTREE" rev-parse --git-dir >/dev/null 2>&1
+     ```
+     If that fails, remove and recreate:
+     ```sh
+     git -C ~/dev/<owner>/<repo> worktree remove "$WORKTREE" --force 2>/dev/null || rm -rf "$WORKTREE"
+     ```
+     Then fall through to the new/existing branch creation below.
+     If healthy, `cd "$WORKTREE"`, pull the latest, and skip to step 4:
+     ```sh
+     git fetch origin
+     git reset --hard "origin/<branch>" 2>/dev/null || true
+     ```
    - **New branch** (issue):
      ```sh
      DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
