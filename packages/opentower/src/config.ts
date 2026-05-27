@@ -2,11 +2,21 @@
 
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
+import { join } from "node:path"
 import { formatError, logger } from "./logger"
 import type { GithubAppConfig, NormalizedTrigger, Trigger, WebhookConfig } from "./types"
 
-// Read opentower.config.json. Default ~/.config/opencode/opentower.config.json,
-// override via OPENTOWER_CONFIG (legacy: WEBHOOKS_CONFIG). Missing file = no triggers.
+// Config file names in priority order. The first file found wins.
+// "opentower.config.json" is the current name; "webhooks.json" is the
+// legacy name used by opentower <=0.4.0. Supporting both avoids a
+// breaking change for existing deployments.
+const CONFIG_FILENAMES = ["opentower.config.json", "webhooks.json"]
+
+// Read opentower config. Resolution order:
+//   1. OPENTOWER_CONFIG env var (explicit path)
+//   2. WEBHOOKS_CONFIG env var (legacy explicit path)
+//   3. First existing file from CONFIG_FILENAMES in ~/.config/opencode/
+// Missing file = no triggers.
 export async function readWebhookConfig(): Promise<WebhookConfig> {
   const path = configPath()
   if (!existsSync(path)) return {}
@@ -22,9 +32,20 @@ export async function readWebhookConfig(): Promise<WebhookConfig> {
 }
 
 export function configPath(): string {
-  return (
-    process.env.OPENTOWER_CONFIG ?? process.env.WEBHOOKS_CONFIG ?? `${homedir()}/.config/opencode/opentower.config.json`
-  )
+  // Explicit env var overrides take priority.
+  if (process.env.OPENTOWER_CONFIG) return process.env.OPENTOWER_CONFIG
+  if (process.env.WEBHOOKS_CONFIG) return process.env.WEBHOOKS_CONFIG
+
+  // Search for config files by name in the default directory.
+  const configDir = join(homedir(), ".config", "opencode")
+  for (const filename of CONFIG_FILENAMES) {
+    const candidate = join(configDir, filename)
+    if (existsSync(candidate)) return candidate
+  }
+
+  // Fall back to the preferred name even if it doesn't exist yet
+  // (readWebhookConfig handles the missing-file case).
+  return join(configDir, CONFIG_FILENAMES[0])
 }
 
 // Normalize a trigger's ignore_authors:
