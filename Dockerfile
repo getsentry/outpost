@@ -220,6 +220,11 @@ RUN cd /home/developer/.config/opencode \
 # GITHUB_WEBHOOK_SECRET as an env var so it isn't baked into the image.
 COPY --chown=developer:developer opentower.config.json \
      /home/developer/.config/opencode/opentower.config.json
+# Legacy name for opentower <=0.4.0 which looks for webhooks.json.
+# Once the next release ships with the dual-name config search (PR #101),
+# this copy can be removed.
+COPY --chown=developer:developer opentower.config.json \
+     /home/developer/.config/opencode/webhooks.json
 
 # Tiny entrypoint that mkdir's ~/dev/.opencode at runtime so a single
 # Railway Volume mounted at ~/dev persists projects + OpenCode session/auth
