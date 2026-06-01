@@ -17,9 +17,20 @@ targets:
     access: public
     oidc: true
     includeNames: /^opentower-\d.*\.tgz$/
-  # Re-tag the Docker image (built+pushed earlier in the workflow) with
-  # the release version. The source image is tagged with the git SHA;
-  # craft copies it to the versioned tag and :latest.
+  # Re-tag the sandbox Docker image (built+pushed earlier in the workflow)
+  # with the release version. This is the lean image used by Cloudflare
+  # Containers for per-entity sandboxes.
+  - name: docker
+    id: sandbox-versioned
+    source: ghcr.io/mathuraditya724/outpost-sandbox
+    target: ghcr.io/mathuraditya724/outpost-sandbox
+  - name: docker
+    id: sandbox-latest
+    source: ghcr.io/mathuraditya724/outpost-sandbox
+    target:
+      image: ghcr.io/mathuraditya724/outpost-sandbox
+      format: "{{{image}}}:latest"
+  # Legacy monolith image (kept for backwards compatibility).
   - name: docker
     id: versioned
     source: ghcr.io/mathuraditya724/outpost

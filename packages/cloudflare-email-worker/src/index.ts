@@ -1,4 +1,4 @@
-// Cloudflare Email Worker: dumb pipe in front of opentower.
+// Cloudflare Email Worker: dumb pipe in front of the outpost worker.
 //
 // Pipeline per inbound email:
 //   1. If sender is not FORWARD_TO:
