@@ -1,0 +1,50 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "jared-server",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA",
+  },
+  "upload_source_maps": true,
+  // "kv_namespaces": [
+  //   {
+  //     "binding": "MY_KV_NAMESPACE",
+  //     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  //   }
+  // ],
+  // "r2_buckets": [
+  //   {
+  //     "binding": "MY_BUCKET",
+  //     "bucket_name": "my-bucket"
+  //   }
+  // ],
+  "placement": {
+    "mode": "smart",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "jared",
+      "database_id": "d52c2301-5a23-4bb1-a15b-225725900001",
+    },
+  ],
+  // "ai": {
+  //   "binding": "AI"
+  // },
+  "observability": {
+    "enabled": true,
+    // "head_sampling_rate": 1
+  },
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "1465",
+      "simple": {
+        "limit": 100,
+        "period": 60,
+      },
+    },
+  ],
+}
