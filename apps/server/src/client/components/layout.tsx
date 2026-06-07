@@ -10,6 +10,7 @@ import {
 	Moon,
 	Monitor,
 } from "@phosphor-icons/react";
+import { authClient } from "@/lib/endpoint";
 import { useSession } from "@/client/lib/queries";
 import {
 	Sidebar,
@@ -71,14 +72,11 @@ function ThemeToggle() {
 function AppSidebar() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
-	const { data: session, isLoading } = useSession();
+	const { data: session, isPending } = useSession();
 
 	const handleLogout = async () => {
 		try {
-			await fetch("/auth/sign-out", {
-				method: "POST",
-				credentials: "include",
-			});
+			await authClient.signOut();
 		} finally {
 			queryClient.clear();
 			navigate("/login");
@@ -128,8 +126,8 @@ function AppSidebar() {
 				<Separator />
 				<SidebarMenu>
 					<SidebarMenuItem>
-						<SidebarMenuButton size="lg" tooltip={session?.user.name ?? "User"}>
-							{isLoading ? (
+					<SidebarMenuButton size="lg" tooltip={session?.user.name ?? "User"}>
+						{isPending ? (
 								<>
 									<Skeleton className="size-8 rounded-full" />
 									<div className="grid flex-1 gap-1">

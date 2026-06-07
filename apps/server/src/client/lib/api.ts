@@ -1,57 +1,4 @@
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-	const res = await fetch(path, {
-		...init,
-		credentials: "include",
-		headers: {
-			"Content-Type": "application/json",
-			...init?.headers,
-		},
-	});
-
-	if (!res.ok) {
-		const body = await res.text();
-		throw new Error(body || `Request failed: ${res.status}`);
-	}
-
-	return res.json() as Promise<T>;
-}
-
-export type WebhookEventSummary = {
-	id: string;
-	entityKey: string;
-	event: string;
-	action: string | null;
-	deliveryId: string;
-	sender: string | null;
-	repo: string | null;
-	installationId: number | null;
-	status: string;
-	createdAt: string;
-	dispatchedAt: string | null;
-	completedAt: string | null;
-};
-
-export type WebhookEventDetail = WebhookEventSummary & {
-	payload: string;
-};
-
-export type PaginatedResponse<T> = {
-	data: T[];
-	pagination: {
-		page: number;
-		limit: number;
-		total: number;
-		totalPages: number;
-	};
-};
-
-export type EventStats = {
-	total: number;
-	pending: number;
-	dispatched: number;
-	completed: number;
-	last24h: number;
-};
+import { endpoint } from "@/lib/endpoint";
 
 export type EventsParams = {
 	page?: number;
@@ -61,40 +8,29 @@ export type EventsParams = {
 	repo?: string;
 };
 
-export type UserSession = {
-	user: {
-		id: string;
-		name: string;
-		email: string;
-		image: string | null;
-	};
-	session: {
-		id: string;
-		expiresAt: string;
-	};
-};
-
 export const api = {
-	getSession(): Promise<UserSession> {
-		return request<UserSession>("/auth/get-session");
+	async getEvents(params: EventsParams = {}) {
+		const query: Record<string, string> = {};
+		if (params.page != null) query.page = String(params.page);
+		if (params.limit != null) query.limit = String(params.limit);
+		if (params.status) query.status = params.status;
+		if (params.event) query.event = params.event;
+		if (params.repo) query.repo = params.repo;
+
+		const res = await endpoint.events.$get({ query });
+		if (!res.ok) throw new Error(`Failed to fetch events: ${res.status}`);
+		return res.json();
 	},
 
-	getEvents(params: EventsParams = {}): Promise<PaginatedResponse<WebhookEventSummary>> {
-		const searchParams = new URLSearchParams();
-		if (params.page != null) searchParams.set("page", String(params.page));
-		if (params.limit != null) searchParams.set("limit", String(params.limit));
-		if (params.status) searchParams.set("status", params.status);
-		if (params.event) searchParams.set("event", params.event);
-		if (params.repo) searchParams.set("repo", params.repo);
-		const qs = searchParams.toString();
-		return request<PaginatedResponse<WebhookEventSummary>>(`/events${qs ? `?${qs}` : ""}`);
+	async getEvent(id: string) {
+		const res = await endpoint.events[":id"].$get({ param: { id } });
+		if (!res.ok) throw new Error(`Failed to fetch event: ${res.status}`);
+		return res.json();
 	},
 
-	getEvent(id: string): Promise<WebhookEventDetail> {
-		return request<WebhookEventDetail>(`/events/${id}`);
-	},
-
-	getEventStats(): Promise<EventStats> {
-		return request<EventStats>("/events/stats");
+	async getEventStats() {
+		const res = await endpoint.events.stats.$get();
+		if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
+		return res.json();
 	},
 };

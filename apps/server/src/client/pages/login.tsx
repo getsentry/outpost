@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, CircleNotch, List } from "@phosphor-icons/react";
+import { authClient } from "@/lib/endpoint";
 import { useSession } from "@/client/lib/queries";
 
 export default function LoginPage() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const redirect = searchParams.get("redirect") ?? "/";
-	const { data: session, isLoading: sessionLoading } = useSession();
+	const { data: session, isPending } = useSession();
 	const [isLoading, setIsLoading] = useState(false);
 
 	useEffect(() => {
@@ -16,13 +17,16 @@ export default function LoginPage() {
 		}
 	}, [session, navigate, redirect]);
 
-	if (sessionLoading) {
+	if (isPending) {
 		return null;
 	}
 
-	const handleGoogleLogin = () => {
+	const handleGoogleLogin = async () => {
 		setIsLoading(true);
-		window.location.href = `/auth/sign-in/social?provider=google&callbackURL=${encodeURIComponent(window.location.origin + redirect)}`;
+		await authClient.signIn.social({
+			provider: "google",
+			callbackURL: `${window.location.origin}${redirect}`,
+		});
 	};
 
 	return (

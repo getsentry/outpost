@@ -1,14 +1,8 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { authClient } from "@/lib/endpoint";
 import { api, type EventsParams } from "./api";
 
-export function useSession() {
-	return useQuery({
-		queryKey: ["session"],
-		queryFn: () => api.getSession(),
-		retry: false,
-		staleTime: 5 * 60 * 1000,
-	});
-}
+export const useSession = authClient.useSession;
 
 export function useEvents(params: EventsParams = {}) {
 	return useQuery({
