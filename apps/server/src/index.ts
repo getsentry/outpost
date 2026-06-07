@@ -9,9 +9,12 @@ import { secureHeaders } from "hono/secure-headers";
 import { auth, base, rateLimit } from "./middlewares";
 import router from "./routes";
 import type { BaseEnvBindings } from "./types/env/base";
+import { requestId } from "hono/request-id";
 
 const app = new Hono<BaseEnvBindings>()
   .use(
+    logger(),
+    requestId(),
     cors({
       origin: (origin, c) => {
         const allowedOrigin = c.env.FRONTEND_URL;
@@ -27,7 +30,6 @@ const app = new Hono<BaseEnvBindings>()
     }),
     secureHeaders(),
     contextStorage(),
-    logger(),
     base(),
     auth(),
     rateLimit(),

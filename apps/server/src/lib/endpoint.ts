@@ -6,4 +6,8 @@ export const authClient = createAuthClient({
   basePath: "/auth",
 });
 
-export const endpoint = hc<AppType>(import.meta.env.FRONTEND_URL);
+export const endpoint = hc<AppType>(import.meta.env.FRONTEND_URL, {
+  init: {
+    credentials: "include",
+  },
+});
