@@ -3,7 +3,6 @@ import { hc } from "hono/client";
 import { createAuthClient } from "better-auth/react";
 
 export const authClient = createAuthClient({
-  baseURL: import.meta.env.FRONTEND_URL,
   basePath: "/auth",
 });
 
