@@ -25,13 +25,13 @@
     }
   },
   "dependencies": {
+    "@cloudflare/containers": "^0.3.7",
     "@hono/standard-validator": "^0.2.2",
     "@hono/structured-logger": "^0.1.0",
     "@jared/utils": "workspace:*",
     "@jared/validations": "workspace:*",
     "@octokit/auth-app": "^8.2.0",
     "@octokit/rest": "^22.0.1",
-    "@octokit/webhooks": "^14.2.0",
     "@octokit/webhooks-methods": "^6.0.0",
     "@sentry/cloudflare": "^10.56.0",
     "@standard-community/standard-json": "^0.3.5",

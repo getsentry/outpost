@@ -33,6 +33,28 @@
   // "ai": {
   //   "binding": "AI"
   // },
+  "containers": [
+    {
+      "class_name": "OpenCodeContainer",
+      "image": "./container",
+      "max_instances": 10,
+      "instance_type": "standard-2",
+    },
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "OpenCodeContainer",
+        "name": "OPENCODE",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["OpenCodeContainer"],
+      "tag": "v1",
+    },
+  ],
   "observability": {
     "enabled": true,
     // "head_sampling_rate": 1

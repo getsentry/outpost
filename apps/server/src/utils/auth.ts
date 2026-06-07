@@ -5,7 +5,7 @@ import type { BaseEnv } from "@/types";
 
 export function createAuth(c: Context<BaseEnv>, db: BaseEnv["Variables"]["db"]) {
   return betterAuth({
-    appName: "Identity Hackathon",
+    appName: "Jared",
     baseURL: c.env.BETTER_AUTH_URL,
     basePath: "/auth",
     secret: c.env.BETTER_AUTH_SECRET,
@@ -50,6 +50,6 @@ export function createAuth(c: Context<BaseEnv>, db: BaseEnv["Variables"]["db"]) 
         // },
       },
     },
-    trustedOrigins: ["http://localhost:3000", "https://identity.dezyneecole.com"],
+    trustedOrigins: ["http://localhost:3000", c.env.FRONTEND_URL],
   });
 }

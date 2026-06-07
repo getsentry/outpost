@@ -95,6 +95,11 @@ const app = new Hono<BaseEnvBindings>()
     return c.json({ error: "Internal server error" }, 500);
   });
 
+// Export the container class so Cloudflare can instantiate it as a Durable Object.
+// ContainerProxy MUST be exported for outbound interception (outboundByHost) to work.
+export { OpenCodeContainer } from "./containers/opencode";
+export { ContainerProxy } from "@cloudflare/containers";
+
 export type AppType = typeof app;
 export default Sentry.withSentry((env: BaseEnvBindings["Bindings"]) => {
   return {

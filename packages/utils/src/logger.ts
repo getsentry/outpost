@@ -50,13 +50,8 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
 		let context: Record<string, unknown> = {};
 
 		if (typeof obj === "string") {
-			// Called as logger.info("message") or logger.info("message", ...args)
+			// Called as logger.info("message")
 			logMsg = obj;
-			// If there are extra args, treat the first as context if it's an object
-			if (args.length > 0 && typeof msg === "string") {
-				logMsg = obj;
-				// msg was actually used as second string arg, ignore for structured
-			}
 		} else if (obj !== null && obj !== undefined && typeof obj === "object") {
 			// Called as logger.info({ key: "val" }, "message") — pino/BaseLogger style
 			context = obj as Record<string, unknown>;
