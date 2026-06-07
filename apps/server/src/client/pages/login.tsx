@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, CircleNotch, List } from "@phosphor-icons/react";
+import { CircleNotch, List } from "@phosphor-icons/react";
 import { authClient } from "@/lib/endpoint";
 import { useSession } from "@/client/lib/queries";
 
@@ -31,16 +31,7 @@ export default function LoginPage() {
 
 	return (
 		<div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 dark:bg-zinc-950">
-			<div className="w-full max-w-sm space-y-6">
-				<button
-					type="button"
-					onClick={() => navigate(-1)}
-					className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-				>
-					<ArrowLeft className="size-3.5" />
-					Back
-				</button>
-
+			<div className="w-full max-w-sm">
 				<section className="space-y-6 rounded-lg bg-card p-8 ring-1 ring-border">
 					<div className="flex flex-col items-center space-y-3 text-center">
 						<div className="flex size-10 items-center justify-center bg-primary text-primary-foreground">
