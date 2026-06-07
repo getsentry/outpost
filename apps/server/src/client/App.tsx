@@ -5,6 +5,7 @@ import DashboardPage from "@/client/pages/dashboard";
 import EventsPage from "@/client/pages/events";
 import EventDetailPage from "@/client/pages/event-detail";
 import LoginPage from "@/client/pages/login";
+import NotFoundPage from "@/client/pages/not-found";
 
 function App() {
 	return (
@@ -21,6 +22,7 @@ function App() {
 					<Route index element={<DashboardPage />} />
 					<Route path="events" element={<EventsPage />} />
 					<Route path="events/:id" element={<EventDetailPage />} />
+					<Route path="*" element={<NotFoundPage />} />
 				</Route>
 			</Routes>
 		</BrowserRouter>
