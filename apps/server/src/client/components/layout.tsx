@@ -151,9 +151,11 @@ function AppSidebar() {
 								sideOffset={8}
 								className="w-56"
 							>
-								<DropdownMenuLabel>
-									{session?.user.name}
-								</DropdownMenuLabel>
+								<DropdownMenuGroup>
+									<DropdownMenuLabel>
+										{session?.user.name}
+									</DropdownMenuLabel>
+								</DropdownMenuGroup>
 								<DropdownMenuSeparator />
 								<DropdownMenuGroup>
 									<DropdownMenuSub>
