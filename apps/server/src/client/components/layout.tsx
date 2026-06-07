@@ -9,6 +9,7 @@ import {
 	Sun,
 	Moon,
 	Monitor,
+	CaretUpDown,
 } from "@phosphor-icons/react";
 import { authClient } from "@/lib/endpoint";
 import { useSession } from "@/client/lib/queries";
@@ -28,6 +29,18 @@ import {
 	SidebarRail,
 	SidebarTrigger,
 } from "@/components/ui/sidebar";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -43,36 +56,11 @@ const THEME_OPTIONS = [
 	{ value: "system", label: "System", icon: Monitor },
 ] as const;
 
-function ThemeToggle() {
-	const { theme, setTheme } = useTheme();
-
-	return (
-		<SidebarGroup>
-			<SidebarGroupLabel>Theme</SidebarGroupLabel>
-			<SidebarGroupContent>
-				<SidebarMenu>
-					{THEME_OPTIONS.map((option) => (
-						<SidebarMenuItem key={option.value}>
-							<SidebarMenuButton
-								isActive={theme === option.value}
-								tooltip={option.label}
-								onClick={() => setTheme(option.value)}
-							>
-								<option.icon weight={theme === option.value ? "fill" : "regular"} />
-								<span>{option.label}</span>
-							</SidebarMenuButton>
-						</SidebarMenuItem>
-					))}
-				</SidebarMenu>
-			</SidebarGroupContent>
-		</SidebarGroup>
-	);
-}
-
 function AppSidebar() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
-	const { data: session, isPending } = useSession();
+	const { theme, setTheme } = useTheme();
+	const { data: session, isLoading } = useSession();
 
 	const handleLogout = async () => {
 		try {
@@ -122,40 +110,77 @@ function AppSidebar() {
 				</SidebarGroup>
 			</SidebarContent>
 			<SidebarFooter>
-				<ThemeToggle />
-				<Separator />
 				<SidebarMenu>
 					<SidebarMenuItem>
-					<SidebarMenuButton size="lg" tooltip={session?.user.name ?? "User"}>
-						{isPending ? (
-								<>
-									<Skeleton className="size-8 rounded-full" />
-									<div className="grid flex-1 gap-1">
-										<Skeleton className="h-3 w-20" />
-										<Skeleton className="h-2.5 w-28" />
-									</div>
-								</>
-							) : (
-								<>
-									<Avatar className="size-8">
-										<AvatarImage src={session?.user.image ?? undefined} alt={session?.user.name} />
-										<AvatarFallback className="text-xs">
-											{session?.user.name?.charAt(0).toUpperCase() ?? "?"}
-										</AvatarFallback>
-									</Avatar>
-									<div className="grid flex-1 text-left leading-tight">
-										<span className="truncate text-sm">{session?.user.name}</span>
-										<span className="truncate text-xs text-muted-foreground">{session?.user.email}</span>
-									</div>
-								</>
-							)}
-						</SidebarMenuButton>
-					</SidebarMenuItem>
-					<SidebarMenuItem>
-						<SidebarMenuButton tooltip="Sign out" onClick={handleLogout}>
-							<SignOut />
-							<span>Sign out</span>
-						</SidebarMenuButton>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<SidebarMenuButton
+										size="lg"
+										tooltip={session?.user.name ?? "User"}
+									/>
+								}
+							>
+								{isLoading ? (
+									<>
+										<Skeleton className="size-8 rounded-full" />
+										<div className="grid flex-1 gap-1">
+											<Skeleton className="h-3 w-20" />
+											<Skeleton className="h-2.5 w-28" />
+										</div>
+									</>
+								) : (
+									<>
+										<Avatar className="size-8">
+											<AvatarImage src={session?.user.image ?? undefined} alt={session?.user.name} />
+											<AvatarFallback className="text-xs">
+												{session?.user.name?.charAt(0).toUpperCase() ?? "?"}
+											</AvatarFallback>
+										</Avatar>
+										<div className="grid flex-1 text-left leading-tight">
+											<span className="truncate text-sm">{session?.user.name}</span>
+											<span className="truncate text-xs text-muted-foreground">{session?.user.email}</span>
+										</div>
+										<CaretUpDown className="ml-auto size-4 text-muted-foreground" />
+									</>
+								)}
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								side="top"
+								align="start"
+								sideOffset={8}
+								className="w-56"
+							>
+								<DropdownMenuLabel>
+									{session?.user.name}
+								</DropdownMenuLabel>
+								<DropdownMenuSeparator />
+								<DropdownMenuGroup>
+									<DropdownMenuSub>
+										<DropdownMenuSubTrigger>
+											<Sun className="size-4" />
+											Theme
+										</DropdownMenuSubTrigger>
+										<DropdownMenuSubContent>
+											{THEME_OPTIONS.map((option) => (
+												<DropdownMenuItem
+													key={option.value}
+													onClick={() => setTheme(option.value)}
+												>
+													<option.icon className="size-4" weight={theme === option.value ? "fill" : "regular"} />
+													{option.label}
+												</DropdownMenuItem>
+											))}
+										</DropdownMenuSubContent>
+									</DropdownMenuSub>
+								</DropdownMenuGroup>
+								<DropdownMenuSeparator />
+								<DropdownMenuItem onClick={handleLogout}>
+									<SignOut className="size-4" />
+									Sign out
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarFooter>

@@ -3,9 +3,9 @@ import { useSession } from "@/client/lib/queries";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-	const { data, isPending, error } = useSession();
+	const { data, isLoading, isError } = useSession();
 
-	if (isPending) {
+	if (isLoading) {
 		return (
 			<div className="flex h-screen w-full items-center justify-center">
 				<div className="flex flex-col items-center gap-4">
@@ -16,7 +16,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 		);
 	}
 
-	if (error || !data?.user) {
+	if (isError || !data?.user) {
 		return <Navigate to="/login" replace />;
 	}
 

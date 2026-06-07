@@ -8,7 +8,7 @@ export default function LoginPage() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const redirect = searchParams.get("redirect") ?? "/";
-	const { data: session, isPending } = useSession();
+	const { data: session, isLoading: sessionLoading } = useSession();
 	const [isLoading, setIsLoading] = useState(false);
 
 	useEffect(() => {
@@ -17,7 +17,7 @@ export default function LoginPage() {
 		}
 	}, [session, navigate, redirect]);
 
-	if (isPending) {
+	if (sessionLoading) {
 		return null;
 	}
 
