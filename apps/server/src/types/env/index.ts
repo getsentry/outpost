@@ -1,2 +1,2 @@
-export * from "./auth";
-export * from "./base";
+export type { AuthEnv, AuthenticatedEnv } from "./auth";
+export type { BaseEnvBindings, BaseEnv } from "./base";

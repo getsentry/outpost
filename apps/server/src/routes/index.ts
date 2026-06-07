@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { openAPIRouteHandler } from "hono-openapi";
 import type { AuthEnv } from "@/types";
 import devRouter from "./dev";
+import eventsRouter from "./events";
 import profileRouter from "./profile";
 import webhooksRouter from "./webhooks";
 
@@ -22,6 +23,7 @@ const router = new Hono<AuthEnv>()
     (c) => c.get("auth").handler(c.req.raw),
   )
   .route("/webhooks", webhooksRouter)
+  .route("/events", eventsRouter)
   .route("/dev", devRouter)
   .route("/profile", profileRouter);
 

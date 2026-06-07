@@ -14,7 +14,7 @@ import { drizzle } from "drizzle-orm/d1";
 import * as dbSchema from "@/db/schema";
 import { createGitHubApp } from "@/lib/github/app";
 import { getContext } from "hono/context-storage";
-import { BaseEnv } from "@/types";
+import type { BaseEnv } from "@/types";
 
 const logger = createLogger({ namespace: "container" });
 

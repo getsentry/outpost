@@ -1,0 +1,159 @@
+import { useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { ArrowLeft, Copy, Check, CaretDown, CaretRight } from "@phosphor-icons/react";
+import { useEvent } from "@/client/lib/queries";
+import { formatDate } from "@/client/lib/format";
+import { StatusBadge } from "@/client/components/status-badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+
+function PayloadViewer({ payload }: { payload: string }) {
+	const [expanded, setExpanded] = useState(true);
+	const [copied, setCopied] = useState(false);
+
+	let formatted: string;
+	try {
+		formatted = JSON.stringify(JSON.parse(payload), null, 2);
+	} catch {
+		formatted = payload;
+	}
+
+	const handleCopy = async () => {
+		try {
+			await navigator.clipboard.writeText(formatted);
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		} catch {
+			// Clipboard API may fail if page is not focused or on HTTP
+		}
+	};
+
+	return (
+		<Card>
+			<CardHeader className="flex-row items-center justify-between">
+				<CardTitle
+					className="flex cursor-pointer items-center gap-1.5 text-sm"
+					onClick={() => setExpanded(!expanded)}
+				>
+					{expanded ? <CaretDown className="size-3.5" /> : <CaretRight className="size-3.5" />}
+					Payload
+				</CardTitle>
+				<Button variant="ghost" size="xs" onClick={handleCopy}>
+					{copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+					{copied ? "Copied" : "Copy"}
+				</Button>
+			</CardHeader>
+			{expanded && (
+				<CardContent>
+					<pre className="max-h-[600px] overflow-auto bg-muted p-4 text-xs leading-relaxed">
+						{formatted}
+					</pre>
+				</CardContent>
+			)}
+		</Card>
+	);
+}
+
+export default function EventDetailPage() {
+	const { id } = useParams<{ id: string }>();
+	const navigate = useNavigate();
+	const { data: event, isLoading, isError } = useEvent(id ?? "");
+
+	if (isLoading) {
+		return (
+			<div className="space-y-4">
+				<Skeleton className="h-8 w-48" />
+				<Skeleton className="h-64 w-full" />
+			</div>
+		);
+	}
+
+	if (isError || !event) {
+		return (
+			<div className="space-y-4">
+				<Button variant="ghost" size="sm" onClick={() => navigate("/events")}>
+					<ArrowLeft className="size-3.5" />
+					Back to events
+				</Button>
+				<div className="py-12 text-center text-sm text-muted-foreground">
+					Event not found
+				</div>
+			</div>
+		);
+	}
+
+	return (
+		<div className="space-y-6">
+			<div className="flex items-center gap-3">
+				<Button variant="ghost" size="sm" onClick={() => navigate("/events")}>
+					<ArrowLeft className="size-3.5" />
+					Back
+				</Button>
+				<Separator orientation="vertical" className="!h-4" />
+				<h1 className="text-lg font-semibold">
+					{event.event}
+					{event.action ? `.${event.action}` : ""}
+				</h1>
+				<StatusBadge status={event.status} />
+			</div>
+
+			<Card>
+				<CardHeader>
+					<CardTitle className="text-sm">Event Details</CardTitle>
+				</CardHeader>
+				<CardContent>
+					<dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+						<div>
+							<dt className="text-xs text-muted-foreground">Event Type</dt>
+							<dd className="text-sm">{event.event}</dd>
+						</div>
+						<div>
+							<dt className="text-xs text-muted-foreground">Action</dt>
+							<dd className="text-sm">{event.action ?? "-"}</dd>
+						</div>
+						<div>
+							<dt className="text-xs text-muted-foreground">Status</dt>
+							<dd><StatusBadge status={event.status} /></dd>
+						</div>
+						<div>
+							<dt className="text-xs text-muted-foreground">Delivery ID</dt>
+							<dd className="font-mono text-sm">{event.deliveryId}</dd>
+						</div>
+						<div>
+							<dt className="text-xs text-muted-foreground">Repository</dt>
+							<dd className="text-sm">{event.repo ?? "-"}</dd>
+						</div>
+						<div>
+							<dt className="text-xs text-muted-foreground">Sender</dt>
+							<dd className="text-sm">{event.sender ?? "-"}</dd>
+						</div>
+						<div>
+							<dt className="text-xs text-muted-foreground">Entity Key</dt>
+							<dd className="font-mono text-sm">{event.entityKey}</dd>
+						</div>
+						<div>
+							<dt className="text-xs text-muted-foreground">Installation ID</dt>
+							<dd className="text-sm">{event.installationId ?? "-"}</dd>
+						</div>
+						<div>
+							<dt className="text-xs text-muted-foreground">Created</dt>
+							<dd className="text-sm">{formatDate(event.createdAt)}</dd>
+						</div>
+						<div>
+							<dt className="text-xs text-muted-foreground">Dispatched</dt>
+							<dd className="text-sm">{formatDate(event.dispatchedAt)}</dd>
+						</div>
+						<div>
+							<dt className="text-xs text-muted-foreground">Completed</dt>
+							<dd className="text-sm">{formatDate(event.completedAt)}</dd>
+						</div>
+					</dl>
+				</CardContent>
+			</Card>
+
+			<PayloadViewer payload={event.payload} />
+		</div>
+	);
+}
