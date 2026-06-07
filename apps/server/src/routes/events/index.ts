@@ -23,7 +23,7 @@ const router = new Hono<AuthEnv>()
 			conditions.push(eq(webhookEvents.event, event));
 		}
 		if (repo) {
-			const escaped = repo.replace(/%/g, "\\%").replace(/_/g, "\\_");
+			const escaped = repo.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 			conditions.push(like(webhookEvents.repo, `%${escaped}%`));
 		}
 
