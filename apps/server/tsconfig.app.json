@@ -27,5 +27,5 @@
       "@/*": ["./src/*"],
     },
   },
-  "include": ["src/client"],
+  "include": ["src/client", "src/lib/endpoint.ts"],
 }
