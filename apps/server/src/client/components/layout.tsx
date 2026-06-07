@@ -1,10 +1,14 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { useTheme } from "next-themes";
 import {
 	House,
 	Lightning,
 	SignOut,
 	List,
+	Sun,
+	Moon,
+	Monitor,
 } from "@phosphor-icons/react";
 import { useSession } from "@/client/lib/queries";
 import {
@@ -31,6 +35,38 @@ const NAV_ITEMS = [
 	{ to: "/", label: "Dashboard", icon: House },
 	{ to: "/events", label: "Webhook Events", icon: Lightning },
 ];
+
+const THEME_OPTIONS = [
+	{ value: "light", label: "Light", icon: Sun },
+	{ value: "dark", label: "Dark", icon: Moon },
+	{ value: "system", label: "System", icon: Monitor },
+] as const;
+
+function ThemeToggle() {
+	const { theme, setTheme } = useTheme();
+
+	return (
+		<SidebarGroup>
+			<SidebarGroupLabel>Theme</SidebarGroupLabel>
+			<SidebarGroupContent>
+				<SidebarMenu>
+					{THEME_OPTIONS.map((option) => (
+						<SidebarMenuItem key={option.value}>
+							<SidebarMenuButton
+								isActive={theme === option.value}
+								tooltip={option.label}
+								onClick={() => setTheme(option.value)}
+							>
+								<option.icon weight={theme === option.value ? "fill" : "regular"} />
+								<span>{option.label}</span>
+							</SidebarMenuButton>
+						</SidebarMenuItem>
+					))}
+				</SidebarMenu>
+			</SidebarGroupContent>
+		</SidebarGroup>
+	);
+}
 
 function AppSidebar() {
 	const navigate = useNavigate();
@@ -88,6 +124,7 @@ function AppSidebar() {
 				</SidebarGroup>
 			</SidebarContent>
 			<SidebarFooter>
+				<ThemeToggle />
 				<Separator />
 				<SidebarMenu>
 					<SidebarMenuItem>
