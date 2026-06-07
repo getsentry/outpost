@@ -4,8 +4,10 @@ import { openAPIRouteHandler } from "hono-openapi";
 import type { AuthEnv } from "@/types";
 import devRouter from "./dev";
 import profileRouter from "./profile";
+import webhooksRouter from "./webhooks";
 
 const router = new Hono<AuthEnv>()
+  .get("/health", (c) => c.json({ status: "ok" }))
   .on(
     ["POST", "GET"],
     "/auth/*",
@@ -19,6 +21,7 @@ const router = new Hono<AuthEnv>()
     }),
     (c) => c.get("auth").handler(c.req.raw),
   )
+  .route("/webhooks", webhooksRouter)
   .route("/dev", devRouter)
   .route("/profile", profileRouter);
 
