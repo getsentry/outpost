@@ -1,12 +1,9 @@
-import { betterAuth } from "better-auth";
-import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import type { Context } from "hono";
-import type { BaseEnv } from "@/types";
+import { betterAuth } from "better-auth"
+import { drizzleAdapter } from "better-auth/adapters/drizzle"
+import type { Context } from "hono"
+import type { BaseEnv } from "@/types"
 
-export function createAuth(
-  c: Context<BaseEnv>,
-  db: BaseEnv["Variables"]["db"],
-) {
+export function createAuth(c: Context<BaseEnv>, db: BaseEnv["Variables"]["db"]) {
   return betterAuth({
     appName: "Jared",
     baseURL: c.env.BETTER_AUTH_URL,
@@ -53,9 +50,6 @@ export function createAuth(
         // },
       },
     },
-    trustedOrigins: [
-      ...(c.env.ENV === "development" ? ["http://localhost:5173"] : []),
-      c.env.FRONTEND_URL,
-    ],
-  });
+    trustedOrigins: [...(c.env.ENV === "development" ? ["http://localhost:5173"] : []), c.env.FRONTEND_URL],
+  })
 }

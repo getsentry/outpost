@@ -1,36 +1,35 @@
-import z from "zod";
+import z from "zod"
 
 export const SortOrder = {
   ASC: "asc",
   DESC: "desc",
-} as const;
+} as const
 
-export const queryValidation = z
-  .object({
-    limit: z.coerce.number().int().positive().max(100).default(10).describe("Maximum number of results to return"),
-    offset: z.coerce.number().int().min(0).default(0).describe("Number of results to skip"),
-    search: z.string().trim().optional().describe("Search query string"),
-    orderBy: z
-      .string()
-      .trim()
-      .optional()
-      .describe("Sort field, prefix with - for descending")
-      .transform((val) => {
-        if (!val) return undefined;
+export const queryValidation = z.object({
+  limit: z.coerce.number().int().positive().max(100).default(10).describe("Maximum number of results to return"),
+  offset: z.coerce.number().int().min(0).default(0).describe("Number of results to skip"),
+  search: z.string().trim().optional().describe("Search query string"),
+  orderBy: z
+    .string()
+    .trim()
+    .optional()
+    .describe("Sort field, prefix with - for descending")
+    .transform((val) => {
+      if (!val) return undefined
 
-        if (val.startsWith("-")) {
-          return {
-            column: val.slice(1),
-            order: SortOrder.DESC,
-          };
-        }
-
+      if (val.startsWith("-")) {
         return {
-          column: val,
-          order: SortOrder.ASC,
-        };
-      }),
-  });
+          column: val.slice(1),
+          order: SortOrder.DESC,
+        }
+      }
+
+      return {
+        column: val,
+        order: SortOrder.ASC,
+      }
+    }),
+})
 
 export const clientQueryValidation = z.object({
   limit: z
@@ -47,4 +46,4 @@ export const clientQueryValidation = z.object({
     }),
   search: z.string().trim().optional(),
   orderBy: z.string().optional(),
-});
+})

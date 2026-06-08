@@ -1,12 +1,12 @@
-import { AliasOptions, defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-import path from "node:path";
-import tailwindcss from "@tailwindcss/vite";
-import { cloudflare } from "@cloudflare/vite-plugin";
+import path from "node:path"
+import { cloudflare } from "@cloudflare/vite-plugin"
+import tailwindcss from "@tailwindcss/vite"
+import react from "@vitejs/plugin-react"
+import { type AliasOptions, defineConfig } from "vite"
 
 const alias: AliasOptions = {
   "@": path.resolve(__dirname, "./src"),
-};
+}
 
 export default defineConfig(({ mode }) => {
   if (mode === "client")
@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias,
       },
-    };
+    }
 
   return {
     ssr: {
@@ -36,5 +36,5 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias,
     },
-  };
-});
+  }
+})

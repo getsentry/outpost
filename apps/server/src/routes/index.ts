@@ -1,12 +1,12 @@
-import { Hono } from "hono";
-import { cors } from "hono/cors";
-import { openAPIRouteHandler } from "hono-openapi";
-import type { AuthEnv } from "@/types";
-import devRouter from "./dev";
-import eventsRouter from "./events";
-import profileRouter from "./profile";
-import sessionsRouter from "./sessions";
-import webhooksRouter from "./webhooks";
+import { Hono } from "hono"
+import { cors } from "hono/cors"
+import { openAPIRouteHandler } from "hono-openapi"
+import type { AuthEnv } from "@/types"
+import devRouter from "./dev"
+import eventsRouter from "./events"
+import profileRouter from "./profile"
+import sessionsRouter from "./sessions"
+import webhooksRouter from "./webhooks"
 
 const apiRouter = new Hono<AuthEnv>()
   .on(
@@ -14,11 +14,10 @@ const apiRouter = new Hono<AuthEnv>()
     "/auth/*",
     cors({
       origin: (origin, c) => {
-        const allowed = [
-          ...(c.env.ENV === "development" ? ["http://localhost:5173"] : []),
-          c.env.FRONTEND_URL,
-        ].filter(Boolean);
-        return allowed.includes(origin) ? origin : "";
+        const allowed = [...(c.env.ENV === "development" ? ["http://localhost:5173"] : []), c.env.FRONTEND_URL].filter(
+          Boolean,
+        )
+        return allowed.includes(origin) ? origin : ""
       },
       allowHeaders: ["Content-Type", "Authorization"],
       allowMethods: ["POST", "GET", "OPTIONS"],
@@ -32,11 +31,9 @@ const apiRouter = new Hono<AuthEnv>()
   .route("/events", eventsRouter)
   .route("/sessions", sessionsRouter)
   .route("/dev", devRouter)
-  .route("/profile", profileRouter);
+  .route("/profile", profileRouter)
 
-const router = new Hono<AuthEnv>()
-  .get("/health", (c) => c.json({ status: "ok" }))
-  .route("/api", apiRouter);
+const router = new Hono<AuthEnv>().get("/health", (c) => c.json({ status: "ok" })).route("/api", apiRouter)
 
 router.get(
   "/openapi.json",
@@ -58,6 +55,6 @@ router.get(
       },
     },
   }),
-);
+)
 
-export default router;
+export default router

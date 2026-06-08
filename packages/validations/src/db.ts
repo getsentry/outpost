@@ -1,3 +1,3 @@
-import z from "zod";
+import z from "zod"
 
-export const profileSchema = z.object({});
+export const profileSchema = z.object({})

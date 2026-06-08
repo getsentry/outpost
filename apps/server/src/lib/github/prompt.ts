@@ -4,20 +4,18 @@
 // event type header, bot identity, repo context, and the full payload.
 
 export function formatEventPrompt(opts: {
-	event: string;
-	action: string | null;
-	deliveryId: string;
-	sender: string | null;
-	repo: string | null;
-	entityKey: string;
-	payload: string;
-	botLogin: string;
+  event: string
+  action: string | null
+  deliveryId: string
+  sender: string | null
+  repo: string | null
+  entityKey: string
+  payload: string
+  botLogin: string
 }): string {
-	const eventLabel = opts.action
-		? `${opts.event}.${opts.action}`
-		: opts.event;
+  const eventLabel = opts.action ? `${opts.event}.${opts.action}` : opts.event
 
-	return `New webhook event: ${eventLabel}
+  return `New webhook event: ${eventLabel}
 
 Bot identity: ${opts.botLogin}
 Repository: ${opts.repo ?? "unknown"}
@@ -28,5 +26,5 @@ Delivery: ${opts.deliveryId}
 Payload:
 \`\`\`json
 ${opts.payload}
-\`\`\``;
+\`\`\``
 }

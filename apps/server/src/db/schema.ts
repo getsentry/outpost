@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -9,7 +9,7 @@ export const users = sqliteTable("users", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   metadata: text({ mode: "json" }).$type<Record<string, unknown>>(),
-});
+})
 
 export const sessions = sqliteTable("sessions", {
   id: text("id").primaryKey(),
@@ -22,7 +22,7 @@ export const sessions = sqliteTable("sessions", {
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
-});
+})
 
 export const accounts = sqliteTable("accounts", {
   id: text("id").primaryKey(),
@@ -44,7 +44,7 @@ export const accounts = sqliteTable("accounts", {
   password: text("password"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-});
+})
 
 export const verifications = sqliteTable("verifications", {
   id: text("id").primaryKey(),
@@ -53,7 +53,7 @@ export const verifications = sqliteTable("verifications", {
   expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-});
+})
 
 export const webhookEvents = sqliteTable(
   "webhook_events",
@@ -72,10 +72,8 @@ export const webhookEvents = sqliteTable(
     dispatchedAt: integer("dispatched_at", { mode: "timestamp" }),
     completedAt: integer("completed_at", { mode: "timestamp" }),
   },
-  (table) => [
-    index("idx_webhook_events_entity_status").on(table.entityKey, table.status),
-  ],
-);
+  (table) => [index("idx_webhook_events_entity_status").on(table.entityKey, table.status)],
+)
 
 export const agentSessions = sqliteTable("agent_sessions", {
   entityKey: text("entity_key").primaryKey(),
@@ -83,4 +81,4 @@ export const agentSessions = sqliteTable("agent_sessions", {
   sessionData: text("session_data").notNull(),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
-});
+})
