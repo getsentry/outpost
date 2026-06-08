@@ -12,7 +12,8 @@
     "db:migrate:dev": "wrangler d1 migrations apply --local jared",
     "db:migrate:prod": "NODE_ENV=production wrangler d1 migrations apply --remote jared",
     "db:studio:dev": "drizzle-kit studio",
-    "db:studio:prod": "NODE_ENV=production drizzle-kit studio"
+    "db:studio:prod": "NODE_ENV=production drizzle-kit studio",
+    "test": "vitest run"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -63,6 +64,7 @@
     "tailwindcss": "^4.3.0",
     "tsx": "^4.22.4",
     "vite": "^8.0.12",
+    "vitest": "^4.1.8",
     "wrangler": "^4.98.0"
   }
 }
