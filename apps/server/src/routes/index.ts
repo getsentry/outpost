@@ -40,7 +40,7 @@ const router = new Hono<AuthEnv>()
 
 router.get(
   "/openapi.json",
-  openAPIRouteHandler(apiRouter, {
+  openAPIRouteHandler(router, {
     documentation: {
       info: {
         title: "Jared API",
