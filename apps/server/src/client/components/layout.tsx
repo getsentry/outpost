@@ -4,6 +4,7 @@ import { useTheme } from "next-themes";
 import {
 	House,
 	Lightning,
+	Robot,
 	SignOut,
 	List,
 	Sun,
@@ -48,6 +49,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 const NAV_ITEMS = [
 	{ to: "/", label: "Dashboard", icon: House },
 	{ to: "/events", label: "Webhook Events", icon: Lightning },
+	{ to: "/sessions", label: "Agent Sessions", icon: Robot },
 ];
 
 const THEME_OPTIONS = [

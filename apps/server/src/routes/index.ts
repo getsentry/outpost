@@ -5,6 +5,7 @@ import type { AuthEnv } from "@/types";
 import devRouter from "./dev";
 import eventsRouter from "./events";
 import profileRouter from "./profile";
+import sessionsRouter from "./sessions";
 import webhooksRouter from "./webhooks";
 
 const router = new Hono<AuthEnv>()
@@ -30,6 +31,7 @@ const router = new Hono<AuthEnv>()
   )
   .route("/webhooks", webhooksRouter)
   .route("/events", eventsRouter)
+  .route("/sessions", sessionsRouter)
   .route("/dev", devRouter)
   .route("/profile", profileRouter);
 

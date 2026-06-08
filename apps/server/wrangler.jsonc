@@ -76,6 +76,7 @@
       "/health",
       "/webhooks/*",
       "/events/*",
+      "/sessions/*",
       "/dev/*",
       "/profile/*",
       "/openapi.json",

@@ -8,6 +8,11 @@ export type EventsParams = {
 	repo?: string;
 };
 
+export type SessionsParams = {
+	page?: number;
+	limit?: number;
+};
+
 export const api = {
 	async getEvents(params: EventsParams = {}) {
 		const query: Record<string, string> = {};
@@ -31,6 +36,24 @@ export const api = {
 	async getEventStats() {
 		const res = await endpoint.events.stats.$get();
 		if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
+		return res.json();
+	},
+
+	async getSessions(params: SessionsParams = {}) {
+		const query: Record<string, string> = {};
+		if (params.page != null) query.page = String(params.page);
+		if (params.limit != null) query.limit = String(params.limit);
+
+		const res = await endpoint.sessions.$get({ query });
+		if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`);
+		return res.json();
+	},
+
+	async getSessionDetail(entityKey: string) {
+		const res = await endpoint.sessions[":entityKey"].$get({
+			param: { entityKey: encodeURIComponent(entityKey) },
+		});
+		if (!res.ok) throw new Error(`Failed to fetch session: ${res.status}`);
 		return res.json();
 	},
 };

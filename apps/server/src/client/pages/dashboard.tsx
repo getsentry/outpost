@@ -1,8 +1,10 @@
 import { useNavigate } from "react-router-dom";
 import { Lightning, Clock, ArrowRight, Hourglass, CheckCircle, CircleDashed } from "@phosphor-icons/react";
 import { useEventStats, useEvents } from "@/client/lib/queries";
-import { formatTimeAgo } from "@/client/lib/format";
+import { formatTimeAgo, repoGitHubUrl } from "@/client/lib/format";
 import { StatusBadge } from "@/client/components/status-badge";
+import { GitHubLink } from "@/client/components/github-link";
+import { LastUpdated } from "@/client/components/last-updated";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -16,7 +18,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 function StatsCards() {
-	const { data: stats, isLoading, isError } = useEventStats();
+	const { data: stats, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useEventStats();
 
 	if (isLoading) {
 		return (
@@ -51,20 +53,25 @@ function StatsCards() {
 	];
 
 	return (
-		<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-			{cards.map((card) => (
-				<Card key={card.label}>
-					<CardHeader>
-						<CardDescription className="flex items-center gap-1.5">
-							<card.icon className="size-3.5" />
-							{card.label}
-						</CardDescription>
-					</CardHeader>
-					<CardContent>
-						<div className="text-2xl font-bold tabular-nums">{card.value}</div>
-					</CardContent>
-				</Card>
-			))}
+		<div className="space-y-2">
+			<div className="flex items-center justify-end">
+				<LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
+			</div>
+			<div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+				{cards.map((card) => (
+					<Card key={card.label}>
+						<CardHeader>
+							<CardDescription className="flex items-center gap-1.5">
+								<card.icon className="size-3.5" />
+								{card.label}
+							</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<div className="text-2xl font-bold tabular-nums">{card.value}</div>
+						</CardContent>
+					</Card>
+				))}
+			</div>
 		</div>
 	);
 }
@@ -126,7 +133,9 @@ function RecentEvents() {
 										{event.action ? `.${event.action}` : ""}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
-										{event.repo ?? "-"}
+										{event.repo ? (
+											<GitHubLink href={repoGitHubUrl(event.repo)}>{event.repo}</GitHubLink>
+										) : "-"}
 									</TableCell>
 									<TableCell className="text-muted-foreground">
 										{event.sender ?? "-"}

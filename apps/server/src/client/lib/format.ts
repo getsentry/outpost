@@ -29,3 +29,28 @@ export function formatDate(dateStr: string | null): string {
 	if (!dateStr) return "-";
 	return new Date(dateStr).toLocaleString();
 }
+
+const PR_EVENTS = new Set([
+	"pull_request",
+	"pull_request_review",
+	"pull_request_review_comment",
+	"pull_request_review_thread",
+	"pull_request_target",
+]);
+
+export function parseEntityKey(entityKey: string): { owner: string; repo: string; number: number } | null {
+	const match = entityKey.match(/^(.+?)\/(.+?)#(\d+)$/);
+	if (!match) return null;
+	return { owner: match[1], repo: match[2], number: Number(match[3]) };
+}
+
+export function entityGitHubUrl(entityKey: string, event: string): string | null {
+	const parsed = parseEntityKey(entityKey);
+	if (!parsed) return null;
+	const type = PR_EVENTS.has(event) ? "pull" : "issues";
+	return `https://github.com/${parsed.owner}/${parsed.repo}/${type}/${parsed.number}`;
+}
+
+export function repoGitHubUrl(repo: string): string {
+	return `https://github.com/${repo}`;
+}

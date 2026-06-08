@@ -1,6 +1,6 @@
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { authClient } from "@/lib/endpoint";
-import { api, type EventsParams } from "./api";
+import { api, type EventsParams, type SessionsParams } from "./api";
 
 export function useSession() {
 	return useQuery({
@@ -37,5 +37,22 @@ export function useEventStats() {
 		queryKey: ["eventStats"],
 		queryFn: () => api.getEventStats(),
 		refetchInterval: 10_000,
+	});
+}
+
+export function useSessions(params: SessionsParams = {}) {
+	return useQuery({
+		queryKey: ["sessions", params],
+		queryFn: () => api.getSessions(params),
+		placeholderData: keepPreviousData,
+		refetchInterval: 10_000,
+	});
+}
+
+export function useSessionDetail(entityKey: string) {
+	return useQuery({
+		queryKey: ["sessionDetail", entityKey],
+		queryFn: () => api.getSessionDetail(entityKey),
+		enabled: !!entityKey,
 	});
 }

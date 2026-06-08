@@ -101,6 +101,8 @@ const router = new Hono<AuthEnv>()
 			pending: byStatus.pending ?? 0,
 			dispatched: byStatus.dispatched ?? 0,
 			completed: byStatus.completed ?? 0,
+			failed: byStatus.failed ?? 0,
+			timeout: byStatus.timeout ?? 0,
 			last24h: recentCount[0]?.count ?? 0,
 		});
 	})

@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Copy, Check, CaretDown, CaretRight } from "@phosphor-icons/react";
+import { ArrowLeft, Copy, CaretDown, CaretRight } from "@phosphor-icons/react";
+import { toast } from "sonner";
 import { useEvent } from "@/client/lib/queries";
-import { formatDate } from "@/client/lib/format";
+import { formatDate, entityGitHubUrl, repoGitHubUrl } from "@/client/lib/format";
 import { StatusBadge } from "@/client/components/status-badge";
+import { GitHubLink } from "@/client/components/github-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,7 +13,6 @@ import { Separator } from "@/components/ui/separator";
 
 function PayloadViewer({ payload }: { payload: string }) {
 	const [expanded, setExpanded] = useState(true);
-	const [copied, setCopied] = useState(false);
 
 	let formatted: string;
 	try {
@@ -23,10 +24,9 @@ function PayloadViewer({ payload }: { payload: string }) {
 	const handleCopy = async () => {
 		try {
 			await navigator.clipboard.writeText(formatted);
-			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
+			toast.success("Copied to clipboard");
 		} catch {
-			// Clipboard API may fail if page is not focused or on HTTP
+			toast.error("Failed to copy");
 		}
 	};
 
@@ -41,8 +41,8 @@ function PayloadViewer({ payload }: { payload: string }) {
 					Payload
 				</CardTitle>
 				<Button variant="ghost" size="xs" onClick={handleCopy}>
-					{copied ? <Check className="size-3" /> : <Copy className="size-3" />}
-					{copied ? "Copied" : "Copy"}
+					<Copy className="size-3" />
+					Copy
 				</Button>
 			</CardHeader>
 			{expanded && (
@@ -84,6 +84,8 @@ export default function EventDetailPage() {
 		);
 	}
 
+	const ghUrl = entityGitHubUrl(event.entityKey, event.event);
+
 	return (
 		<div className="space-y-6">
 			<div className="flex items-center gap-3">
@@ -123,7 +125,11 @@ export default function EventDetailPage() {
 						</div>
 						<div>
 							<dt className="text-xs text-muted-foreground">Repository</dt>
-							<dd className="text-sm">{event.repo ?? "-"}</dd>
+							<dd className="text-sm">
+								{event.repo ? (
+									<GitHubLink href={repoGitHubUrl(event.repo)}>{event.repo}</GitHubLink>
+								) : "-"}
+							</dd>
 						</div>
 						<div>
 							<dt className="text-xs text-muted-foreground">Sender</dt>
@@ -131,7 +137,11 @@ export default function EventDetailPage() {
 						</div>
 						<div>
 							<dt className="text-xs text-muted-foreground">Entity Key</dt>
-							<dd className="font-mono text-sm">{event.entityKey}</dd>
+							<dd className="font-mono text-sm">
+								{ghUrl ? (
+									<GitHubLink href={ghUrl}>{event.entityKey}</GitHubLink>
+								) : event.entityKey}
+							</dd>
 						</div>
 						<div>
 							<dt className="text-xs text-muted-foreground">Installation ID</dt>

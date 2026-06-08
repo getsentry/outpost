@@ -2,8 +2,10 @@ import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Funnel, CaretLeft, CaretRight } from "@phosphor-icons/react";
 import { useEvents } from "@/client/lib/queries";
-import { formatTime } from "@/client/lib/format";
+import { formatTime, repoGitHubUrl } from "@/client/lib/format";
 import { StatusBadge } from "@/client/components/status-badge";
+import { GitHubLink } from "@/client/components/github-link";
+import { LastUpdated } from "@/client/components/last-updated";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -16,7 +18,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 
-const STATUS_OPTIONS = ["all", "pending", "dispatched", "completed"] as const;
+const STATUS_OPTIONS = ["all", "pending", "dispatched", "completed", "failed", "timeout"] as const;
 const PAGE_SIZES = [10, 25, 50] as const;
 
 export default function EventsPage() {
@@ -28,7 +30,7 @@ export default function EventsPage() {
 	const limit = Number(searchParams.get("limit")) || 25;
 	const statusFilter = searchParams.get("status") ?? "all";
 
-	const { data, isLoading, isError } = useEvents({
+	const { data, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useEvents({
 		page,
 		limit,
 		status: statusFilter !== "all" ? statusFilter : undefined,
@@ -75,9 +77,12 @@ export default function EventsPage() {
 
 	return (
 		<div className="space-y-6">
-			<div>
-				<h1 className="text-lg font-semibold">Webhook Events</h1>
-				<p className="text-sm text-muted-foreground">All incoming webhook events from GitHub</p>
+			<div className="flex items-center justify-between">
+				<div>
+					<h1 className="text-lg font-semibold">Webhook Events</h1>
+					<p className="text-sm text-muted-foreground">All incoming webhook events from GitHub</p>
+				</div>
+				<LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
 			</div>
 
 			<Card>
@@ -170,7 +175,9 @@ export default function EventsPage() {
 											{event.action ? `.${event.action}` : ""}
 										</TableCell>
 										<TableCell className="text-muted-foreground">
-											{event.repo ?? "-"}
+											{event.repo ? (
+												<GitHubLink href={repoGitHubUrl(event.repo)}>{event.repo}</GitHubLink>
+											) : "-"}
 										</TableCell>
 										<TableCell className="text-muted-foreground">
 											{event.sender ?? "-"}
