@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "turbo dev --filter=@jared/server",
     "build": "turbo build",
+    "deploy": "turbo deploy --filter=@jared/server",
     "format": "biome check --write .",
     "prepare": "is-ci || husky"
   },

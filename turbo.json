@@ -14,6 +14,10 @@
     "test": {
       "dependsOn": ["^build"],
       "cache": false
+    },
+    "deploy": {
+      "dependsOn": ["^build"],
+      "cache": false
     }
   }
 }
