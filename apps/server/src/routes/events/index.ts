@@ -103,6 +103,7 @@ const router = new Hono<AuthEnv>()
 			completed: byStatus.completed ?? 0,
 			failed: byStatus.failed ?? 0,
 			timeout: byStatus.timeout ?? 0,
+			skipped: byStatus.skipped ?? 0,
 			last24h: recentCount[0]?.count ?? 0,
 		});
 	})

@@ -9,7 +9,7 @@
 
 import { Container } from "@cloudflare/containers";
 import { createLogger, formatError } from "@jared/utils";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as dbSchema from "@/db/schema";
 import { createGitHubApp } from "@/lib/github/app";
@@ -66,7 +66,8 @@ OpenCodeContainer.outboundByHost = {
     const db = drizzle(env.DB as D1Database, { schema: dbSchema });
 
     // GET /config?entity=owner/repo#42
-    // Returns: repo info, installation token, bot identity, pending events, session data
+    // Returns: repo info, installation token, bot identity, LLM keys, session data.
+    // Used by setup.ts to configure the container environment before OpenCode starts.
     if (url.pathname === "/config" && request.method === "GET") {
       const entityKey = url.searchParams.get("entity");
       if (!entityKey) {
@@ -80,18 +81,6 @@ OpenCodeContainer.outboundByHost = {
         // Parse repo from entity key (owner/repo#N -> owner/repo)
         const hashIdx = entityKey.lastIndexOf("#");
         const repo = hashIdx > 0 ? entityKey.slice(0, hashIdx) : entityKey;
-
-        // Get pending events for this entity
-        const pendingEvents = await db
-          .select()
-          .from(dbSchema.webhookEvents)
-          .where(
-            and(
-              eq(dbSchema.webhookEvents.entityKey, entityKey),
-              eq(dbSchema.webhookEvents.status, "pending"),
-            ),
-          )
-          .orderBy(dbSchema.webhookEvents.createdAt);
 
         // Get saved session data if it exists
         const savedSession = await db
@@ -120,8 +109,15 @@ OpenCodeContainer.outboundByHost = {
             botLogin = await app.getBotLogin();
             botEmail = `${botLogin}@users.noreply.github.com`;
 
-            // Get installation token from the first pending event's installation ID
-            const installationId = pendingEvents[0]?.installationId ?? null;
+            // Get installation token — look up from the most recent event for this entity
+            const recentEvent = await db
+              .select({ installationId: dbSchema.webhookEvents.installationId })
+              .from(dbSchema.webhookEvents)
+              .where(eq(dbSchema.webhookEvents.entityKey, entityKey))
+              .orderBy(dbSchema.webhookEvents.createdAt)
+              .limit(1);
+
+            const installationId = recentEvent[0]?.installationId ?? null;
             if (installationId) {
               const octokit = app.getInstallationOctokit(installationId);
               const auth = (await octokit.auth({
@@ -140,17 +136,6 @@ OpenCodeContainer.outboundByHost = {
         // Fetch short-lived LLM provider tokens
         const llmTokens = await fetchLLMTokens();
 
-        // Mark pending events as dispatched — this is the SINGLE place
-        // where events transition from pending to dispatched (avoids
-        // race condition with the webhook handler).
-        const now = new Date();
-        for (const event of pendingEvents) {
-          await db
-            .update(dbSchema.webhookEvents)
-            .set({ status: "dispatched", dispatchedAt: now })
-            .where(eq(dbSchema.webhookEvents.id, event.id));
-        }
-
         const config = {
           entityKey,
           repo,
@@ -161,15 +146,6 @@ OpenCodeContainer.outboundByHost = {
           sentryDsn: (env.SENTRY_DSN as string) ?? "",
           anthropicApiKey: llmTokens.anthropicApiKey,
           openaiApiKey: llmTokens.openaiApiKey,
-          pendingEvents: pendingEvents.map((e) => ({
-            id: e.id,
-            event: e.event,
-            action: e.action,
-            deliveryId: e.deliveryId,
-            sender: e.sender,
-            repo: e.repo,
-            payload: JSON.parse(e.payload),
-          })),
           sessionData: savedSession[0]?.sessionData ?? null,
         };
 
@@ -215,32 +191,6 @@ OpenCodeContainer.outboundByHost = {
         logger.error(
           { error: formatError(err) },
           "session save handler failed",
-        );
-        return Response.json({ error: "internal error" }, { status: 500 });
-      }
-    }
-
-    // POST /events/complete
-    // Body: { eventIds: string[] }
-    // Marks events as completed after the container processes them.
-    if (url.pathname === "/events/complete" && request.method === "POST") {
-      try {
-        const body = (await request.json()) as {
-          eventIds: string[];
-        };
-        const now = new Date();
-        for (const eventId of body.eventIds) {
-          await db
-            .update(dbSchema.webhookEvents)
-            .set({ status: "completed", completedAt: now })
-            .where(eq(dbSchema.webhookEvents.id, eventId));
-        }
-
-        return Response.json({ ok: true });
-      } catch (err) {
-        logger.error(
-          { error: formatError(err) },
-          "events complete handler failed",
         );
         return Response.json({ error: "internal error" }, { status: 500 });
       }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 // Container setup script — runs before OpenCode starts.
 //
-// 1. Fetches config from the Worker (repo, token, identity, session, events, LLM keys)
+// 1. Fetches config from the Worker (repo, token, identity, session, LLM keys)
 // 2. Writes environment variables to /tmp/opencode-env.sh (sourced by entrypoint)
 // 3. Configures git identity and gh auth
 // 4. Clones the target repository
@@ -24,15 +24,6 @@ interface ContainerConfig {
 	sentryDsn: string;
 	anthropicApiKey: string;
 	openaiApiKey: string;
-	pendingEvents: Array<{
-		id: string;
-		event: string;
-		action: string | null;
-		deliveryId: string;
-		sender: string | null;
-		repo: string | null;
-		payload: unknown;
-	}>;
 	sessionData: string | null;
 }
 
@@ -160,9 +151,7 @@ async function main() {
 	process.chdir(workDir);
 	await restoreSession(config);
 
-	console.log(
-		`[setup] Ready. ${config.pendingEvents.length} pending event(s).`,
-	);
+	console.log("[setup] Ready.");
 }
 
 await main();

@@ -18,7 +18,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 
-const STATUS_OPTIONS = ["all", "pending", "dispatched", "completed", "failed", "timeout"] as const;
+const STATUS_OPTIONS = ["all", "pending", "dispatched", "completed", "failed", "timeout", "skipped"] as const;
 const PAGE_SIZES = [10, 25, 50] as const;
 
 export default function EventsPage() {

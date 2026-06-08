@@ -17,6 +17,9 @@ export type GitHubAppConfig = {
  * Create a GitHub App auth strategy from Cloudflare Worker env bindings.
  * The returned auth function can generate JWTs and installation tokens.
  */
+// Module-level cache for bot login — the slug never changes for a given app.
+const botLoginCache = new Map<string, string>();
+
 export function createGitHubApp(config: GitHubAppConfig) {
 	// Normalize PEM key: env vars often store literal "\n" instead of newlines
 	const privateKey = config.privateKey.replace(/\\n/g, "\n");
@@ -47,9 +50,12 @@ export function createGitHubApp(config: GitHubAppConfig) {
 
 		/**
 		 * Resolve the GitHub App's bot login (e.g. "my-app[bot]").
-		 * Lazily fetches and caches the app slug.
+		 * Cached at the module level — the app slug never changes.
 		 */
 		async getBotLogin(): Promise<string> {
+			const cached = botLoginCache.get(config.appId);
+			if (cached) return cached;
+
 			const appOctokit = new Octokit({
 				authStrategy: createAppAuth,
 				auth: {
@@ -58,7 +64,9 @@ export function createGitHubApp(config: GitHubAppConfig) {
 				},
 			});
 			const { data } = await appOctokit.apps.getAuthenticated();
-			return `${data.slug}[bot]`;
+			const login = `${data.slug}[bot]`;
+			botLoginCache.set(config.appId, login);
+			return login;
 		},
 	};
 }

@@ -2,29 +2,94 @@
 //
 // Receives webhook events from GitHub, verifies the HMAC signature,
 // parses the payload, extracts entity information, stores the event
-// in D1, and notifies the OpenCode container.
+// in D1, and dispatches it to the OpenCode container.
 //
 // Event lifecycle:
-//   1. Webhook arrives → stored in D1 as "pending"
-//   2. container.fetch() notifies the container (triggers cold start if needed)
-//   3. Container boots → fetches ALL pending events via config callback
-//   4. Config callback marks events as "dispatched" (single source of truth)
-//   5. Container processes events → marks them as "completed"
-//
-// This avoids race conditions where both the webhook handler and the
-// config callback try to mark events as dispatched.
+//   1. Webhook arrives → stored in D1
+//      - Entity found → status "pending"
+//      - No entity    → status "skipped" (no container created)
+//   2. Return 200 to GitHub immediately
+//   3. In waitUntil(): dispatch to OpenCode container
+//      - Wait for container health
+//      - Find or create OpenCode session
+//      - Send prompt via prompt_async
+//      - Mark event as "dispatched"
 
 import { formatError } from "@jared/utils";
 import { getContainer } from "@cloudflare/containers";
 import { verify } from "@octokit/webhooks-methods";
 import * as Sentry from "@sentry/cloudflare";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import { Hono } from "hono";
 import { createGitHubApp } from "@/lib/github/app";
+import { formatEventPrompt } from "@/lib/github/prompt";
 import * as dbSchema from "@/db/schema";
 import { extractEntityKey, lookupString } from "@/lib/github/entity";
 import type { WebhookEvent } from "@/lib/github/types";
 import type { BaseEnvBindings } from "@/types";
+
+const HEALTH_MAX_RETRIES = 30;
+const HEALTH_INITIAL_DELAY_MS = 500;
+const HEALTH_MAX_DELAY_MS = 5000;
+
+/**
+ * Wait for the OpenCode server inside the container to be ready.
+ * Retries GET /global/health with exponential backoff.
+ */
+async function waitForHealth(
+	container: { fetch: (req: Request) => Promise<Response> },
+): Promise<boolean> {
+	let delay = HEALTH_INITIAL_DELAY_MS;
+	for (let i = 0; i < HEALTH_MAX_RETRIES; i++) {
+		try {
+			const res = await container.fetch(
+				new Request("http://container/global/health"),
+			);
+			if (res.ok) return true;
+		} catch {
+			// Container not ready yet
+		}
+		await new Promise((r) => setTimeout(r, delay));
+		delay = Math.min(delay * 1.5, HEALTH_MAX_DELAY_MS);
+	}
+	return false;
+}
+
+/**
+ * Find the existing session or create a new one.
+ * Each container has one entity, so there should be at most one session.
+ */
+async function findOrCreateSession(
+	container: { fetch: (req: Request) => Promise<Response> },
+	title: string,
+): Promise<string | null> {
+	// List existing sessions
+	const listRes = await container.fetch(
+		new Request("http://container/session"),
+	);
+	if (listRes.ok) {
+		const sessions = (await listRes.json()) as Array<{ id: string }>;
+		if (sessions.length > 0) {
+			return sessions[0].id;
+		}
+	}
+
+	// No sessions — create one
+	const createRes = await container.fetch(
+		new Request("http://container/session", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ title }),
+		}),
+	);
+	if (createRes.ok) {
+		const session = (await createRes.json()) as { id: string };
+		return session.id;
+	}
+
+	return null;
+}
 
 const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
 	const logger = c.get("logger").child({ ns: "webhook" });
@@ -82,13 +147,14 @@ const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
 
 	// --- Get installation Octokit for entity enrichment ---
 	let entityKey = null;
-	try {
-		const app = createGitHubApp({
-			appId: c.env.GITHUB_APP_ID,
-			privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
-			webhookSecret,
-		});
+	let botLogin = "";
+	const app = createGitHubApp({
+		appId: c.env.GITHUB_APP_ID,
+		privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
+		webhookSecret,
+	});
 
+	try {
 		const octokit = installationId
 			? app.getInstallationOctokit(installationId)
 			: null;
@@ -98,6 +164,12 @@ const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
 		// Entity extraction is best-effort — log and continue
 		logger.warn({ error: formatError(err) }, "entity extraction failed");
 		Sentry.captureException(err);
+	}
+
+	try {
+		botLogin = await app.getBotLogin();
+	} catch (err) {
+		logger.warn({ error: formatError(err) }, "bot login resolution failed");
 	}
 
 	// --- Build structured event ---
@@ -126,10 +198,13 @@ const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
 		"webhook.received",
 	);
 
-	// --- Store event in D1 (dedup via delivery_id UNIQUE constraint) ---
-	const db = drizzle(c.env.DB, { schema: dbSchema });
+	// --- Determine if this event is routable to a container ---
+	const isSkipped = !entityKey;
 	const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`;
 	const eventId = crypto.randomUUID();
+
+	// --- Store event in D1 (dedup via delivery_id UNIQUE constraint) ---
+	const db = drizzle(c.env.DB, { schema: dbSchema });
 
 	try {
 		await db.insert(dbSchema.webhookEvents).values({
@@ -142,7 +217,7 @@ const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
 			repo,
 			installationId,
 			payload: rawBody,
-			status: "pending",
+			status: isSkipped ? "skipped" : "pending",
 			createdAt: new Date(),
 		});
 	} catch (err) {
@@ -164,40 +239,117 @@ const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
 		throw err;
 	}
 
-	// --- Notify the OpenCode container ---
-	// The container.fetch() call triggers a cold start if the container
-	// isn't running. The container's entrypoint fetches ALL pending events
-	// from D1 via the config callback — we don't send event data here.
-	// If the container IS already running, this acts as a notification
-	// that new events are available.
-	try {
-		const container = getContainer(c.env.OPENCODE, containerKey);
-
-		await container.fetch(
-			new Request("http://container/notify", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					entityKey: containerKey,
-					eventId,
-				}),
-			}),
-		);
-
+	// --- If no entity, we're done — event is stored as "skipped" ---
+	if (isSkipped) {
 		logger.info(
-			{ entity_key: containerKey, event_id: eventId },
-			"container notified",
+			{ delivery_id: deliveryId, event },
+			"no entity found, event skipped",
 		);
-	} catch (err) {
-		// Container notification failure is non-fatal — events remain
-		// in D1 as "pending" and will be picked up when the container
-		// starts via the config callback.
-		logger.error(
-			{ error: formatError(err), entity_key: containerKey },
-			"container notification failed",
-		);
-		Sentry.captureException(err);
+		return c.json({
+			ok: true,
+			delivery_id: deliveryId,
+			event,
+			action,
+			duplicate: false,
+			entity_key: null,
+			installation_id: installationId,
+			skipped: true,
+		});
 	}
+
+	// --- Dispatch to container in the background ---
+	// Return 200 to GitHub immediately, then handle container communication
+	// asynchronously via waitUntil().
+	const envBindings = c.env;
+
+	c.executionCtx.waitUntil(
+		(async () => {
+			try {
+				const container = getContainer(envBindings.OPENCODE, containerKey);
+
+				// Wait for OpenCode to be ready (handles cold start)
+				const healthy = await waitForHealth(container);
+				if (!healthy) {
+					logger.error(
+						{ entity_key: containerKey },
+						"container health check timed out",
+					);
+					return;
+				}
+
+				// Find or create an OpenCode session
+				const sessionId = await findOrCreateSession(container, containerKey);
+				if (!sessionId) {
+					logger.error(
+						{ entity_key: containerKey },
+						"failed to find or create session",
+					);
+					return;
+				}
+
+				// Format the event as a markdown prompt
+				const prompt = formatEventPrompt({
+					event,
+					action,
+					deliveryId,
+					sender,
+					repo,
+					entityKey: containerKey,
+					payload: rawBody,
+					botLogin,
+				});
+
+				// Send the prompt asynchronously — OpenCode queues it if busy
+				const promptRes = await container.fetch(
+					new Request(
+						`http://container/session/${sessionId}/prompt_async`,
+						{
+							method: "POST",
+							headers: { "Content-Type": "application/json" },
+							body: JSON.stringify({
+								parts: [{ type: "text", text: prompt }],
+							}),
+						},
+					),
+				);
+
+				if (!promptRes.ok) {
+					const body = await promptRes.text();
+					logger.error(
+						{
+							entity_key: containerKey,
+							status: promptRes.status,
+							body,
+						},
+						"prompt_async failed",
+					);
+					return;
+				}
+
+				// Mark the event as dispatched
+				const dispatchDb = drizzle(envBindings.DB, { schema: dbSchema });
+				await dispatchDb
+					.update(dbSchema.webhookEvents)
+					.set({ status: "dispatched", dispatchedAt: new Date() })
+					.where(eq(dbSchema.webhookEvents.id, eventId));
+
+				logger.info(
+					{
+						entity_key: containerKey,
+						event_id: eventId,
+						session_id: sessionId,
+					},
+					"event dispatched to agent",
+				);
+			} catch (err) {
+				logger.error(
+					{ error: formatError(err), entity_key: containerKey },
+					"dispatch failed",
+				);
+				Sentry.captureException(err);
+			}
+		})(),
+	);
 
 	return c.json({
 		ok: true,
@@ -207,6 +359,7 @@ const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
 		duplicate: false,
 		entity_key: entityKey?.key ?? null,
 		installation_id: installationId,
+		skipped: false,
 	});
 });
 
