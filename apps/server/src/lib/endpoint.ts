@@ -3,7 +3,7 @@ import { hc } from "hono/client";
 import { createAuthClient } from "better-auth/client";
 
 export const authClient = createAuthClient({
-  basePath: "/auth",
+  basePath: "/api/auth",
 });
 
 export const endpoint = hc<AppType>("", {

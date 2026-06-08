@@ -10,7 +10,7 @@ export function createAuth(
   return betterAuth({
     appName: "Jared",
     baseURL: c.env.BETTER_AUTH_URL,
-    basePath: "/auth",
+    basePath: "/api/auth",
     secret: c.env.BETTER_AUTH_SECRET,
     database: drizzleAdapter(db, {
       provider: "sqlite",
@@ -28,7 +28,7 @@ export function createAuth(
       google: {
         clientId: c.env.GOOGLE_CLIENT_ID,
         clientSecret: c.env.GOOGLE_CLIENT_SECRET,
-        redirectURI: `${c.env.BETTER_AUTH_URL}/auth/callback/google`,
+        redirectURI: `${c.env.BETTER_AUTH_URL}/api/auth/callback/google`,
         // async mapProfileToUser(profile) {
         //   const email = profile.email.toLowerCase();
 
