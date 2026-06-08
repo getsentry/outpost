@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { CaretLeft, CaretRight, CaretDown, CaretRight as CaretRightIcon, Copy } from "@phosphor-icons/react";
-import { toast } from "sonner";
 import { useSessions, useSessionDetail } from "@/client/lib/queries";
+import { copyToClipboard } from "@/client/lib/clipboard";
 import { formatTimeAgo, entityGitHubUrl } from "@/client/lib/format";
 import { GitHubLink } from "@/client/components/github-link";
 import { LastUpdated } from "@/client/components/last-updated";
@@ -50,14 +50,7 @@ function SessionExpandedRow({ entityKey }: { entityKey: string }) {
 		formatted = data.sessionData;
 	}
 
-	const handleCopy = async () => {
-		try {
-			await navigator.clipboard.writeText(formatted);
-			toast.success("Copied to clipboard");
-		} catch {
-			toast.error("Failed to copy");
-		}
-	};
+	const handleCopy = () => copyToClipboard(formatted);
 
 	return (
 		<TableRow>
@@ -160,11 +153,11 @@ export default function SessionsPage() {
 								<TableBody>
 									{data.data.map((session) => {
 										const isExpanded = expandedKey === session.entityKey;
+										// Use "issues" as default — GitHub redirects to /pull/ for PRs
 										const ghUrl = entityGitHubUrl(session.entityKey, "issues");
 										return (
-											<>
+											<Fragment key={session.entityKey}>
 												<TableRow
-													key={session.entityKey}
 													className="cursor-pointer"
 													onClick={() => toggleExpand(session.entityKey)}
 												>
@@ -190,7 +183,7 @@ export default function SessionsPage() {
 												{isExpanded && (
 													<SessionExpandedRow entityKey={session.entityKey} />
 												)}
-											</>
+											</Fragment>
 										);
 									})}
 								</TableBody>

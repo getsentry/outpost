@@ -14,10 +14,10 @@ const router = new Hono<AuthEnv>()
     ["POST", "GET"],
     "/auth/*",
     cors({
-      origin: (origin) => {
+      origin: (origin, c) => {
         const allowed = [
           "http://localhost:5173",
-          process.env.FRONTEND_URL,
+          c.env.FRONTEND_URL,
         ].filter(Boolean);
         return allowed.includes(origin) ? origin : "";
       },

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ArrowLeft, Copy, CaretDown, CaretRight } from "@phosphor-icons/react";
-import { toast } from "sonner";
 import { useEvent } from "@/client/lib/queries";
 import { formatDate, entityGitHubUrl, repoGitHubUrl } from "@/client/lib/format";
+import { copyToClipboard } from "@/client/lib/clipboard";
 import { StatusBadge } from "@/client/components/status-badge";
 import { GitHubLink } from "@/client/components/github-link";
 import { Button } from "@/components/ui/button";
@@ -21,14 +21,7 @@ function PayloadViewer({ payload }: { payload: string }) {
 		formatted = payload;
 	}
 
-	const handleCopy = async () => {
-		try {
-			await navigator.clipboard.writeText(formatted);
-			toast.success("Copied to clipboard");
-		} catch {
-			toast.error("Failed to copy");
-		}
-	};
+	const handleCopy = () => copyToClipboard(formatted);
 
 	return (
 		<Card>

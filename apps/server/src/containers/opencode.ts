@@ -9,30 +9,27 @@
 
 import { Container } from "@cloudflare/containers";
 import { createLogger, formatError } from "@jared/utils";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/d1";
 import * as dbSchema from "@/db/schema";
 import { createGitHubApp } from "@/lib/github/app";
-import { getContext } from "hono/context-storage";
-import type { BaseEnv } from "@/types";
 
 const logger = createLogger({ namespace: "container" });
 
 /**
- * Fetch short-lived LLM provider API keys from the token service.
+ * Read LLM provider API keys from the Worker env bindings.
  *
  * TODO: Replace with a real token service call. The actual service
  * will issue short-lived tokens scoped to this container's session.
  * For now, reads from Worker env vars as a placeholder.
  */
-async function fetchLLMTokens(): Promise<{
+function getLLMTokens(env: Record<string, unknown>): {
   anthropicApiKey: string;
   openaiApiKey: string;
-}> {
-  const c = getContext<BaseEnv>();
+} {
   return {
-    anthropicApiKey: (c.env.ANTHROPIC_API_KEY as string) ?? "",
-    openaiApiKey: (c.env.OPENAI_API_KEY as string) ?? "",
+    anthropicApiKey: (env.ANTHROPIC_API_KEY as string) ?? "",
+    openaiApiKey: (env.OPENAI_API_KEY as string) ?? "",
   };
 }
 
@@ -114,7 +111,7 @@ OpenCodeContainer.outboundByHost = {
               .select({ installationId: dbSchema.webhookEvents.installationId })
               .from(dbSchema.webhookEvents)
               .where(eq(dbSchema.webhookEvents.entityKey, entityKey))
-              .orderBy(dbSchema.webhookEvents.createdAt)
+              .orderBy(desc(dbSchema.webhookEvents.createdAt))
               .limit(1);
 
             const installationId = recentEvent[0]?.installationId ?? null;
@@ -133,8 +130,8 @@ OpenCodeContainer.outboundByHost = {
           }
         }
 
-        // Fetch short-lived LLM provider tokens
-        const llmTokens = await fetchLLMTokens();
+        // Read LLM provider tokens from env
+        const llmTokens = getLLMTokens(env);
 
         const config = {
           entityKey,

@@ -44,7 +44,7 @@ const router = new Hono<AuthEnv>()
 	})
 	.get("/:entityKey", async (c) => {
 		const db = c.get("db");
-		const entityKey = decodeURIComponent(c.req.param("entityKey"));
+		const entityKey = c.req.param("entityKey");
 
 		const session = await db.query.agentSessions.findFirst({
 			where: eq(agentSessions.entityKey, entityKey),

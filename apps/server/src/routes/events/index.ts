@@ -86,7 +86,7 @@ const router = new Hono<AuthEnv>()
 			db
 				.select({ count: sql<number>`count(*)` })
 				.from(webhookEvents)
-				.where(sql`${webhookEvents.createdAt} >= ${oneDayAgo.getTime() / 1000}`),
+				.where(sql`${webhookEvents.createdAt} >= ${Math.floor(oneDayAgo.getTime() / 1000)}`),
 		]);
 
 		const byStatus: Record<string, number> = {};
