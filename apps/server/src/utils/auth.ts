@@ -26,6 +26,7 @@ export function createAuth(c: Context<BaseEnv>, db: BaseEnv["Variables"]["db"]) 
         clientId: c.env.GOOGLE_CLIENT_ID,
         clientSecret: c.env.GOOGLE_CLIENT_SECRET,
         redirectURI: `${c.env.APP_URL}/api/auth/callback/google`,
+        hd: c.env.ENV !== "development" ? "sentry.io" : undefined,
       },
     },
     trustedOrigins: [...(c.env.ENV === "development" ? ["http://localhost:5173"] : []), c.env.APP_URL],
