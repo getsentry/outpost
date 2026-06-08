@@ -67,6 +67,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: Build workspace packages
+        run: pnpm turbo build --filter='@jared/server^...'
+
       - name: Run tests
         run: pnpm --filter @jared/server run test
 
