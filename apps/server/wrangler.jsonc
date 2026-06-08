@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "jared-server",
+  "name": "jared",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-06",
   "compatibility_flags": ["nodejs_compat"],
@@ -71,10 +71,6 @@
   ],
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": [
-      "/api/*",
-      "/health",
-      "/openapi.json",
-    ],
+    "run_worker_first": ["/api/*", "/health", "/openapi.json"],
   },
 }
