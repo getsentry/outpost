@@ -18,13 +18,18 @@ const app = new Hono<BaseEnvBindings>()
     cors({
       origin: (origin, c) => {
         const allowedOrigin = c.env.FRONTEND_URL;
-        // Allow requests from the configured frontend URL
         if (origin === allowedOrigin) return origin;
-        // In development, also allow localhost variations
-        if (c.env.ENV === "development" && origin?.includes("localhost")) {
-          return origin;
+        if (c.env.ENV === "development") {
+          try {
+            const url = new URL(origin);
+            if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
+              return origin;
+            }
+          } catch {
+            // Invalid origin
+          }
         }
-        return null;
+        return "";
       },
       credentials: true,
     }),

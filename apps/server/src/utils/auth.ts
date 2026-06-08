@@ -53,6 +53,9 @@ export function createAuth(
         // },
       },
     },
-    trustedOrigins: ["http://localhost:5173", c.env.FRONTEND_URL],
+    trustedOrigins: [
+      ...(c.env.ENV === "development" ? ["http://localhost:5173"] : []),
+      c.env.FRONTEND_URL,
+    ],
   });
 }

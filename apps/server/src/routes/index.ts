@@ -16,7 +16,7 @@ const router = new Hono<AuthEnv>()
     cors({
       origin: (origin, c) => {
         const allowed = [
-          "http://localhost:5173",
+          ...(c.env.ENV === "development" ? ["http://localhost:5173"] : []),
           c.env.FRONTEND_URL,
         ].filter(Boolean);
         return allowed.includes(origin) ? origin : "";

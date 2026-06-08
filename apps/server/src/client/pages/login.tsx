@@ -7,7 +7,9 @@ import { useSession } from "@/client/lib/queries";
 export default function LoginPage() {
 	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
-	const redirect = searchParams.get("redirect") ?? "/";
+	const rawRedirect = searchParams.get("redirect") ?? "/";
+	// Validate redirect is a relative path (prevent open redirect)
+	const redirect = rawRedirect.startsWith("/") && !rawRedirect.startsWith("//") ? rawRedirect : "/";
 	const { data: session, isLoading: sessionLoading } = useSession();
 	const [isLoading, setIsLoading] = useState(false);
 
