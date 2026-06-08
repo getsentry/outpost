@@ -8,8 +8,7 @@ import profileRouter from "./profile";
 import sessionsRouter from "./sessions";
 import webhooksRouter from "./webhooks";
 
-const router = new Hono<AuthEnv>()
-  .get("/health", (c) => c.json({ status: "ok" }))
+const apiRouter = new Hono<AuthEnv>()
   .on(
     ["POST", "GET"],
     "/auth/*",
@@ -34,6 +33,10 @@ const router = new Hono<AuthEnv>()
   .route("/sessions", sessionsRouter)
   .route("/dev", devRouter)
   .route("/profile", profileRouter);
+
+const router = new Hono<AuthEnv>()
+  .get("/health", (c) => c.json({ status: "ok" }))
+  .route("/api", apiRouter);
 
 router.get(
   "/openapi.json",

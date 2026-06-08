@@ -22,19 +22,19 @@ export const api = {
 		if (params.event) query.event = params.event;
 		if (params.repo) query.repo = params.repo;
 
-		const res = await endpoint.events.$get({ query });
+		const res = await endpoint.api.events.$get({ query });
 		if (!res.ok) throw new Error(`Failed to fetch events: ${res.status}`);
 		return res.json();
 	},
 
 	async getEvent(id: string) {
-		const res = await endpoint.events[":id"].$get({ param: { id } });
+		const res = await endpoint.api.events[":id"].$get({ param: { id } });
 		if (!res.ok) throw new Error(`Failed to fetch event: ${res.status}`);
 		return res.json();
 	},
 
 	async getEventStats() {
-		const res = await endpoint.events.stats.$get();
+		const res = await endpoint.api.events.stats.$get();
 		if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
 		return res.json();
 	},
@@ -44,13 +44,13 @@ export const api = {
 		if (params.page != null) query.page = String(params.page);
 		if (params.limit != null) query.limit = String(params.limit);
 
-		const res = await endpoint.sessions.$get({ query });
+		const res = await endpoint.api.sessions.$get({ query });
 		if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`);
 		return res.json();
 	},
 
 	async getSessionDetail(entityKey: string) {
-		const res = await endpoint.sessions[":entityKey"].$get({
+		const res = await endpoint.api.sessions[":entityKey"].$get({
 			param: { entityKey },
 		});
 		if (!res.ok) throw new Error(`Failed to fetch session: ${res.status}`);
