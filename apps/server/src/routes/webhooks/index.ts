@@ -80,10 +80,10 @@ async function ensureSandboxReady(
   if (opts.anthropicApiKey) envLines.push(`export ANTHROPIC_API_KEY="${opts.anthropicApiKey}"`)
   if (opts.openaiApiKey) envLines.push(`export OPENAI_API_KEY="${opts.openaiApiKey}"`)
   if (opts.sentryDsn) envLines.push(`export SENTRY_DSN="${opts.sentryDsn}"`)
+  // Enable debug logging so we can see what OpenCode/agent is doing
+  envLines.push('export OPENCODE_LOG_LEVEL="debug"')
 
-  if (envLines.length > 0) {
-    await sandbox.writeFile("/tmp/opencode-env.sh", `${envLines.join("\n")}\n`)
-  }
+  await sandbox.writeFile("/tmp/opencode-env.sh", `${envLines.join("\n")}\n`)
 
   // Start OpenCode
   const cwd = opts.repo ? "/workspace/repo" : "/workspace"
@@ -94,11 +94,12 @@ async function ensureSandboxReady(
   // Start a keepalive process to prevent sandbox inactivity timeout.
   // The agent works via LLM calls that the sandbox can't see as activity,
   // so we ping OpenCode every 45s to reset the inactivity timer.
+  // Also logs session status for observability.
   // The loop exits when:
   //   - OpenCode stops responding (process crashed/stopped)
   //   - Maximum runtime of 2 hours is reached (safety limit)
   await sandbox.startProcess(
-    `bash -c 'STARTED=$(date +%s); MAX=7200; while true; do sleep 45; curl -sf http://localhost:${OPENCODE_PORT}/global/health > /dev/null 2>&1 || break; NOW=$(date +%s); [ $((NOW - STARTED)) -ge $MAX ] && break; done'`,
+    `bash -c 'STARTED=$(date +%s); MAX=7200; while true; do sleep 45; curl -sf http://localhost:${OPENCODE_PORT}/global/health > /dev/null 2>&1 || { echo "[keepalive] health check failed, exiting"; break; }; NOW=$(date +%s); ELAPSED=$((NOW - STARTED)); echo "[keepalive] alive ${ELAPSED}s"; curl -sf http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null | head -c 500; echo; [ $ELAPSED -ge $MAX ] && { echo "[keepalive] max runtime reached, exiting"; break; }; done'`,
     { cwd: "/workspace" },
   )
 }
