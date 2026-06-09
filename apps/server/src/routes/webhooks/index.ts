@@ -14,20 +14,20 @@
 //      - Find or create OpenCode session
 //      - Send prompt via prompt_async
 //      - Mark event as "dispatched"
+//      - On failure → mark event as "failed"
 
 import { getContainer } from "@cloudflare/containers"
 import { formatError } from "@jared/utils"
 import { verify } from "@octokit/webhooks-methods"
 import * as Sentry from "@sentry/cloudflare"
 import { eq } from "drizzle-orm"
-import { drizzle } from "drizzle-orm/d1"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
 import { createGitHubApp } from "@/lib/github/app"
 import { extractEntityKey, lookupString } from "@/lib/github/entity"
 import { formatEventPrompt } from "@/lib/github/prompt"
 import type { WebhookEvent } from "@/lib/github/types"
-import type { BaseEnvBindings } from "@/types"
+import type { BaseEnv } from "@/types"
 
 const HEALTH_MAX_RETRIES = 30
 const HEALTH_INITIAL_DELAY_MS = 500
@@ -85,8 +85,9 @@ async function findOrCreateSession(
   return null
 }
 
-const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
+const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
   const logger = c.get("logger").child({ ns: "webhook" })
+  const db = c.get("db")
   const webhookSecret = c.env.GITHUB_APP_WEBHOOK_SECRET
   if (!webhookSecret) {
     return c.json({ error: "GitHub App webhook secret not configured" }, 503)
@@ -192,8 +193,6 @@ const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
   const eventId = crypto.randomUUID()
 
   // --- Store event in D1 (dedup via delivery_id UNIQUE constraint) ---
-  const db = drizzle(c.env.DB, { schema: dbSchema })
-
   try {
     await db.insert(dbSchema.webhookEvents).values({
       id: eventId,
@@ -239,24 +238,36 @@ const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
   // --- Dispatch to container in the background ---
   // Return 200 to GitHub immediately, then handle container communication
   // asynchronously via waitUntil().
-  const envBindings = c.env
+
+  /** Mark an event as failed in D1 so it doesn't stay stuck in "pending". */
+  async function markEventFailed(reason: string) {
+    try {
+      await db
+        .update(dbSchema.webhookEvents)
+        .set({ status: "failed" })
+        .where(eq(dbSchema.webhookEvents.id, eventId))
+    } catch (dbErr) {
+      logger.error({ error: formatError(dbErr), event_id: eventId }, "failed to mark event as failed")
+    }
+    logger.error({ entity_key: containerKey, event_id: eventId, reason }, "dispatch failed")
+  }
 
   c.executionCtx.waitUntil(
     (async () => {
       try {
-        const container = getContainer(envBindings.OPENCODE, containerKey)
+        const container = getContainer(c.env.OPENCODE, containerKey)
 
         // Wait for OpenCode to be ready (handles cold start)
         const healthy = await waitForHealth(container)
         if (!healthy) {
-          logger.error({ entity_key: containerKey }, "container health check timed out")
+          await markEventFailed("container health check timed out")
           return
         }
 
         // Find or create an OpenCode session
         const sessionId = await findOrCreateSession(container, containerKey)
         if (!sessionId) {
-          logger.error({ entity_key: containerKey }, "failed to find or create session")
+          await markEventFailed("failed to find or create session")
           return
         }
 
@@ -285,20 +296,12 @@ const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
 
         if (!promptRes.ok) {
           const body = await promptRes.text()
-          logger.error(
-            {
-              entity_key: containerKey,
-              status: promptRes.status,
-              body,
-            },
-            "prompt_async failed",
-          )
+          await markEventFailed(`prompt_async returned ${promptRes.status}: ${body}`)
           return
         }
 
         // Mark the event as dispatched
-        const dispatchDb = drizzle(envBindings.DB, { schema: dbSchema })
-        await dispatchDb
+        await db
           .update(dbSchema.webhookEvents)
           .set({ status: "dispatched", dispatchedAt: new Date() })
           .where(eq(dbSchema.webhookEvents.id, eventId))
@@ -312,7 +315,7 @@ const router = new Hono<BaseEnvBindings>().post("/github-app", async (c) => {
           "event dispatched to agent",
         )
       } catch (err) {
-        logger.error({ error: formatError(err), entity_key: containerKey }, "dispatch failed")
+        await markEventFailed(formatError(err))
         Sentry.captureException(err)
       }
     })(),
