@@ -90,6 +90,15 @@ async function ensureSandboxReady(
   const startCmd = `bash -c '[ -f /tmp/opencode-env.sh ] && . /tmp/opencode-env.sh; exec opencode serve --port ${OPENCODE_PORT} --hostname 0.0.0.0'`
   const proc = await sandbox.startProcess(startCmd, { cwd })
   await proc.waitForPort(OPENCODE_PORT)
+
+  // Start a keepalive process to prevent sandbox inactivity timeout.
+  // The agent works via LLM calls that the sandbox can't see as activity,
+  // so we ping OpenCode every 45s to reset the inactivity timer.
+  // The loop exits if OpenCode stops responding (process crashed/done).
+  await sandbox.startProcess(
+    "bash -c 'while true; do sleep 45; curl -sf http://localhost:4096/global/health > /dev/null 2>&1 || break; done'",
+    { cwd: "/workspace" },
+  )
 }
 
 /**
