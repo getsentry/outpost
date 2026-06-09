@@ -76,8 +76,19 @@ export async function extractEntityKey(
 
   // check_suite, workflow_run — extract from pull_requests array,
   // fetch PR body for linked issue detection.
+  // Skip CI events triggered by pushes to the default branch — the
+  // pull_requests array contains stale/unrelated PRs in that case.
   const ciPath = CI_EVENTS[event]
   if (ciPath) {
+    // Determine if this CI run is for the default branch (push-triggered)
+    const ciObj = lookup(payload, event) as Record<string, unknown> | null
+    const headBranch = typeof ciObj?.head_branch === "string" ? ciObj.head_branch : null
+    const defaultBranch = lookupString(payload, "repository.default_branch")
+    if (headBranch && defaultBranch && headBranch === defaultBranch) {
+      // Push to default branch — pull_requests array is unreliable
+      return null
+    }
+
     const prs = lookup(payload, ciPath)
     if (!Array.isArray(prs) || prs.length === 0) return null
     const first = prs[0] as Record<string, unknown>
