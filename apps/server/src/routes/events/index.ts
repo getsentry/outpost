@@ -31,6 +31,24 @@ const router = new Hono<AuthEnv>()
 
     return c.json({ data: groups })
   })
+  .post("/retry-pending", async (c) => {
+    const db = c.get("db")
+
+    // Get all pending events
+    const pending = await db
+      .select({ id: webhookEvents.id })
+      .from(webhookEvents)
+      .where(eq(webhookEvents.status, "pending"))
+
+    // Mark them all as failed so they can be retried by the next webhook
+    let updated = 0
+    for (const event of pending) {
+      await db.update(webhookEvents).set({ status: "failed" }).where(eq(webhookEvents.id, event.id))
+      updated++
+    }
+
+    return c.json({ ok: true, updated })
+  })
   .get("/", async (c) => {
     const db = c.get("db")
 
