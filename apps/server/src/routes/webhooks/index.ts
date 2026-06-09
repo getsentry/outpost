@@ -220,10 +220,12 @@ const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
     "webhook.received",
   )
 
-  const isSkipped =
-    !entityKey ||
-    (event === "issues" && action === "labeled" && lookupString(payload, "label.name") !== TRIGGER_LABEL) ||
-    (event === "issues" && (action === "assigned" || action === "unassigned"))
+  // Only dispatch events that the agent should act on.
+  // For now, only the jared label trigger starts work. All other events
+  // are stored for observability but don't create sandboxes.
+  const isDispatchable =
+    entityKey && event === "issues" && action === "labeled" && lookupString(payload, "label.name") === TRIGGER_LABEL
+  const isSkipped = !isDispatchable
 
   const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
   const eventId = crypto.randomUUID()
