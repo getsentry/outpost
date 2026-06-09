@@ -10,7 +10,7 @@
 //      - No entity    → status "skipped" (no container created)
 //   2. Return 200 to GitHub immediately
 //   3. In waitUntil(): dispatch to OpenCode container
-//      - Wait for container health
+//      - Verify container health (startup handled by Container framework)
 //      - Find or create OpenCode session
 //      - Send prompt via prompt_async
 //      - Mark event as "dispatched"
@@ -30,30 +30,18 @@ import { formatEventPrompt } from "@/lib/github/prompt"
 import type { WebhookEvent } from "@/lib/github/types"
 import type { BaseEnv } from "@/types"
 
-// waitUntil() has a ~30s budget after the response is sent.
-// Total health-check loop must stay under ~15s to leave headroom
-// for session creation, prompt dispatch, and markEventFailed.
-const HEALTH_MAX_RETRIES = 8
-const HEALTH_INITIAL_DELAY_MS = 500
-const HEALTH_MAX_DELAY_MS = 2500
-
 /**
- * Wait for the OpenCode server inside the container to be ready.
- * Retries GET /global/health with exponential backoff.
+ * Verify the container is ready by hitting the OpenCode health endpoint.
+ * The Container framework's fetch() handles startup and port readiness
+ * internally (via containerFetch), so we only need a single check.
  */
-async function waitForHealth(container: { fetch: (req: Request) => Promise<Response> }): Promise<boolean> {
-  let delay = HEALTH_INITIAL_DELAY_MS
-  for (let i = 0; i < HEALTH_MAX_RETRIES; i++) {
-    try {
-      const res = await container.fetch(new Request("http://container/global/health"))
-      if (res.ok) return true
-    } catch {
-      // Container not ready yet
-    }
-    await new Promise((r) => setTimeout(r, delay))
-    delay = Math.min(delay * 1.5, HEALTH_MAX_DELAY_MS)
+async function checkHealth(container: { fetch: (req: Request) => Promise<Response> }): Promise<boolean> {
+  try {
+    const res = await container.fetch(new Request("http://container/global/health"))
+    return res.ok
+  } catch {
+    return false
   }
-  return false
 }
 
 /**
@@ -265,10 +253,10 @@ const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
       try {
         const container = getContainer(c.env.OPENCODE, containerKey)
 
-        // Wait for OpenCode to be ready (handles cold start)
-        const healthy = await waitForHealth(container)
+        // Verify container is healthy — containerFetch handles startup internally
+        const healthy = await checkHealth(container)
         if (!healthy) {
-          await markEventFailed("container health check timed out")
+          await markEventFailed("container health check failed")
           return
         }
 
