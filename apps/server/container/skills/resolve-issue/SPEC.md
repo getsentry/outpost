@@ -2,7 +2,7 @@
 
 ## Intent
 
-Take a GitHub issue from "assigned" to "draft PR opened" with a
+Take a GitHub issue from labeled to "draft PR opened" with a
 focused, tested implementation. Prefer shipping a best-effort draft
 over blocking on ambiguity.
 
@@ -26,7 +26,7 @@ over blocking on ambiguity.
 
 ## Invocation
 
-Loaded by `jared` when an issue is assigned to the bot.
+Loaded by `jared` when the `jared` label is added to an issue.
 Requires `repo-setup` to run first.
 
 ## Runtime contract

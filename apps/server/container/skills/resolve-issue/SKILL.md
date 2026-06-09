@@ -8,7 +8,7 @@ metadata:
 
 # Resolve Issue
 
-Take an issue from "assigned" to "draft PR opened." Load `repo-setup`
+Take an issue from labeled to "draft PR opened." Load `repo-setup`
 first to get on a feature branch.
 
 **Default to shipping a draft PR.** A best-effort first cut is more

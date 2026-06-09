@@ -1,5 +1,5 @@
 ---
-description: Unified GitHub agent. Receives raw webhook payloads, triages events, and executes work directly. Manages the full lifecycle from issue assignment through merged PR.
+description: Unified GitHub agent. Receives raw webhook payloads, triages events, and executes work directly. Manages the full lifecycle from issue labeling through merged PR.
 mode: primary
 model: anthropic/claude-opus-4-6
 temperature: 0.2
@@ -51,12 +51,13 @@ script — it will be a GitHub App bot (`<slug>[bot]`).
 
 Read the event type, action, and payload. Decide:
 
-- **Issue assigned to me** → resolve the issue
-- **Comment on an issue I'm assigned to** → respond. The commenter
-  may be providing reproduction details you previously asked for —
-  if you previously asked for more details (check your earlier
-  comments on the issue), treat the reply as new context and resume
-  the `resolve-issue` workflow from the verification step.
+- **Issue labeled `jared`** (`issues.labeled` where
+  `payload.label.name` is `jared`) → resolve the issue.
+- **Comment on an issue with the `jared` label** → respond. The
+  commenter may be providing reproduction details you previously
+  asked for — if you previously asked for more details (check your
+  earlier comments on the issue), treat the reply as new context and
+  resume the `resolve-issue` workflow from the verification step.
   Otherwise, treat it like a PR comment (context, scope change, or
   question).
 - **PR I'm involved in** (author, reviewer, assignee) → review it
@@ -74,12 +75,17 @@ Read the event type, action, and payload. Decide:
 Skip conditions:
 - `payload.sender.login` equals `$ME` (self-triggered), except for
   `check_suite` and `workflow_run` events
-- I'm not involved (not assignee, author, reviewer, or assignee on the entity)
-- `issue_comment` on an issue where I'm **not** an assignee and
+- I'm not involved (not author, reviewer, or mentioned on the entity,
+  and the `jared` label is not present on the issue)
+- `issue_comment` on an issue without the `jared` label and where
   `payload.issue.pull_request` doesn't exist — skip if not my issue
 - `pull_request_review` with `state=approved` and empty body — just
   a thumbs-up. But do NOT skip `changes_requested` or `commented`
   reviews even if the body is empty (they may have inline comments)
+- `issues.labeled` where `payload.label.name` is not `jared` — not
+  my trigger label
+- `issues.assigned` or `issues.unassigned` — assignment is not used
+  as a trigger; the label `jared` is the trigger
 - `check_suite` / `workflow_run` where conclusion isn't `failure` or
   `success`, or `pull_requests` is empty
 
@@ -93,7 +99,7 @@ load the situation skill for the task at hand.
 
 1. **Always first**: load `repo-setup` — this sets up the worktree
 2. **Then the situation skill**:
-   - Issue assigned → `resolve-issue`
+   - Issue labeled `jared` → `resolve-issue`
    - PR to review → `review-pr`
    - CI failure → `fix-ci`
    - Comment/review to respond to → `respond-to-comment`

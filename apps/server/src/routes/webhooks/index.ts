@@ -24,6 +24,7 @@ import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
 import { createGitHubApp } from "@/lib/github/app"
+import { TRIGGER_LABEL } from "@/lib/github/constants"
 import { extractEntityKey, lookupString } from "@/lib/github/entity"
 import { formatEventPrompt } from "@/lib/github/prompt"
 import type { WebhookEvent } from "@/lib/github/types"
@@ -188,7 +189,14 @@ const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
   )
 
   // --- Determine if this event is routable to a container ---
-  const isSkipped = !entityKey
+  // Skip issues.labeled events unless the label matches the trigger label,
+  // to avoid spinning up containers for irrelevant label additions.
+  // Also skip issues.assigned/unassigned — assignment is not used as a trigger
+  // (GitHub App bots can't be assigned via the UI).
+  const isSkipped =
+    !entityKey ||
+    (event === "issues" && action === "labeled" && lookupString(payload, "label.name") !== TRIGGER_LABEL) ||
+    (event === "issues" && (action === "assigned" || action === "unassigned"))
   const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
   const eventId = crypto.randomUUID()
 
@@ -220,16 +228,16 @@ const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
     throw err
   }
 
-  // --- If no entity, we're done — event is stored as "skipped" ---
+  // --- If skipped (no entity or filtered out), we're done ---
   if (isSkipped) {
-    logger.info({ delivery_id: deliveryId, event }, "no entity found, event skipped")
+    logger.info({ delivery_id: deliveryId, event, action }, "event skipped")
     return c.json({
       ok: true,
       delivery_id: deliveryId,
       event,
       action,
       duplicate: false,
-      entity_key: null,
+      entity_key: entityKey?.key ?? null,
       installation_id: installationId,
       skipped: true,
     })
