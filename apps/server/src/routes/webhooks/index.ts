@@ -5,7 +5,9 @@
 // in D1, and dispatches it to the OpenCode sandbox.
 //
 // Event lifecycle:
-//   1. Webhook arrives → stored in D1 as "pending"
+//   1. Webhook arrives → check if the entity has the "jared" label
+//      - Has label → stored in D1 as "pending", dispatched to sandbox
+//      - No label  → stored in D1 as "skipped"
 //   2. Return 200 to GitHub immediately
 //   3. In waitUntil: attempt dispatch to sandbox
 //      - Warm sandbox (OpenCode running): dispatch in <2s
@@ -20,7 +22,7 @@ import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
 import { createGitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
-import { extractEntityKey, lookupString } from "@/lib/github/entity"
+import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
 import { formatEventPrompt } from "@/lib/github/prompt"
 import type { BaseEnv } from "@/types"
 
@@ -220,12 +222,28 @@ const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
     "webhook.received",
   )
 
-  // Only dispatch events that the agent should act on.
-  // For now, only the jared label trigger starts work. All other events
-  // are stored for observability but don't create sandboxes.
-  const isDispatchable =
-    entityKey && event === "issues" && action === "labeled" && lookupString(payload, "label.name") === TRIGGER_LABEL
-  const isSkipped = !isDispatchable
+  // Only dispatch events where the related issue/PR has the trigger label.
+  // Check labels from the payload to avoid unnecessary API calls.
+  let hasLabel = false
+  if (entityKey) {
+    // issues.labeled — check the label being added
+    if (event === "issues" && action === "labeled") {
+      hasLabel = lookupString(payload, "label.name") === TRIGGER_LABEL
+    }
+    // issues.* / issue_comment.* — check payload.issue.labels
+    else if (event === "issues" || event === "issue_comment") {
+      const labels = lookup(payload, "issue.labels") as Array<{ name?: string }> | undefined
+      hasLabel = Array.isArray(labels) && labels.some((l) => l.name === TRIGGER_LABEL)
+    }
+    // pull_request.* / pull_request_review.* / pull_request_review_comment.* — check payload.pull_request.labels
+    else if (event.startsWith("pull_request")) {
+      const labels = lookup(payload, "pull_request.labels") as Array<{ name?: string }> | undefined
+      hasLabel = Array.isArray(labels) && labels.some((l) => l.name === TRIGGER_LABEL)
+    }
+    // check_suite / workflow_run — these don't carry labels; skip for now
+    // (CI events on default branch are already filtered in extractEntityKey)
+  }
+  const isSkipped = !hasLabel
 
   const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
   const eventId = crypto.randomUUID()
