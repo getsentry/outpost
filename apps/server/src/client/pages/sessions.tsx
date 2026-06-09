@@ -1,20 +1,11 @@
-import {
-  CaretDown,
-  CaretLeft,
-  CaretRight,
-  CaretRight as CaretRightIcon,
-  Copy,
-  MagnifyingGlass,
-  Robot,
-  X,
-} from "@phosphor-icons/react"
-import { Fragment, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { CaretLeft, CaretRight, MagnifyingGlass, Robot, X } from "@phosphor-icons/react"
+import { useState } from "react"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { GitHubLink } from "@/client/components/github-link"
 import { LastUpdated } from "@/client/components/last-updated"
-import { copyToClipboard } from "@/client/lib/clipboard"
+import { StatusBadge } from "@/client/components/status-badge"
 import { entityGitHubUrl, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
-import { useSessionDetail, useSessions } from "@/client/lib/queries"
+import { useSessions } from "@/client/lib/queries"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -22,59 +13,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 const PAGE_SIZES = [10, 25, 50] as const
 
-function SessionExpandedRow({ entityKey }: { entityKey: string }) {
-  const { data, isLoading, isError } = useSessionDetail(entityKey)
-
-  if (isLoading) {
-    return (
-      <TableRow>
-        <TableCell colSpan={5} className="bg-muted/30 p-4">
-          <Skeleton className="h-32 w-full" />
-        </TableCell>
-      </TableRow>
-    )
-  }
-
-  if (isError || !data) {
-    return (
-      <TableRow>
-        <TableCell colSpan={5} className="bg-muted/30 p-4 text-sm text-destructive">
-          Failed to load session data
-        </TableCell>
-      </TableRow>
-    )
-  }
-
-  let formatted: string
-  try {
-    formatted = JSON.stringify(JSON.parse(data.sessionData), null, 2)
-  } catch {
-    formatted = data.sessionData
-  }
-
-  const handleCopy = () => copyToClipboard(formatted)
-
-  return (
-    <TableRow>
-      <TableCell colSpan={5} className="bg-muted/30 p-0">
-        <div className="p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-xs font-medium text-muted-foreground">Session Data</span>
-            <Button variant="ghost" size="xs" onClick={handleCopy}>
-              <Copy className="size-3" />
-              Copy
-            </Button>
-          </div>
-          <pre className="max-h-[400px] overflow-auto bg-muted p-4 text-xs leading-relaxed">{formatted}</pre>
-        </div>
-      </TableCell>
-    </TableRow>
-  )
-}
-
 export default function SessionsPage() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [expandedKey, setExpandedKey] = useState<string | null>(null)
   const [searchInput, setSearchInput] = useState("")
 
   const page = Number(searchParams.get("page")) || 1
@@ -97,15 +38,11 @@ export default function SessionsPage() {
   const setPage = (p: number) => updateParams({ page: String(p) })
   const setLimit = (l: number) => updateParams({ limit: String(l), page: "1" })
 
-  const toggleExpand = (entityKey: string) => {
-    setExpandedKey((prev) => (prev === entityKey ? null : entityKey))
-  }
-
   // Client-side search filter
-  const filtered = data?.data.filter((session) => {
+  const filtered = data?.data.filter((session: { entityKey: string; repo?: string | null }) => {
     if (!searchInput) return true
     const q = searchInput.toLowerCase()
-    return session.entityKey.toLowerCase().includes(q) || (session.sessionId?.toLowerCase().includes(q) ?? false)
+    return session.entityKey.toLowerCase().includes(q) || (session.repo?.toLowerCase().includes(q) ?? false)
   })
 
   const pagination = data?.pagination
@@ -117,7 +54,7 @@ export default function SessionsPage() {
         <div>
           <h1 className="text-lg font-semibold">Agent Sessions</h1>
           <p className="text-sm text-muted-foreground">
-            {pagination ? `${pagination.total} sessions` : "Active agent sessions for GitHub entities"}
+            {pagination ? `${pagination.total} active sessions` : "Entities with dispatched agent events"}
           </p>
         </div>
         <LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
@@ -129,7 +66,7 @@ export default function SessionsPage() {
           <MagnifyingGlass className="absolute left-2 size-3.5 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search by entity or session ID..."
+            placeholder="Search by entity or repo..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="h-7 w-64 border border-input bg-background pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
@@ -169,7 +106,7 @@ export default function SessionsPage() {
             <div className="flex flex-col items-center gap-2 py-16">
               <Robot className="size-8 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground">
-                {searchInput ? "No sessions match your search" : "No agent sessions found"}
+                {searchInput ? "No sessions match your search" : "No active agent sessions"}
               </p>
               {searchInput && (
                 <Button variant="outline" size="xs" onClick={() => setSearchInput("")}>
@@ -181,46 +118,48 @@ export default function SessionsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-8" />
                   <TableHead>Entity</TableHead>
                   <TableHead>Repository</TableHead>
-                  <TableHead>Session ID</TableHead>
+                  <TableHead className="text-right">Events</TableHead>
+                  <TableHead>Last Event</TableHead>
                   <TableHead className="text-right">Updated</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filtered.map((session) => {
-                  const isExpanded = expandedKey === session.entityKey
-                  const ghUrl = entityGitHubUrl(session.entityKey, "issues")
-                  const parsed = parseEntityKey(session.entityKey)
-                  const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : null
-                  return (
-                    <Fragment key={session.entityKey}>
-                      <TableRow className="cursor-pointer" onClick={() => toggleExpand(session.entityKey)}>
-                        <TableCell className="w-8 px-2">
-                          {isExpanded ? (
-                            <CaretDown className="size-3.5 text-muted-foreground" />
-                          ) : (
-                            <CaretRightIcon className="size-3.5 text-muted-foreground" />
-                          )}
-                        </TableCell>
+                {filtered.map(
+                  (session: {
+                    entityKey: string
+                    repo?: string | null
+                    eventCount: number
+                    lastEvent?: string | null
+                    updatedAt: string
+                  }) => {
+                    const ghUrl = entityGitHubUrl(session.entityKey, "issues")
+                    const parsed = parseEntityKey(session.entityKey)
+                    const repoName = session.repo ?? (parsed ? `${parsed.owner}/${parsed.repo}` : null)
+                    return (
+                      <TableRow
+                        key={session.entityKey}
+                        className="cursor-pointer"
+                        onClick={() => navigate(`/events?repo=${encodeURIComponent(repoName ?? "")}`)}
+                      >
                         <TableCell className="font-mono text-sm">
                           {ghUrl ? <GitHubLink href={ghUrl}>{session.entityKey}</GitHubLink> : session.entityKey}
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {repoName ? <GitHubLink href={repoGitHubUrl(repoName)}>{repoName}</GitHubLink> : "-"}
                         </TableCell>
-                        <TableCell className="font-mono text-xs text-muted-foreground">
-                          {session.sessionId ? `${session.sessionId.slice(0, 12)}...` : "-"}
+                        <TableCell className="text-right font-mono">
+                          <StatusBadge status="dispatched" /> {session.eventCount}
                         </TableCell>
+                        <TableCell className="text-muted-foreground text-xs">{session.lastEvent ?? "-"}</TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {formatTimeAgo(session.updatedAt)}
                         </TableCell>
                       </TableRow>
-                      {isExpanded && <SessionExpandedRow entityKey={session.entityKey} />}
-                    </Fragment>
-                  )
-                })}
+                    )
+                  },
+                )}
               </TableBody>
             </Table>
           )}
