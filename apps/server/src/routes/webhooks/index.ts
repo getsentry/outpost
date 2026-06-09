@@ -223,10 +223,19 @@ const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
     "webhook.received",
   )
 
-  // Only dispatch events where the related issue/PR has the trigger label.
-  // Check labels from the payload to avoid unnecessary API calls.
+  // Only dispatch events where:
+  // 1. The related issue/PR has the trigger label, OR
+  // 2. The issue/PR was created by the bot (follow-up events on bot's own work)
   let hasLabel = false
+  let isBotEntity = false
   if (entityKey) {
+    // Check if the bot authored the entity (PR or issue)
+    if (botLogin) {
+      const prAuthor = lookupString(payload, "pull_request.user.login")
+      const issueAuthor = lookupString(payload, "issue.user.login")
+      isBotEntity = prAuthor === botLogin || issueAuthor === botLogin
+    }
+
     // issues.labeled — check the label being added
     if (event === "issues" && action === "labeled") {
       hasLabel = lookupString(payload, "label.name") === TRIGGER_LABEL
@@ -241,10 +250,10 @@ const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
       const labels = lookup(payload, "pull_request.labels") as Array<{ name?: string }> | undefined
       hasLabel = Array.isArray(labels) && labels.some((l) => l.name === TRIGGER_LABEL)
     }
-    // check_suite / workflow_run — these don't carry labels; skip for now
+    // check_suite / workflow_run — no labels in payload, but dispatch if bot-authored
     // (CI events on default branch are already filtered in extractEntityKey)
   }
-  const isSkipped = !hasLabel
+  const isSkipped = !(hasLabel || isBotEntity)
 
   const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
   const eventId = crypto.randomUUID()
