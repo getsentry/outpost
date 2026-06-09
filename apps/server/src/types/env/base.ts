@@ -1,3 +1,4 @@
+import type { Sandbox } from "@cloudflare/sandbox"
 import type { Logger } from "@jared/utils"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
@@ -23,8 +24,8 @@ export type BaseEnvBindings = {
     GITHUB_APP_ID: string
     GITHUB_APP_PRIVATE_KEY: string
     GITHUB_APP_WEBHOOK_SECRET: string
-    // Cloudflare Container (OpenCode) Durable Object binding
-    OPENCODE: DurableObjectNamespace
+    // Cloudflare Sandbox (OpenCode) Durable Object binding
+    Sandbox: DurableObjectNamespace<Sandbox>
   }
   Variables: {
     logger: Logger

@@ -35,7 +35,7 @@
   // },
   "containers": [
     {
-      "class_name": "OpenCodeContainer",
+      "class_name": "Sandbox",
       "image": "./container/Dockerfile",
       "max_instances": 10,
       "instance_type": "standard-2"
@@ -44,8 +44,8 @@
   "durable_objects": {
     "bindings": [
       {
-        "class_name": "OpenCodeContainer",
-        "name": "OPENCODE"
+        "class_name": "Sandbox",
+        "name": "Sandbox"
       }
     ]
   },
@@ -53,6 +53,10 @@
     {
       "new_sqlite_classes": ["OpenCodeContainer"],
       "tag": "v1"
+    },
+    {
+      "renamed_classes": [{ "from": "OpenCodeContainer", "to": "Sandbox" }],
+      "tag": "v2"
     }
   ],
   "observability": {
