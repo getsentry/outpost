@@ -6,6 +6,17 @@ import { LastUpdated } from "@/client/components/last-updated"
 import { StatusBadge } from "@/client/components/status-badge"
 import { entityGitHubUrl, formatTimeAgo, repoGitHubUrl } from "@/client/lib/format"
 import { useClearEvents, useEventStats, useEvents, useEventsGrouped } from "@/client/lib/queries"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -97,19 +108,27 @@ export default function EventsPage() {
             <ListBullets className="mr-1.5 size-4" />
             Group by Repo
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              if (window.confirm("Clear all webhook events? This cannot be undone.")) {
-                clearEvents.mutate()
-              }
-            }}
-            disabled={clearEvents.isPending}
-          >
-            <Trash className="mr-1.5 size-4" />
-            {clearEvents.isPending ? "Clearing..." : "Clear All"}
-          </Button>
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm" disabled={clearEvents.isPending}>
+                <Trash className="mr-1.5 size-4" />
+                {clearEvents.isPending ? "Clearing..." : "Clear All"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear all webhook events?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete all {stats?.total ?? 0} webhook events from the database. This action
+                  cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={() => clearEvents.mutate()}>Clear All Events</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
         </div>
       </div>
