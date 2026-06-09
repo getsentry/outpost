@@ -6,6 +6,31 @@ import type { AuthEnv } from "@/types"
 
 const router = new Hono<AuthEnv>()
   .use(isAuthenticated())
+  .delete("/", async (c) => {
+    const db = c.get("db")
+    await db.delete(webhookEvents)
+    return c.json({ ok: true })
+  })
+  .get("/grouped", async (c) => {
+    const db = c.get("db")
+
+    const groups = await db
+      .select({
+        repo: webhookEvents.repo,
+        total: sql<number>`count(*)`,
+        pending: sql<number>`sum(case when ${webhookEvents.status} = 'pending' then 1 else 0 end)`,
+        dispatched: sql<number>`sum(case when ${webhookEvents.status} = 'dispatched' then 1 else 0 end)`,
+        completed: sql<number>`sum(case when ${webhookEvents.status} = 'completed' then 1 else 0 end)`,
+        failed: sql<number>`sum(case when ${webhookEvents.status} = 'failed' then 1 else 0 end)`,
+        skipped: sql<number>`sum(case when ${webhookEvents.status} = 'skipped' then 1 else 0 end)`,
+        latest: sql<string>`max(${webhookEvents.createdAt})`,
+      })
+      .from(webhookEvents)
+      .groupBy(webhookEvents.repo)
+      .orderBy(sql`max(${webhookEvents.createdAt}) desc`)
+
+    return c.json({ data: groups })
+  })
   .get("/", async (c) => {
     const db = c.get("db")
 

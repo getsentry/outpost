@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { authClient } from "@/lib/endpoint"
 import { api, type EventsParams, type SessionsParams } from "./api"
 
@@ -37,6 +37,26 @@ export function useEventStats() {
     queryKey: ["eventStats"],
     queryFn: () => api.getEventStats(),
     refetchInterval: 10_000,
+  })
+}
+
+export function useEventsGrouped() {
+  return useQuery({
+    queryKey: ["eventsGrouped"],
+    queryFn: () => api.getEventsGrouped(),
+    refetchInterval: 10_000,
+  })
+}
+
+export function useClearEvents() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.clearEvents(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["events"] })
+      queryClient.invalidateQueries({ queryKey: ["eventStats"] })
+      queryClient.invalidateQueries({ queryKey: ["eventsGrouped"] })
+    },
   })
 }
 

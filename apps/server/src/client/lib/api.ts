@@ -39,6 +39,18 @@ export const api = {
     return res.json()
   },
 
+  async clearEvents() {
+    const res = await endpoint.api.events.$delete()
+    if (!res.ok) throw new Error(`Failed to clear events: ${res.status}`)
+    return res.json()
+  },
+
+  async getEventsGrouped() {
+    const res = await endpoint.api.events.grouped.$get()
+    if (!res.ok) throw new Error(`Failed to fetch grouped events: ${res.status}`)
+    return res.json()
+  },
+
   async getSessions(params: SessionsParams = {}) {
     const query: Record<string, string> = {}
     if (params.page != null) query.page = String(params.page)
