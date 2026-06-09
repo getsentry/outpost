@@ -250,10 +250,7 @@ const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
   /** Mark an event as failed in D1 so it doesn't stay stuck in "pending". */
   async function markEventFailed(reason: string) {
     try {
-      await db
-        .update(dbSchema.webhookEvents)
-        .set({ status: "failed" })
-        .where(eq(dbSchema.webhookEvents.id, eventId))
+      await db.update(dbSchema.webhookEvents).set({ status: "failed" }).where(eq(dbSchema.webhookEvents.id, eventId))
     } catch (dbErr) {
       logger.error({ error: formatError(dbErr), event_id: eventId }, "failed to mark event as failed")
     }
