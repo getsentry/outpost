@@ -31,11 +31,11 @@ import type { WebhookEvent } from "@/lib/github/types"
 import type { BaseEnv } from "@/types"
 
 // waitUntil() has a ~30s budget after the response is sent.
-// Keep the total health check time under ~25s to leave room for
-// session creation and prompt dispatch.
-const HEALTH_MAX_RETRIES = 15
+// Total health-check loop must stay under ~15s to leave headroom
+// for session creation, prompt dispatch, and markEventFailed.
+const HEALTH_MAX_RETRIES = 8
 const HEALTH_INITIAL_DELAY_MS = 500
-const HEALTH_MAX_DELAY_MS = 3000
+const HEALTH_MAX_DELAY_MS = 2500
 
 /**
  * Wait for the OpenCode server inside the container to be ready.
