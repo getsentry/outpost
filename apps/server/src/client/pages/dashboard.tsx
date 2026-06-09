@@ -71,18 +71,20 @@ function RecentEvents() {
 
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
-        <div>
-          <CardTitle>Recent Events</CardTitle>
-          <CardDescription className="flex items-center gap-1.5">
-            <Clock className="size-3.5" />
-            Last 10 webhook events
-          </CardDescription>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Recent Events</CardTitle>
+            <CardDescription className="flex items-center gap-1.5">
+              <Clock className="size-3.5" />
+              Last 10 webhook events
+            </CardDescription>
+          </div>
+          <Button variant="ghost" size="sm" onClick={() => navigate("/events")}>
+            View all
+            <ArrowRight className="ml-1 size-3.5" />
+          </Button>
         </div>
-        <Button variant="ghost" size="sm" onClick={() => navigate("/events")}>
-          View all
-          <ArrowRight className="ml-1 size-3.5" />
-        </Button>
       </CardHeader>
       <CardContent className="px-0">
         {isLoading ? (

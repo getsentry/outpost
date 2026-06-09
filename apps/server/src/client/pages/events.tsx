@@ -30,6 +30,7 @@ export default function EventsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [repoInput, setRepoInput] = useState(searchParams.get("repo") ?? "")
   const [groupByRepo, setGroupByRepo] = useState(false)
+  const [clearDialogOpen, setClearDialogOpen] = useState(false)
   const clearEvents = useClearEvents()
   const grouped = useEventsGrouped()
   const { data: stats } = useEventStats()
@@ -108,7 +109,7 @@ export default function EventsPage() {
             <ListBullets className="mr-1.5 size-4" />
             Group by Repo
           </Button>
-          <AlertDialog>
+          <AlertDialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
             <AlertDialogTrigger asChild>
               <Button variant="outline" size="sm" disabled={clearEvents.isPending}>
                 <Trash className="mr-1.5 size-4" />
@@ -125,7 +126,14 @@ export default function EventsPage() {
               </AlertDialogHeader>
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction onClick={() => clearEvents.mutate()}>Clear All Events</AlertDialogAction>
+                <AlertDialogAction
+                  onClick={() => {
+                    clearEvents.mutate()
+                    setClearDialogOpen(false)
+                  }}
+                >
+                  Clear All Events
+                </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
