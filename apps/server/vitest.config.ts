@@ -6,6 +6,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "cloudflare:workers": path.resolve(__dirname, "./src/__mocks__/cloudflare-workers.ts"),
+      "@cloudflare/sandbox": path.resolve(__dirname, "./src/__mocks__/cloudflare-sandbox.ts"),
     },
   },
   test: {
