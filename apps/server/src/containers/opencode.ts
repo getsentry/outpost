@@ -37,6 +37,7 @@ export class OpenCodeContainer extends Container {
   defaultPort = 4096
   sleepAfter = "15m"
   enableInternet = true
+  pingEndpoint = "/global/health"
 
   override async onStart() {
     logger.info("container started")
