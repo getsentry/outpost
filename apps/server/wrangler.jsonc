@@ -40,11 +40,14 @@
       "max_instances": 10,
       "instance_type": "standard-2",
       "ssh": {
-        "enabled": true,
-        "authorized_keys": [
-          "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEOr1/J9gXKCeqijk8guM5K0GoAfbRmq3xm4vtKlEB/c am@D6W777CD4W.local"
-        ]
-      }
+        "enabled": true
+      },
+      "authorized_keys": [
+        {
+          "name": "aditya",
+          "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEOr1/J9gXKCeqijk8guM5K0GoAfbRmq3xm4vtKlEB/c"
+        }
+      ]
     }
   ],
   "durable_objects": {

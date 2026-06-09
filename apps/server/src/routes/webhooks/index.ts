@@ -94,14 +94,26 @@ async function ensureSandboxReady(
   // Start a keepalive process to prevent sandbox inactivity timeout.
   // The agent works via LLM calls that the sandbox can't see as activity,
   // so we ping OpenCode every 45s to reset the inactivity timer.
-  // Also logs session status for observability.
-  // The loop exits when:
-  //   - OpenCode stops responding (process crashed/stopped)
-  //   - Maximum runtime of 2 hours is reached (safety limit)
-  await sandbox.startProcess(
-    `bash -c 'STARTED=$(date +%s); MAX=7200; while true; do sleep 45; curl -sf http://localhost:${OPENCODE_PORT}/global/health > /dev/null 2>&1 || { echo "[keepalive] health check failed, exiting"; break; }; NOW=$(date +%s); ELAPSED=$((NOW - STARTED)); echo "[keepalive] alive ${ELAPSED}s"; curl -sf http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null | head -c 500; echo; [ $ELAPSED -ge $MAX ] && { echo "[keepalive] max runtime reached, exiting"; break; }; done'`,
-    { cwd: "/workspace" },
-  )
+  // Written as a script file to avoid bash variable escaping issues in JS template literals.
+  const keepaliveScript = [
+    "#!/bin/bash",
+    `PORT=${OPENCODE_PORT}`,
+    "STARTED=$(date +%s)",
+    "MAX=7200",
+    "while true; do",
+    "  sleep 45",
+    '  curl -sf http://localhost:$PORT/global/health > /dev/null 2>&1 || { echo "[keepalive] health check failed, exiting"; break; }',
+    "  NOW=$(date +%s)",
+    "  ELAPSED=$((NOW - STARTED))",
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: this is bash, not JS
+    '  echo "[keepalive] alive ${ELAPSED}s"',
+    "  curl -sf http://localhost:$PORT/session/status 2>/dev/null | head -c 500",
+    "  echo",
+    '  [ $ELAPSED -ge $MAX ] && { echo "[keepalive] max runtime reached, exiting"; break; }',
+    "done",
+  ].join("\n")
+  await sandbox.writeFile("/tmp/keepalive.sh", keepaliveScript)
+  await sandbox.startProcess("bash /tmp/keepalive.sh", { cwd: "/workspace" })
 }
 
 /**
