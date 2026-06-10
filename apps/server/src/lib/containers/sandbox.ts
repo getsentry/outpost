@@ -7,8 +7,8 @@
 // with access to env bindings (D1, etc.).
 
 import { Sandbox } from "@cloudflare/sandbox"
-import { drizzle } from "drizzle-orm/d1"
 import { eq } from "drizzle-orm"
+import { drizzle } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { saveSession } from "./sessions"
 
@@ -79,10 +79,9 @@ export class JaredSandbox extends Sandbox {
           const stub = env.Sandbox.get(doId)
           await (stub as unknown as { destroy(): Promise<void> }).destroy()
 
-          return new Response(
-            JSON.stringify({ ok: true, action: "destroyed", hadPending: !!pendingEvents }),
-            { headers: { "Content-Type": "application/json" } },
-          )
+          return new Response(JSON.stringify({ ok: true, action: "destroyed", hadPending: !!pendingEvents }), {
+            headers: { "Content-Type": "application/json" },
+          })
         } catch (err) {
           return new Response(JSON.stringify({ error: String(err) }), {
             status: 500,

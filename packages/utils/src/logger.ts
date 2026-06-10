@@ -38,7 +38,7 @@ export function createLogger(opts: LoggerOptions = {}): Logger {
   const namespace = opts.namespace
   const baseBindings = opts.bindings ?? {}
 
-  function emit(level: LogLevel, obj: unknown, msg?: string, ...args: unknown[]): void {
+  function emit(level: LogLevel, obj: unknown, msg?: string, ..._args: unknown[]): void {
     if (LOG_LEVELS[level] < minLevel) return
 
     let logMsg: string | undefined

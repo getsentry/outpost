@@ -4,8 +4,8 @@
 
 import { eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
-import { agentSessions } from "@/db/schema"
 import type * as dbSchema from "@/db/schema"
+import { agentSessions } from "@/db/schema"
 
 /**
  * Save (upsert) agent session data, merging messages by ID to avoid duplicates.

@@ -2,10 +2,10 @@ import { Hono } from "hono"
 import { cors } from "hono/cors"
 import { openAPIRouteHandler } from "hono-openapi"
 import type { AuthEnv } from "@/types"
+import containersRouter from "./containers"
 import devRouter from "./dev"
 import eventsRouter from "./events"
 import profileRouter from "./profile"
-import containersRouter from "./containers"
 import webhooksRouter from "./webhooks"
 
 const apiRouter = new Hono<AuthEnv>()
