@@ -25,6 +25,17 @@ RUN apt-get update \
  && ln -s /usr/bin/fdfind /usr/local/bin/fd \
  && rm -rf /var/lib/apt/lists/*
 
+# --- Node.js 22 + pnpm ---
+# Agent needs these to run typecheck, lint, and tests in target repos.
+# The sandbox base image has Node 20; we need 22 for pnpm and target repos.
+ENV N_PREFIX=/usr/local
+RUN npm install -g n \
+ && n 22 \
+ && hash -r \
+ && corepack enable \
+ && corepack prepare pnpm@latest --activate \
+ && node --version && pnpm --version
+
 # --- OpenCode CLI ---
 ENV PATH="/root/.opencode/bin:${PATH}"
 RUN curl -fsSL https://opencode.ai/install -o /tmp/install-opencode.sh \

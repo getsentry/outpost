@@ -59,8 +59,10 @@ const app = new Hono<BaseEnvBindings>()
     return c.json({ error: "Internal server error" }, 500)
   })
 
-// Export the Sandbox class so Cloudflare can instantiate it as a Durable Object.
-export { Sandbox } from "@cloudflare/sandbox"
+// Export the Sandbox DO and ContainerProxy so Cloudflare can instantiate them.
+// ContainerProxy is required for outbound HTTP interception (jared.internal).
+export { JaredSandbox as Sandbox } from "./lib/containers/sandbox"
+export { ContainerProxy } from "@cloudflare/sandbox"
 
 export type AppType = typeof app
 export default Sentry.withSentry(

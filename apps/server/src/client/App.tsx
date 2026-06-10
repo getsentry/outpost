@@ -25,7 +25,7 @@ function App() {
             <Route index element={<DashboardPage />} />
             <Route path="events" element={<EventsPage />} />
             <Route path="events/:id" element={<EventDetailPage />} />
-            <Route path="sessions" element={<SessionsPage />} />
+            <Route path="containers" element={<SessionsPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

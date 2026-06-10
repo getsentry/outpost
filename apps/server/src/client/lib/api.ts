@@ -56,13 +56,13 @@ export const api = {
     if (params.page != null) query.page = String(params.page)
     if (params.limit != null) query.limit = String(params.limit)
 
-    const res = await endpoint.api.sessions.$get({ query })
+    const res = await endpoint.api.containers.sessions.$get({ query })
     if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`)
     return res.json()
   },
 
   async getSessionDetail(entityKey: string) {
-    const res = await fetch(`/api/sessions/detail?entityKey=${encodeURIComponent(entityKey)}`)
+    const res = await fetch(`/api/containers/sessions/detail?entityKey=${encodeURIComponent(entityKey)}`)
     if (!res.ok) throw new Error(`Failed to fetch session: ${res.status}`)
     return res.json()
   },

@@ -194,6 +194,27 @@ note "no test suite found" in the PR description. Don't spend more
 than 2 minutes on a failing test suite that's unrelated to your
 changes — note it and move on.
 
+## Command timeouts
+
+**Always set a timeout on bash commands that might hang.** Use the
+`timeout` parameter (milliseconds) on every `bash` tool call that
+runs tests, builds, or installs dependencies:
+
+- `pnpm install` / `npm install` / `bun install`: **120000** (2 min)
+- `tsc --noEmit` / typecheck: **120000** (2 min)
+- `vitest run` / `jest` / test suites: **180000** (3 min)
+- `biome check` / `eslint` / lint: **60000** (1 min)
+
+If a command times out, that's fine — note it in the PR description
+and move on. **Never run test/build commands without a timeout.**
+
+Also: many repos require a codegen or build step before typecheck/tests
+work (e.g. `pnpm run generate:sdk`, `pnpm run build`). Check
+`package.json` scripts for `generate*`, `codegen*`, or `prebuild*`
+scripts and run them first. If they fail or are slow, skip them — the
+typecheck/test failures from missing generated files are pre-existing
+and not your fault.
+
 Reserve BLOCKED for genuine impossibility (missing auth, deleted repo,
 contradictory requirements). A best-effort draft PR is almost always
 better than blocking.

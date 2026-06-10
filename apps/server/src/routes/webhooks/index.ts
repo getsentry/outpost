@@ -42,16 +42,24 @@ async function ensureSandboxReady(
     openaiApiKey?: string
     sentryDsn?: string
     entityKey: string
-    workerUrl: string
+
   },
 ): Promise<void> {
-  // Check if OpenCode is already running (fast path)
+  // Check if OpenCode is already running (fast path).
+  // Must verify both the process exists AND responds to health checks,
+  // since deploys can kill processes while leaving the container alive.
   try {
-    const check = await sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/global/health`, { cwd: "/workspace" })
-    if (check.success) return
+    const [healthCheck, procCheck] = await Promise.all([
+      sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/global/health`, { cwd: "/workspace" }),
+      sandbox.exec("pgrep -f 'opencode serve' > /dev/null 2>&1", { cwd: "/workspace" }),
+    ])
+    if (healthCheck.success && procCheck.success) return
   } catch {
     // Not running
   }
+
+  // Kill any stale OpenCode processes (leftover from a previous run/deploy)
+  await sandbox.exec("pkill -f 'opencode serve' 2>/dev/null; sleep 1", { cwd: "/workspace" })
 
   // Clone repo if needed
   if (opts.repo) {
@@ -93,15 +101,16 @@ async function ensureSandboxReady(
   const proc = await sandbox.startProcess(startCmd, { cwd })
   await proc.waitForPort(OPENCODE_PORT)
 
-  // Start a keepalive process to prevent sandbox inactivity timeout.
-  // The agent works via LLM calls that the sandbox can't see as activity,
-  // so we ping OpenCode every 45s to reset the inactivity timer.
-  // Written as a script file to avoid bash variable escaping issues in JS template literals.
+  // Start a background process that periodically collects session data
+  // (status, messages, logs) from OpenCode and POSTs it to the Worker for
+  // persistence. This runs every 45s and exits when OpenCode stops or after 2h.
+  // Note: sandbox timeout is handled by sleepAfter: "2h" in getSandbox options,
+  // NOT by this script (in-container HTTP calls are invisible to the SDK).
   const keepaliveScript = [
     "#!/bin/bash",
     `PORT=${OPENCODE_PORT}`,
     `ENTITY_KEY='${opts.entityKey.replace(/'/g, "'\\''")}'`,
-    `WORKER_URL='${opts.workerUrl}'`,
+    "# Session data is POSTed to jared.internal (outbound interception, no public internet)",
     "STARTED=$(date +%s)",
     "MAX=7200",
     "",
@@ -138,7 +147,7 @@ async function ensureSandboxReady(
     "",
     "  # POST to Worker",
     "  if [ -s /tmp/ka_payload.json ]; then",
-    '    curl -sf -X POST "$WORKER_URL/api/sessions/save" \\',
+    '    curl -sf -X POST "http://jared.internal/sessions/save" \\',
     "      -H 'Content-Type: application/json' \\",
     "      -d @/tmp/ka_payload.json > /dev/null 2>&1",
     "  fi",
@@ -215,37 +224,6 @@ async function dispatchPrompt(
 }
 
 const router = new Hono<BaseEnv>()
-  // Debug endpoint: read OpenCode log and session info from a running sandbox
-  .get("/debug/:entityKey", async (c) => {
-    const entityKey = decodeURIComponent(c.req.param("entityKey"))
-    const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
-
-    try {
-      const logResult = await sandbox.exec("cat /tmp/opencode.log 2>/dev/null | tail -100", { cwd: "/workspace" })
-      const sessionResult = await sandbox.exec(
-        `curl -sf http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null`,
-        { cwd: "/workspace" },
-      )
-      const sessionList = await sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/session 2>/dev/null`, {
-        cwd: "/workspace",
-      })
-      const envCheck = await sandbox.exec("cat /tmp/opencode-env.sh 2>/dev/null | grep -v KEY | grep -v TOKEN", {
-        cwd: "/workspace",
-      })
-      const processCheck = await sandbox.exec("ps aux 2>/dev/null | grep -i opencode | head -5", { cwd: "/workspace" })
-
-      return c.json({
-        entityKey,
-        opencodeLogs: logResult.stdout || logResult.stderr || "(empty)",
-        sessionStatus: sessionResult.stdout || "(empty)",
-        sessions: sessionList.stdout || "(empty)",
-        envVars: envCheck.stdout || "(empty)",
-        processes: processCheck.stdout || "(empty)",
-      })
-    } catch (err) {
-      return c.json({ error: formatError(err) }, 500)
-    }
-  })
   .post("/github-app", async (c) => {
     const logger = c.get("logger").child({ ns: "webhook" })
     const db = c.get("db")
@@ -325,11 +303,17 @@ const router = new Hono<BaseEnv>()
     let hasLabel = false
     let isBotEntity = false
     if (entityKey) {
-      // Check if the bot authored the entity (PR or issue)
+      // Check if the bot authored the entity (PR or issue).
+      // For check_suite/workflow_run events, the author info is in sender.login
+      // (not in pull_request.user.login which doesn't exist in those payloads).
       if (botLogin) {
         const prAuthor = lookupString(payload, "pull_request.user.login")
         const issueAuthor = lookupString(payload, "issue.user.login")
         isBotEntity = prAuthor === botLogin || issueAuthor === botLogin
+        // check_suite/workflow_run: sender is the bot if it triggered the CI
+        if (!isBotEntity && (event === "check_suite" || event === "workflow_run")) {
+          isBotEntity = sender === botLogin
+        }
       }
 
       // issues.labeled — check the label being added
@@ -407,7 +391,15 @@ const router = new Hono<BaseEnv>()
     c.executionCtx.waitUntil(
       (async () => {
         try {
-          const sandbox = getSandbox(envBindings.Sandbox, containerKey, { normalizeId: true })
+          const sandbox = getSandbox(envBindings.Sandbox, containerKey, {
+            normalizeId: true,
+            // Agent runs take 15-30 min but all SDK-level activity (exec, writeFile, etc.)
+            // happens in the first ~30s during setup. After that, the agent works via LLM
+            // calls inside the container which are invisible to the SDK. The default 10m
+            // sleepAfter was killing containers mid-work. Set to 2h to give agents plenty
+            // of uninterrupted runtime.
+            sleepAfter: "2h",
+          })
 
           await ensureSandboxReady(sandbox, {
             repo,
@@ -417,7 +409,7 @@ const router = new Hono<BaseEnv>()
             openaiApiKey: envBindings.OPENAI_API_KEY,
             sentryDsn: envBindings.SENTRY_DSN,
             entityKey: containerKey,
-            workerUrl: envBindings.APP_URL,
+
           })
 
           const prompt = formatEventPrompt({
