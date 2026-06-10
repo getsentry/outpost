@@ -303,16 +303,22 @@ const router = new Hono<BaseEnv>()
     let hasLabel = false
     let isBotEntity = false
     if (entityKey) {
-      // Check if the bot authored the entity (PR or issue).
-      // For check_suite/workflow_run events, the author info is in sender.login
-      // (not in pull_request.user.login which doesn't exist in those payloads).
+      // Check if the bot authored the entity (PR or issue)
       if (botLogin) {
         const prAuthor = lookupString(payload, "pull_request.user.login")
         const issueAuthor = lookupString(payload, "issue.user.login")
         isBotEntity = prAuthor === botLogin || issueAuthor === botLogin
-        // check_suite/workflow_run: sender is the bot if it triggered the CI
+
+        // check_suite/workflow_run: these payloads don't have pull_request.user.
+        // Check multiple signals: sender, head_commit author, and the commit author.
         if (!isBotEntity && (event === "check_suite" || event === "workflow_run")) {
-          isBotEntity = sender === botLogin
+          const ciObj = lookup(payload, event) as Record<string, unknown> | null
+          const headCommitAuthor = lookupString(ciObj ?? {}, "head_commit.author.name")
+          const commitAuthor = lookupString(ciObj ?? {}, "head_commit.committer.name")
+          isBotEntity =
+            sender === botLogin ||
+            headCommitAuthor === botLogin ||
+            commitAuthor === botLogin
         }
       }
 
