@@ -74,5 +74,6 @@ export function useSessionDetail(entityKey: string) {
     queryKey: ["sessionDetail", entityKey],
     queryFn: () => api.getSessionDetail(entityKey),
     enabled: !!entityKey,
+    refetchInterval: 10_000,
   })
 }

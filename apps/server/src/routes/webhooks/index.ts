@@ -41,6 +41,8 @@ async function ensureSandboxReady(
     anthropicApiKey?: string
     openaiApiKey?: string
     sentryDsn?: string
+    entityKey: string
+    workerUrl: string
   },
 ): Promise<void> {
   // Check if OpenCode is already running (fast path)
@@ -85,9 +87,9 @@ async function ensureSandboxReady(
 
   await sandbox.writeFile("/tmp/opencode-env.sh", `${envLines.join("\n")}\n`)
 
-  // Start OpenCode
+  // Start OpenCode with logs redirected to a file for debugging
   const cwd = opts.repo ? "/workspace/repo" : "/workspace"
-  const startCmd = `bash -c '[ -f /tmp/opencode-env.sh ] && . /tmp/opencode-env.sh; exec opencode serve --port ${OPENCODE_PORT} --hostname 0.0.0.0'`
+  const startCmd = `bash -c '[ -f /tmp/opencode-env.sh ] && . /tmp/opencode-env.sh; opencode serve --port ${OPENCODE_PORT} --hostname 0.0.0.0 >> /tmp/opencode.log 2>&1'`
   const proc = await sandbox.startProcess(startCmd, { cwd })
   await proc.waitForPort(OPENCODE_PORT)
 
@@ -98,18 +100,56 @@ async function ensureSandboxReady(
   const keepaliveScript = [
     "#!/bin/bash",
     `PORT=${OPENCODE_PORT}`,
+    `ENTITY_KEY='${opts.entityKey.replace(/'/g, "'\\''")}'`,
+    `WORKER_URL='${opts.workerUrl}'`,
     "STARTED=$(date +%s)",
     "MAX=7200",
+    "",
     "while true; do",
     "  sleep 45",
-    '  curl -sf http://localhost:$PORT/global/health > /dev/null 2>&1 || { echo "[keepalive] health check failed, exiting"; break; }',
+    "",
+    "  # Health check",
+    "  curl -sf http://localhost:$PORT/global/health > /dev/null 2>&1 || break",
+    "",
+    "  # Collect data into temp files to avoid bash variable size limits",
+    "  curl -sf http://localhost:$PORT/session/status > /tmp/ka_status.json 2>/dev/null || echo '{}' > /tmp/ka_status.json",
+    "  curl -sf http://localhost:$PORT/session > /tmp/ka_sessions.json 2>/dev/null || echo '[]' > /tmp/ka_sessions.json",
+    "  tail -100 /tmp/opencode.log > /tmp/ka_logs.txt 2>/dev/null || echo '' > /tmp/ka_logs.txt",
+    "",
+    "  # Collect messages from each session into a JSON object",
+    "  echo '{}' > /tmp/ka_messages.json",
+    "  for SID in $(jq -r '.[].id' /tmp/ka_sessions.json 2>/dev/null); do",
+    '    curl -sf "http://localhost:$PORT/session/$SID/message?limit=50" > /tmp/ka_msg_$SID.json 2>/dev/null',
+    "    if [ -s /tmp/ka_msg_$SID.json ]; then",
+    "      jq --arg sid \"$SID\" --slurpfile msgs /tmp/ka_msg_$SID.json '. + {($sid): $msgs[0]}' /tmp/ka_messages.json > /tmp/ka_messages_new.json 2>/dev/null && mv /tmp/ka_messages_new.json /tmp/ka_messages.json",
+    "    fi",
+    "    rm -f /tmp/ka_msg_$SID.json",
+    "  done",
+    "",
+    "  # Build payload using jq with file inputs",
+    "  jq -n \\",
+    '    --arg ek "$ENTITY_KEY" \\',
+    "    --slurpfile ss /tmp/ka_status.json \\",
+    "    --slurpfile se /tmp/ka_sessions.json \\",
+    "    --rawfile lo /tmp/ka_logs.txt \\",
+    "    --slurpfile ms /tmp/ka_messages.json \\",
+    "    '{entityKey: $ek, sessionData: ({sessionStatus: $ss[0], sessions: $se[0], logs: $lo, messages: $ms[0]} | tostring)}' \\",
+    "    > /tmp/ka_payload.json 2>/dev/null",
+    "",
+    "  # POST to Worker",
+    "  if [ -s /tmp/ka_payload.json ]; then",
+    '    curl -sf -X POST "$WORKER_URL/api/sessions/save" \\',
+    "      -H 'Content-Type: application/json' \\",
+    "      -d @/tmp/ka_payload.json > /dev/null 2>&1",
+    "  fi",
+    "",
+    "  # Cleanup",
+    "  rm -f /tmp/ka_*.json /tmp/ka_*.txt",
+    "",
+    "  # Max runtime check",
     "  NOW=$(date +%s)",
     "  ELAPSED=$((NOW - STARTED))",
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: this is bash, not JS
-    '  echo "[keepalive] alive ${ELAPSED}s"',
-    "  curl -sf http://localhost:$PORT/session/status 2>/dev/null | head -c 500",
-    "  echo",
-    '  [ $ELAPSED -ge $MAX ] && { echo "[keepalive] max runtime reached, exiting"; break; }',
+    "  [ $ELAPSED -ge $MAX ] && break",
     "done",
   ].join("\n")
   await sandbox.writeFile("/tmp/keepalive.sh", keepaliveScript)
@@ -174,137 +214,249 @@ async function dispatchPrompt(
   return sessionId
 }
 
-const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
-  const logger = c.get("logger").child({ ns: "webhook" })
-  const db = c.get("db")
-  const webhookSecret = c.env.GITHUB_APP_WEBHOOK_SECRET
-  if (!webhookSecret) {
-    return c.json({ error: "GitHub App webhook secret not configured" }, 503)
-  }
+const router = new Hono<BaseEnv>()
+  // Debug endpoint: read OpenCode log and session info from a running sandbox
+  .get("/debug/:entityKey", async (c) => {
+    const entityKey = decodeURIComponent(c.req.param("entityKey"))
+    const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
 
-  const event = c.req.header("x-github-event")
-  const deliveryId = c.req.header("x-github-delivery")
-  const signature = c.req.header("x-hub-signature-256")
+    try {
+      const logResult = await sandbox.exec("cat /tmp/opencode.log 2>/dev/null | tail -100", { cwd: "/workspace" })
+      const sessionResult = await sandbox.exec(
+        `curl -sf http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null`,
+        { cwd: "/workspace" },
+      )
+      const sessionList = await sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/session 2>/dev/null`, {
+        cwd: "/workspace",
+      })
+      const envCheck = await sandbox.exec("cat /tmp/opencode-env.sh 2>/dev/null | grep -v KEY | grep -v TOKEN", {
+        cwd: "/workspace",
+      })
+      const processCheck = await sandbox.exec("ps aux 2>/dev/null | grep -i opencode | head -5", { cwd: "/workspace" })
 
-  if (!event || !deliveryId) {
-    return c.json({ error: "Missing required headers (x-github-event, x-github-delivery)" }, 400)
-  }
-  if (!signature) {
-    return c.json({ error: "Missing signature header" }, 401)
-  }
-
-  const rawBody = await c.req.text()
-  const isValid = await verify(webhookSecret, rawBody, signature)
-  if (!isValid) {
-    return c.json({ error: "Invalid signature" }, 401)
-  }
-
-  let payload: Record<string, unknown> = {}
-  let action: string | null = null
-  try {
-    payload = JSON.parse(rawBody) as Record<string, unknown>
-    if (typeof payload.action === "string") action = payload.action
-  } catch {
-    /* empty */
-  }
-
-  const installationId = (payload.installation as { id?: number } | undefined)?.id ?? null
-  const sender = lookupString(payload, "sender.login")
-  const repo = lookupString(payload, "repository.full_name")
-
-  let entityKey = null
-  let botLogin = ""
-  const app = createGitHubApp({
-    appId: c.env.GITHUB_APP_ID,
-    privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
-    webhookSecret,
+      return c.json({
+        entityKey,
+        opencodeLogs: logResult.stdout || logResult.stderr || "(empty)",
+        sessionStatus: sessionResult.stdout || "(empty)",
+        sessions: sessionList.stdout || "(empty)",
+        envVars: envCheck.stdout || "(empty)",
+        processes: processCheck.stdout || "(empty)",
+      })
+    } catch (err) {
+      return c.json({ error: formatError(err) }, 500)
+    }
   })
-
-  try {
-    const octokit = installationId ? app.getInstallationOctokit(installationId) : null
-    entityKey = await extractEntityKey(event, payload, octokit)
-  } catch (err) {
-    logger.warn({ error: formatError(err) }, "entity extraction failed")
-    Sentry.captureException(err)
-  }
-
-  try {
-    botLogin = await app.getBotLogin()
-  } catch (err) {
-    logger.warn({ error: formatError(err) }, "bot login resolution failed")
-  }
-
-  logger.info(
-    {
-      event,
-      action,
-      delivery_id: deliveryId,
-      sender,
-      repo,
-      entity_key: entityKey?.key ?? null,
-      installation_id: installationId,
-    },
-    "webhook.received",
-  )
-
-  // Only dispatch events where:
-  // 1. The related issue/PR has the trigger label, OR
-  // 2. The issue/PR was created by the bot (follow-up events on bot's own work)
-  let hasLabel = false
-  let isBotEntity = false
-  if (entityKey) {
-    // Check if the bot authored the entity (PR or issue)
-    if (botLogin) {
-      const prAuthor = lookupString(payload, "pull_request.user.login")
-      const issueAuthor = lookupString(payload, "issue.user.login")
-      isBotEntity = prAuthor === botLogin || issueAuthor === botLogin
+  .post("/github-app", async (c) => {
+    const logger = c.get("logger").child({ ns: "webhook" })
+    const db = c.get("db")
+    const webhookSecret = c.env.GITHUB_APP_WEBHOOK_SECRET
+    if (!webhookSecret) {
+      return c.json({ error: "GitHub App webhook secret not configured" }, 503)
     }
 
-    // issues.labeled — check the label being added
-    if (event === "issues" && action === "labeled") {
-      hasLabel = lookupString(payload, "label.name") === TRIGGER_LABEL
-    }
-    // issues.* / issue_comment.* — check payload.issue.labels
-    else if (event === "issues" || event === "issue_comment") {
-      const labels = lookup(payload, "issue.labels") as Array<{ name?: string }> | undefined
-      hasLabel = Array.isArray(labels) && labels.some((l) => l.name === TRIGGER_LABEL)
-    }
-    // pull_request.* / pull_request_review.* / pull_request_review_comment.* — check payload.pull_request.labels
-    else if (event.startsWith("pull_request")) {
-      const labels = lookup(payload, "pull_request.labels") as Array<{ name?: string }> | undefined
-      hasLabel = Array.isArray(labels) && labels.some((l) => l.name === TRIGGER_LABEL)
-    }
-    // check_suite / workflow_run — no labels in payload, but dispatch if bot-authored
-    // (CI events on default branch are already filtered in extractEntityKey)
-  }
-  const isSkipped = !(hasLabel || isBotEntity)
+    const event = c.req.header("x-github-event")
+    const deliveryId = c.req.header("x-github-delivery")
+    const signature = c.req.header("x-hub-signature-256")
 
-  const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
-  const eventId = crypto.randomUUID()
+    if (!event || !deliveryId) {
+      return c.json({ error: "Missing required headers (x-github-event, x-github-delivery)" }, 400)
+    }
+    if (!signature) {
+      return c.json({ error: "Missing signature header" }, 401)
+    }
 
-  try {
-    await db.insert(dbSchema.webhookEvents).values({
-      id: eventId,
-      entityKey: containerKey,
-      event,
-      action,
-      deliveryId,
-      sender,
-      repo,
-      installationId,
-      payload: rawBody,
-      status: isSkipped ? "skipped" : "pending",
-      createdAt: new Date(),
+    const rawBody = await c.req.text()
+    const isValid = await verify(webhookSecret, rawBody, signature)
+    if (!isValid) {
+      return c.json({ error: "Invalid signature" }, 401)
+    }
+
+    let payload: Record<string, unknown> = {}
+    let action: string | null = null
+    try {
+      payload = JSON.parse(rawBody) as Record<string, unknown>
+      if (typeof payload.action === "string") action = payload.action
+    } catch {
+      /* empty */
+    }
+
+    const installationId = (payload.installation as { id?: number } | undefined)?.id ?? null
+    const sender = lookupString(payload, "sender.login")
+    const repo = lookupString(payload, "repository.full_name")
+
+    let entityKey = null
+    let botLogin = ""
+    const app = createGitHubApp({
+      appId: c.env.GITHUB_APP_ID,
+      privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
+      webhookSecret,
     })
-  } catch (err) {
-    if (err instanceof Error && err.message.includes("UNIQUE constraint failed")) {
-      return c.json({ ok: true, delivery_id: deliveryId, duplicate: true })
-    }
-    throw err
-  }
 
-  if (isSkipped) {
-    logger.info({ delivery_id: deliveryId, event, action }, "event skipped")
+    try {
+      const octokit = installationId ? app.getInstallationOctokit(installationId) : null
+      entityKey = await extractEntityKey(event, payload, octokit)
+    } catch (err) {
+      logger.warn({ error: formatError(err) }, "entity extraction failed")
+      Sentry.captureException(err)
+    }
+
+    try {
+      botLogin = await app.getBotLogin()
+    } catch (err) {
+      logger.warn({ error: formatError(err) }, "bot login resolution failed")
+    }
+
+    logger.info(
+      {
+        event,
+        action,
+        delivery_id: deliveryId,
+        sender,
+        repo,
+        entity_key: entityKey?.key ?? null,
+        installation_id: installationId,
+      },
+      "webhook.received",
+    )
+
+    // Only dispatch events where:
+    // 1. The related issue/PR has the trigger label, OR
+    // 2. The issue/PR was created by the bot (follow-up events on bot's own work)
+    let hasLabel = false
+    let isBotEntity = false
+    if (entityKey) {
+      // Check if the bot authored the entity (PR or issue)
+      if (botLogin) {
+        const prAuthor = lookupString(payload, "pull_request.user.login")
+        const issueAuthor = lookupString(payload, "issue.user.login")
+        isBotEntity = prAuthor === botLogin || issueAuthor === botLogin
+      }
+
+      // issues.labeled — check the label being added
+      if (event === "issues" && action === "labeled") {
+        hasLabel = lookupString(payload, "label.name") === TRIGGER_LABEL
+      }
+      // issues.* / issue_comment.* — check payload.issue.labels
+      else if (event === "issues" || event === "issue_comment") {
+        const labels = lookup(payload, "issue.labels") as Array<{ name?: string }> | undefined
+        hasLabel = Array.isArray(labels) && labels.some((l) => l.name === TRIGGER_LABEL)
+      }
+      // pull_request.* / pull_request_review.* / pull_request_review_comment.* — check payload.pull_request.labels
+      else if (event.startsWith("pull_request")) {
+        const labels = lookup(payload, "pull_request.labels") as Array<{ name?: string }> | undefined
+        hasLabel = Array.isArray(labels) && labels.some((l) => l.name === TRIGGER_LABEL)
+      }
+      // check_suite / workflow_run — no labels in payload, but dispatch if bot-authored
+      // (CI events on default branch are already filtered in extractEntityKey)
+    }
+    const isSkipped = !(hasLabel || isBotEntity)
+
+    const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
+    const eventId = crypto.randomUUID()
+
+    try {
+      await db.insert(dbSchema.webhookEvents).values({
+        id: eventId,
+        entityKey: containerKey,
+        event,
+        action,
+        deliveryId,
+        sender,
+        repo,
+        installationId,
+        payload: rawBody,
+        status: isSkipped ? "skipped" : "pending",
+        createdAt: new Date(),
+      })
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("UNIQUE constraint failed")) {
+        return c.json({ ok: true, delivery_id: deliveryId, duplicate: true })
+      }
+      throw err
+    }
+
+    if (isSkipped) {
+      logger.info({ delivery_id: deliveryId, event, action }, "event skipped")
+      return c.json({
+        ok: true,
+        delivery_id: deliveryId,
+        event,
+        action,
+        duplicate: false,
+        entity_key: entityKey?.key ?? null,
+        installation_id: installationId,
+        skipped: true,
+      })
+    }
+
+    // --- Dispatch to sandbox in waitUntil ---
+    // Mint installation token before entering waitUntil
+    let installationToken = ""
+    if (installationId) {
+      try {
+        const octokit = app.getInstallationOctokit(installationId)
+        const auth = (await octokit.auth({ type: "installation" })) as { token: string }
+        installationToken = auth.token
+      } catch (err) {
+        logger.warn({ error: formatError(err) }, "failed to mint installation token")
+      }
+    }
+
+    const envBindings = c.env
+
+    c.executionCtx.waitUntil(
+      (async () => {
+        try {
+          const sandbox = getSandbox(envBindings.Sandbox, containerKey, { normalizeId: true })
+
+          await ensureSandboxReady(sandbox, {
+            repo,
+            botLogin,
+            installationToken,
+            anthropicApiKey: envBindings.ANTHROPIC_API_KEY,
+            openaiApiKey: envBindings.OPENAI_API_KEY,
+            sentryDsn: envBindings.SENTRY_DSN,
+            entityKey: containerKey,
+            workerUrl: envBindings.APP_URL,
+          })
+
+          const prompt = formatEventPrompt({
+            event,
+            action,
+            deliveryId,
+            sender,
+            repo,
+            entityKey: containerKey,
+            payload: rawBody,
+            botLogin,
+          })
+
+          const sessionId = await dispatchPrompt(sandbox, containerKey, prompt, eventId)
+
+          await db
+            .update(dbSchema.webhookEvents)
+            .set({ status: "dispatched", dispatchedAt: new Date() })
+            .where(eq(dbSchema.webhookEvents.id, eventId))
+
+          logger.info(
+            { entity_key: containerKey, event_id: eventId, session_id: sessionId },
+            "event dispatched to agent",
+          )
+        } catch (err) {
+          try {
+            await db
+              .update(dbSchema.webhookEvents)
+              .set({ status: "failed" })
+              .where(eq(dbSchema.webhookEvents.id, eventId))
+          } catch {
+            /* best effort */
+          }
+          logger.error({ entity_key: containerKey, event_id: eventId, reason: formatError(err) }, "dispatch failed")
+          Sentry.captureException(err)
+        }
+      })(),
+    )
+
     return c.json({
       ok: true,
       delivery_id: deliveryId,
@@ -313,83 +465,8 @@ const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
       duplicate: false,
       entity_key: entityKey?.key ?? null,
       installation_id: installationId,
-      skipped: true,
+      skipped: false,
     })
-  }
-
-  // --- Dispatch to sandbox in waitUntil ---
-  // Mint installation token before entering waitUntil
-  let installationToken = ""
-  if (installationId) {
-    try {
-      const octokit = app.getInstallationOctokit(installationId)
-      const auth = (await octokit.auth({ type: "installation" })) as { token: string }
-      installationToken = auth.token
-    } catch (err) {
-      logger.warn({ error: formatError(err) }, "failed to mint installation token")
-    }
-  }
-
-  const envBindings = c.env
-
-  c.executionCtx.waitUntil(
-    (async () => {
-      try {
-        const sandbox = getSandbox(envBindings.Sandbox, containerKey, { normalizeId: true })
-
-        await ensureSandboxReady(sandbox, {
-          repo,
-          botLogin,
-          installationToken,
-          anthropicApiKey: envBindings.ANTHROPIC_API_KEY,
-          openaiApiKey: envBindings.OPENAI_API_KEY,
-          sentryDsn: envBindings.SENTRY_DSN,
-        })
-
-        const prompt = formatEventPrompt({
-          event,
-          action,
-          deliveryId,
-          sender,
-          repo,
-          entityKey: containerKey,
-          payload: rawBody,
-          botLogin,
-        })
-
-        const sessionId = await dispatchPrompt(sandbox, containerKey, prompt, eventId)
-
-        await db
-          .update(dbSchema.webhookEvents)
-          .set({ status: "dispatched", dispatchedAt: new Date() })
-          .where(eq(dbSchema.webhookEvents.id, eventId))
-
-        logger.info({ entity_key: containerKey, event_id: eventId, session_id: sessionId }, "event dispatched to agent")
-      } catch (err) {
-        try {
-          await db
-            .update(dbSchema.webhookEvents)
-            .set({ status: "failed" })
-            .where(eq(dbSchema.webhookEvents.id, eventId))
-        } catch {
-          /* best effort */
-        }
-        logger.error({ entity_key: containerKey, event_id: eventId, reason: formatError(err) }, "dispatch failed")
-        Sentry.captureException(err)
-      }
-    })(),
-  )
-
-  return c.json({
-    ok: true,
-    delivery_id: deliveryId,
-    event,
-    action,
-    duplicate: false,
-    entity_key: entityKey?.key ?? null,
-    installation_id: installationId,
-    skipped: false,
   })
-})
 
 export default router

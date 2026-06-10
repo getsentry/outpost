@@ -62,9 +62,7 @@ export const api = {
   },
 
   async getSessionDetail(entityKey: string) {
-    const res = await endpoint.api.sessions[":entityKey"].$get({
-      param: { entityKey },
-    })
+    const res = await fetch(`/api/sessions/detail?entityKey=${encodeURIComponent(entityKey)}`)
     if (!res.ok) throw new Error(`Failed to fetch session: ${res.status}`)
     return res.json()
   },

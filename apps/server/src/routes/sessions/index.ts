@@ -1,13 +1,91 @@
 import { desc, eq, sql } from "drizzle-orm"
 import { Hono } from "hono"
-import { webhookEvents } from "@/db/schema"
+import { agentSessions } from "@/db/schema"
 import { isAuthenticated } from "@/middlewares"
-import type { AuthEnv } from "@/types"
+import type { BaseEnv } from "@/types"
 
-// Agent sessions are derived from dispatched webhook events.
-// Each unique entity_key with dispatched events represents an active agent session.
+// The save endpoint is unauthenticated (called from inside containers).
+// All other endpoints require authentication.
 
-const router = new Hono<AuthEnv>()
+const router = new Hono<BaseEnv>()
+  // Unauthenticated: container posts session data here
+  // Merges messages instead of replacing — appends new messages to existing ones
+  .post("/save", async (c) => {
+    const db = c.get("db")
+    const body = (await c.req.json()) as {
+      entityKey: string
+      sessionData: string
+    }
+
+    if (!body.entityKey || !body.sessionData) {
+      return c.json({ error: "entityKey and sessionData required" }, 400)
+    }
+
+    // Read existing session data to merge messages
+    const existing = await db.query.agentSessions.findFirst({
+      where: eq(agentSessions.entityKey, body.entityKey),
+    })
+
+    let mergedData = body.sessionData
+    if (existing?.sessionData) {
+      try {
+        const oldData = JSON.parse(existing.sessionData) as Record<string, unknown>
+        const newData = JSON.parse(body.sessionData) as Record<string, unknown>
+
+        // Merge messages: for each session, collect unique messages by checking message ID
+        const oldMsgs = (oldData.messages ?? {}) as Record<string, Array<Record<string, unknown>>>
+        const newMsgs = (newData.messages ?? {}) as Record<string, Array<Record<string, unknown>>>
+
+        const mergedMsgs: Record<string, Array<Record<string, unknown>>> = { ...oldMsgs }
+        for (const [sid, msgs] of Object.entries(newMsgs)) {
+          if (!mergedMsgs[sid]) {
+            mergedMsgs[sid] = msgs
+          } else {
+            // Append messages not already present (check by info.id)
+            const existingIds = new Set(
+              mergedMsgs[sid].map((m) => (m.info as Record<string, unknown>)?.id).filter(Boolean),
+            )
+            for (const msg of msgs) {
+              const msgId = (msg.info as Record<string, unknown>)?.id
+              if (!msgId || !existingIds.has(msgId)) {
+                mergedMsgs[sid].push(msg)
+                if (msgId) existingIds.add(msgId)
+              }
+            }
+          }
+        }
+
+        // Use latest for everything else, merged for messages
+        mergedData = JSON.stringify({
+          ...newData,
+          messages: mergedMsgs,
+        })
+      } catch {
+        // If parsing fails, just use the new data as-is
+      }
+    }
+
+    const now = new Date()
+    await db
+      .insert(agentSessions)
+      .values({
+        entityKey: body.entityKey,
+        sessionId: null,
+        sessionData: mergedData,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: agentSessions.entityKey,
+        set: {
+          sessionData: mergedData,
+          updatedAt: now,
+        },
+      })
+
+    return c.json({ ok: true })
+  })
+  // Authenticated endpoints below
   .use(isAuthenticated())
   .get("/", async (c) => {
     const db = c.get("db")
@@ -16,33 +94,46 @@ const router = new Hono<AuthEnv>()
     const limit = Math.min(100, Math.max(1, Number(c.req.query("limit")) || 25))
     const offset = (page - 1) * limit
 
-    // Group dispatched events by entity_key to show active sessions
+    // Get sessions from agent_sessions table (populated by keepalive polling)
     const [sessions, countResult] = await Promise.all([
       db
         .select({
-          entityKey: webhookEvents.entityKey,
-          repo: webhookEvents.repo,
-          eventCount: sql<number>`count(*)`,
-          lastEvent: sql<string>`max(${webhookEvents.event} || '.' || coalesce(${webhookEvents.action}, ''))`,
-          createdAt: sql<string>`min(${webhookEvents.createdAt})`,
-          updatedAt: sql<string>`max(${webhookEvents.createdAt})`,
+          entityKey: agentSessions.entityKey,
+          sessionData: agentSessions.sessionData,
+          createdAt: agentSessions.createdAt,
+          updatedAt: agentSessions.updatedAt,
         })
-        .from(webhookEvents)
-        .where(eq(webhookEvents.status, "dispatched"))
-        .groupBy(webhookEvents.entityKey, webhookEvents.repo)
-        .orderBy(sql`max(${webhookEvents.createdAt}) desc`)
+        .from(agentSessions)
+        .orderBy(desc(agentSessions.updatedAt))
         .limit(limit)
         .offset(offset),
-      db
-        .select({ count: sql<number>`count(distinct ${webhookEvents.entityKey})` })
-        .from(webhookEvents)
-        .where(eq(webhookEvents.status, "dispatched")),
+      db.select({ count: sql<number>`count(*)` }).from(agentSessions),
     ])
 
     const total = countResult[0]?.count ?? 0
 
+    // Parse sessionData JSON for each session to extract summary info
+    const data = sessions.map((s) => {
+      let parsed: Record<string, unknown> = {}
+      try {
+        parsed = JSON.parse(s.sessionData)
+      } catch {
+        /* empty */
+      }
+      return {
+        entityKey: s.entityKey,
+        sessionData: s.sessionData,
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        // Extract summary fields from the stored JSON
+        sessionStatus: parsed.sessionStatus ?? null,
+        sessions: parsed.sessions ?? null,
+        logs: parsed.logs ?? null,
+      }
+    })
+
     return c.json({
-      data: sessions,
+      data,
       pagination: {
         page,
         limit,
@@ -51,35 +142,22 @@ const router = new Hono<AuthEnv>()
       },
     })
   })
-  .get("/:entityKey", async (c) => {
+  .get("/detail", async (c) => {
     const db = c.get("db")
-    const entityKey = decodeURIComponent(c.req.param("entityKey"))
+    const entityKey = c.req.query("entityKey")
+    if (!entityKey) {
+      return c.json({ error: "entityKey query parameter required" }, 400)
+    }
 
-    // Get all dispatched events for this entity
-    const events = await db
-      .select({
-        id: webhookEvents.id,
-        event: webhookEvents.event,
-        action: webhookEvents.action,
-        sender: webhookEvents.sender,
-        status: webhookEvents.status,
-        createdAt: webhookEvents.createdAt,
-        dispatchedAt: webhookEvents.dispatchedAt,
-      })
-      .from(webhookEvents)
-      .where(eq(webhookEvents.entityKey, entityKey))
-      .orderBy(desc(webhookEvents.createdAt))
-      .limit(50)
+    const session = await db.query.agentSessions.findFirst({
+      where: eq(agentSessions.entityKey, entityKey),
+    })
 
-    if (events.length === 0) {
+    if (!session) {
       return c.json({ error: "Session not found" }, 404)
     }
 
-    return c.json({
-      entityKey,
-      repo: events[0]?.sender ? undefined : undefined, // repo from first event
-      events,
-    })
+    return c.json(session)
   })
 
 export default router
