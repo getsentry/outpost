@@ -50,7 +50,10 @@ async function ensureSandboxReady(
   // since deploys can kill processes while leaving the container alive.
   try {
     const [healthCheck, procCheck] = await Promise.all([
-      sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/global/health`, { cwd: "/workspace" }),
+      sandbox.exec(
+        `curl -sf http://localhost:${OPENCODE_PORT}/global/health 2>/dev/null || curl -sf http://localhost:${OPENCODE_PORT}/api/health 2>/dev/null`,
+        { cwd: "/workspace" },
+      ),
       sandbox.exec("pgrep -f 'opencode serve' > /dev/null 2>&1", { cwd: "/workspace" }),
     ])
     if (healthCheck.success && procCheck.success) return
@@ -101,32 +104,24 @@ async function ensureSandboxReady(
   const proc = await sandbox.startProcess(startCmd, { cwd })
   await proc.waitForPort(OPENCODE_PORT)
 
-  // Start a background process that periodically collects session data
-  // (status, messages, logs) from OpenCode and POSTs it to the Worker for
-  // persistence. This runs every 45s and exits when OpenCode stops or after 2h.
-  // Note: sandbox timeout is handled by sleepAfter: "2h" in getSandbox options,
-  // NOT by this script (in-container HTTP calls are invisible to the SDK).
+  // Start a keepalive bash script that periodically collects session data
+  // from OpenCode and POSTs it to the Worker for D1 persistence.
   const keepaliveScript = [
     "#!/bin/bash",
     `PORT=${OPENCODE_PORT}`,
     `ENTITY_KEY='${opts.entityKey.replace(/'/g, "'\\''")}'`,
-    "# Session data is POSTed to jared.internal (outbound interception, no public internet)",
     "STARTED=$(date +%s)",
     "MAX=7200",
     "",
-    "# Initial short delay to let OpenCode process the first prompt",
     "sleep 10",
     "",
     "while true; do",
-    "  # Health check",
     "  curl -sf http://localhost:$PORT/global/health > /dev/null 2>&1 || break",
     "",
-    "  # Collect data into temp files to avoid bash variable size limits",
     "  curl -sf http://localhost:$PORT/session/status > /tmp/ka_status.json 2>/dev/null || echo '{}' > /tmp/ka_status.json",
     "  curl -sf http://localhost:$PORT/session > /tmp/ka_sessions.json 2>/dev/null || echo '[]' > /tmp/ka_sessions.json",
     "  tail -100 /tmp/opencode.log > /tmp/ka_logs.txt 2>/dev/null || echo '' > /tmp/ka_logs.txt",
     "",
-    "  # Collect messages from each session into a JSON object",
     "  echo '{}' > /tmp/ka_messages.json",
     "  for SID in $(jq -r '.[].id' /tmp/ka_sessions.json 2>/dev/null); do",
     '    curl -sf "http://localhost:$PORT/session/$SID/message?limit=50" > /tmp/ka_msg_$SID.json 2>/dev/null',
@@ -136,7 +131,6 @@ async function ensureSandboxReady(
     "    rm -f /tmp/ka_msg_$SID.json",
     "  done",
     "",
-    "  # Build payload using jq with file inputs",
     "  jq -n \\",
     '    --arg ek "$ENTITY_KEY" \\',
     "    --slurpfile ss /tmp/ka_status.json \\",
@@ -146,17 +140,14 @@ async function ensureSandboxReady(
     "    '{entityKey: $ek, sessionData: ({sessionStatus: $ss[0], sessions: $se[0], logs: $lo, messages: $ms[0]} | tostring)}' \\",
     "    > /tmp/ka_payload.json 2>/dev/null",
     "",
-    "  # POST to Worker",
     "  if [ -s /tmp/ka_payload.json ]; then",
     '    curl -sf -X POST "http://jared.internal/sessions/save" \\',
     "      -H 'Content-Type: application/json' \\",
     "      -d @/tmp/ka_payload.json > /dev/null 2>&1",
     "  fi",
     "",
-    "  # Cleanup",
     "  rm -f /tmp/ka_*.json /tmp/ka_*.txt",
     "",
-    "  # Max runtime check",
     "  NOW=$(date +%s)",
     "  ELAPSED=$((NOW - STARTED))",
     "  [ $ELAPSED -ge $MAX ] && break",
@@ -170,6 +161,7 @@ async function ensureSandboxReady(
 
 /**
  * Dispatch a prompt to OpenCode inside the sandbox.
+ * Uses curl with fallback for both v1.17.0 and v1.17.4+ API formats.
  */
 async function dispatchPrompt(
   sandbox: ReturnType<typeof getSandbox>,
@@ -179,16 +171,18 @@ async function dispatchPrompt(
 ): Promise<string> {
   const OC = `http://localhost:${OPENCODE_PORT}`
 
-  // Find or create session — must use the root session (no parentID),
-  // not a child subagent session which has restricted permissions.
-  const listResult = await sandbox.exec(`curl -sf ${OC}/session`, { cwd: "/workspace" })
+  // Find or create session — try both old (flat array) and new ({ data: [...] }) formats
+  const listResult = await sandbox.exec(
+    `curl -sf ${OC}/session 2>/dev/null || curl -sf ${OC}/api/session 2>/dev/null`,
+    { cwd: "/workspace" },
+  )
   let sessionId: string | null = null
 
   if (listResult.success && listResult.stdout) {
     try {
-      const sessions = JSON.parse(listResult.stdout) as Array<{ id: string; parentID?: string }>
-      // Prefer a root session (no parentID) — child sessions are subagents
-      // that can't handle webhook prompts
+      const raw = JSON.parse(listResult.stdout)
+      const sessions = (Array.isArray(raw) ? raw : (raw.data ?? [])) as Array<{ id: string; parentID?: string }>
+      // Prefer root session (no parentID) — child sessions are subagents
       const rootSession = sessions.find((s) => !s.parentID)
       if (rootSession) {
         sessionId = rootSession.id
@@ -202,14 +196,15 @@ async function dispatchPrompt(
 
   if (!sessionId) {
     const body = JSON.stringify({ title: containerKey })
+    // Try both old and new create endpoints
     const createResult = await sandbox.exec(
-      `curl -sf -X POST -H 'Content-Type: application/json' -d '${body.replace(/'/g, "'\\''")}' ${OC}/session`,
+      `curl -sf -X POST -H 'Content-Type: application/json' -d '${body.replace(/'/g, "'\\''")}' ${OC}/session 2>/dev/null || curl -sf -X POST -H 'Content-Type: application/json' -d '${body.replace(/'/g, "'\\''")}' ${OC}/api/session 2>/dev/null`,
       { cwd: "/workspace" },
     )
     if (createResult.success && createResult.stdout) {
       try {
-        const session = JSON.parse(createResult.stdout) as { id: string }
-        sessionId = session.id
+        const raw = JSON.parse(createResult.stdout)
+        sessionId = raw.id ?? raw.data?.id ?? null
       } catch {
         /* empty */
       }
@@ -219,18 +214,18 @@ async function dispatchPrompt(
   if (!sessionId) throw new Error("failed to find or create session")
 
   // Write prompt to file to avoid shell escaping issues
-  // Specify agent: "jared" to use the jared agent definition
   const promptPayload = JSON.stringify({ agent: "jared", parts: [{ type: "text", text: prompt }] })
   const promptFile = `/tmp/prompt-${eventId}.json`
   await sandbox.writeFile(promptFile, promptPayload)
 
+  // Try prompt_async (v1.17.0), then /api/session/:id/prompt (v1.17.4+)
   const promptResult = await sandbox.exec(
-    `curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/session/${sessionId}/prompt_async`,
+    `curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/session/${sessionId}/prompt_async 2>/dev/null || curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/api/session/${sessionId}/prompt 2>/dev/null`,
     { cwd: "/workspace" },
   )
   await sandbox.exec(`rm -f ${promptFile}`, { cwd: "/workspace" })
 
-  if (!promptResult.success) throw new Error(`prompt_async failed: ${promptResult.stderr}`)
+  if (!promptResult.success) throw new Error(`prompt dispatch failed: ${promptResult.stderr}`)
   return sessionId
 }
 

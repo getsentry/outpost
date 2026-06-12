@@ -153,7 +153,6 @@ const router = new Hono<BaseEnv>()
         sandbox.exec("ps aux 2>/dev/null | grep -v '\\[' | grep -v 'PID' | tail -30", { cwd: "/workspace" }),
       ])
 
-      // Fetch last 5 messages from each session
       let sessionMessages: Record<string, string> = {}
       try {
         const sessions = JSON.parse(sessionList.stdout || "[]") as Array<{ id: string }>
@@ -171,7 +170,6 @@ const router = new Hono<BaseEnv>()
         /* best effort */
       }
 
-      // Check keepalive status
       const keepaliveCheck = await sandbox.exec(
         "pgrep -f 'keepalive.sh' > /dev/null 2>&1 && echo running || echo stopped",
         { cwd: "/workspace" },
