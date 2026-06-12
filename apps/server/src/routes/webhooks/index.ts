@@ -104,55 +104,21 @@ async function ensureSandboxReady(
   const proc = await sandbox.startProcess(startCmd, { cwd })
   await proc.waitForPort(OPENCODE_PORT)
 
-  // Start a keepalive bash script that periodically collects session data
-  // from OpenCode and POSTs it to the Worker for D1 persistence.
+  // Start a keepalive process that keeps the sandbox alive while OpenCode works.
+  // The agent makes LLM calls directly to Anthropic which are invisible to the
+  // sandbox SDK's activity tracker. Without this, the sandbox would timeout.
+  // Session data sync to D1 is handled by the auto-sync in the detail endpoint.
   const keepaliveScript = [
     "#!/bin/bash",
     `PORT=${OPENCODE_PORT}`,
-    `ENTITY_KEY='${opts.entityKey.replace(/'/g, "'\\''")}'`,
     "STARTED=$(date +%s)",
     "MAX=7200",
     "",
-    "sleep 10",
-    "",
     "while true; do",
+    "  sleep 30",
     "  curl -sf http://localhost:$PORT/global/health > /dev/null 2>&1 || break",
-    "",
-    "  curl -sf http://localhost:$PORT/session/status > /tmp/ka_status.json 2>/dev/null || echo '{}' > /tmp/ka_status.json",
-    "  curl -sf http://localhost:$PORT/session > /tmp/ka_sessions.json 2>/dev/null || echo '[]' > /tmp/ka_sessions.json",
-    "  tail -100 /tmp/opencode.log > /tmp/ka_logs.txt 2>/dev/null || echo '' > /tmp/ka_logs.txt",
-    "",
-    "  echo '{}' > /tmp/ka_messages.json",
-    "  for SID in $(jq -r '.[].id' /tmp/ka_sessions.json 2>/dev/null); do",
-    '    curl -sf "http://localhost:$PORT/session/$SID/message?limit=50" > /tmp/ka_msg_$SID.json 2>/dev/null',
-    "    if [ -s /tmp/ka_msg_$SID.json ]; then",
-    "      jq --arg sid \"$SID\" --slurpfile msgs /tmp/ka_msg_$SID.json '. + {($sid): $msgs[0]}' /tmp/ka_messages.json > /tmp/ka_messages_new.json 2>/dev/null && mv /tmp/ka_messages_new.json /tmp/ka_messages.json",
-    "    fi",
-    "    rm -f /tmp/ka_msg_$SID.json",
-    "  done",
-    "",
-    "  jq -n \\",
-    '    --arg ek "$ENTITY_KEY" \\',
-    "    --slurpfile ss /tmp/ka_status.json \\",
-    "    --slurpfile se /tmp/ka_sessions.json \\",
-    "    --rawfile lo /tmp/ka_logs.txt \\",
-    "    --slurpfile ms /tmp/ka_messages.json \\",
-    "    '{entityKey: $ek, sessionData: ({sessionStatus: $ss[0], sessions: $se[0], logs: $lo, messages: $ms[0]} | tostring)}' \\",
-    "    > /tmp/ka_payload.json 2>/dev/null",
-    "",
-    "  if [ -s /tmp/ka_payload.json ]; then",
-    '    curl -sf -X POST "http://jared.internal/sessions/save" \\',
-    "      -H 'Content-Type: application/json' \\",
-    "      -d @/tmp/ka_payload.json > /dev/null 2>&1",
-    "  fi",
-    "",
-    "  rm -f /tmp/ka_*.json /tmp/ka_*.txt",
-    "",
     "  NOW=$(date +%s)",
-    "  ELAPSED=$((NOW - STARTED))",
-    "  [ $ELAPSED -ge $MAX ] && break",
-    "",
-    "  sleep 45",
+    "  [ $((NOW - STARTED)) -ge $MAX ] && break",
     "done",
   ].join("\n")
   await sandbox.writeFile("/tmp/keepalive.sh", keepaliveScript)

@@ -1,11 +1,11 @@
 // Container management routes.
 //
 // Groups all container-related operations under /api/containers:
-//   POST /sessions         — unauthenticated, called from inside containers via
-//                            jared.internal outbound interception or direct HTTP
+//   POST /sessions         — unauthenticated, called from inside containers
 //   GET  /sessions         — authenticated, paginated list of agent sessions
-//   GET  /sessions/detail  — authenticated, single session detail by entityKey
-//   GET  /:entityKey/debug — authenticated, live container inspection
+//   GET  /sessions/detail  — authenticated, single session detail (auto-syncs from container)
+//   GET  /:entityKey/debug — authenticated, live container inspection + D1 sync
+//   POST /:entityKey/exec  — authenticated, execute command inside container
 //   POST /:entityKey/destroy — authenticated, force-destroy a container
 
 import { getSandbox } from "@cloudflare/sandbox"
@@ -18,6 +18,49 @@ import { isAuthenticated } from "@/middlewares"
 import type { BaseEnv } from "@/types"
 
 const OPENCODE_PORT = 4096
+
+/**
+ * Collect session data from a running OpenCode container.
+ * Returns a stringified JSON blob ready for saveSession(), or null if collection fails.
+ */
+async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Promise<string | null> {
+  const [logResult, sessionResult, sessionList] = await Promise.all([
+    sandbox.exec("cat /tmp/opencode.log 2>/dev/null | tail -100", { cwd: "/workspace" }),
+    sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null`, { cwd: "/workspace" }),
+    sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/session 2>/dev/null`, { cwd: "/workspace" }),
+  ])
+
+  if (!sessionList.stdout) return null
+
+  // Fetch messages for each session
+  let messages: Record<string, unknown[]> = {}
+  try {
+    const sessions = JSON.parse(sessionList.stdout) as Array<{ id: string }>
+    const msgResults = await Promise.all(
+      sessions.map(async (s) => {
+        const res = await sandbox.exec(
+          `curl -sf "http://localhost:${OPENCODE_PORT}/session/${s.id}/message?limit=50" 2>/dev/null`,
+          { cwd: "/workspace" },
+        )
+        try {
+          return { id: s.id, messages: JSON.parse(res.stdout || "[]") }
+        } catch {
+          return { id: s.id, messages: [] }
+        }
+      }),
+    )
+    messages = Object.fromEntries(msgResults.map((r) => [r.id, r.messages]))
+  } catch {
+    /* best effort */
+  }
+
+  return JSON.stringify({
+    sessionStatus: sessionResult.stdout ? JSON.parse(sessionResult.stdout) : {},
+    sessions: JSON.parse(sessionList.stdout),
+    logs: logResult.stdout || "",
+    messages,
+  })
+}
 
 /** Safely parse the sessionData JSON blob stored in D1. */
 function parseSessionData(raw: string): Record<string, unknown> {
@@ -111,7 +154,8 @@ const router = new Hono<BaseEnv>()
     })
   })
 
-  // Single session detail — returns parsed, structured data
+  // Single session detail — returns parsed, structured data.
+  // Auto-syncs from the container when data is stale (>30s since last update).
   .get("/sessions/detail", async (c) => {
     const db = c.get("db")
     const entityKey = c.req.query("entityKey")
@@ -119,12 +163,30 @@ const router = new Hono<BaseEnv>()
       return c.json({ error: "entityKey query parameter required" }, 400)
     }
 
-    const session = await db.query.agentSessions.findFirst({
+    let session = await db.query.agentSessions.findFirst({
       where: eq(dbSchema.agentSessions.entityKey, entityKey),
     })
 
     if (!session) {
       return c.json({ error: "Session not found" }, 404)
+    }
+
+    // Auto-sync: if data is stale, refresh from the running container
+    const isStale = Date.now() - new Date(session.updatedAt).getTime() > 30_000
+    if (isStale) {
+      try {
+        const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
+        const freshData = await collectContainerData(sandbox)
+        if (freshData) {
+          await saveSession(db, entityKey, freshData)
+          session = await db.query.agentSessions.findFirst({
+            where: eq(dbSchema.agentSessions.entityKey, entityKey),
+          })
+          if (!session) return c.json({ error: "Session not found" }, 404)
+        }
+      } catch {
+        // Container might be dead — return stale data
+      }
     }
 
     const parsed = parseSessionData(session.sessionData)
@@ -140,71 +202,35 @@ const router = new Hono<BaseEnv>()
     })
   })
 
-  // Live container inspection
+  // Live container inspection — collects data from container and saves to D1
   .get("/:entityKey/debug", async (c) => {
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
     const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
 
     try {
-      const [logResult, sessionResult, sessionList, processCheck] = await Promise.all([
-        sandbox.exec("cat /tmp/opencode.log 2>/dev/null | tail -100", { cwd: "/workspace" }),
-        sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null`, { cwd: "/workspace" }),
-        sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/session 2>/dev/null`, { cwd: "/workspace" }),
+      const [processCheck, keepaliveCheck] = await Promise.all([
         sandbox.exec("ps aux 2>/dev/null | grep -v '\\[' | grep -v 'PID' | tail -30", { cwd: "/workspace" }),
+        sandbox.exec("pgrep -f 'keepalive.sh' > /dev/null 2>&1 && echo running || echo stopped", { cwd: "/workspace" }),
       ])
 
-      let sessionMessages: Record<string, string> = {}
-      try {
-        const sessions = JSON.parse(sessionList.stdout || "[]") as Array<{ id: string }>
-        const msgResults = await Promise.all(
-          sessions.map(async (s) => {
-            const res = await sandbox.exec(
-              `curl -sf "http://localhost:${OPENCODE_PORT}/session/${s.id}/message?limit=5" 2>/dev/null`,
-              { cwd: "/workspace" },
-            )
-            return { id: s.id, messages: res.stdout || "[]" }
-          }),
-        )
-        sessionMessages = Object.fromEntries(msgResults.map((r) => [r.id, r.messages]))
-      } catch {
-        /* best effort */
-      }
-
-      const keepaliveCheck = await sandbox.exec(
-        "pgrep -f 'keepalive.sh' > /dev/null 2>&1 && echo running || echo stopped",
-        { cwd: "/workspace" },
-      )
-
-      // Save session data to D1 on every debug call (supplements keepalive)
+      // Collect session data and save to D1
+      const freshData = await collectContainerData(sandbox)
       const db = c.get("db")
-      if (sessionList.stdout && sessionResult.stdout) {
+      if (freshData) {
         try {
-          const sessionData = JSON.stringify({
-            sessionStatus: JSON.parse(sessionResult.stdout),
-            sessions: JSON.parse(sessionList.stdout),
-            logs: logResult.stdout || "",
-            messages: Object.fromEntries(
-              Object.entries(sessionMessages).map(([k, v]) => {
-                try {
-                  return [k, JSON.parse(v)]
-                } catch {
-                  return [k, []]
-                }
-              }),
-            ),
-          })
-          await saveSession(db, entityKey, sessionData)
+          await saveSession(db, entityKey, freshData)
         } catch {
           /* best effort */
         }
       }
 
+      const parsed = freshData ? (JSON.parse(freshData) as Record<string, unknown>) : {}
+
       return c.json({
         entityKey,
-        opencodeLogs: logResult.stdout || logResult.stderr || "(empty)",
-        sessionStatus: sessionResult.stdout || "(empty)",
-        sessions: sessionList.stdout || "(empty)",
-        sessionMessages,
+        opencodeLogs: (parsed.logs as string) || "(empty)",
+        sessionStatus: JSON.stringify(parsed.sessionStatus ?? {}),
+        sessions: JSON.stringify(parsed.sessions ?? []),
         processes: processCheck.stdout || "(empty)",
         keepalive: keepaliveCheck.stdout?.trim() || "unknown",
       })

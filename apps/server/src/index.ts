@@ -60,9 +60,8 @@ const app = new Hono<BaseEnvBindings>()
   })
 
 export { ContainerProxy } from "@cloudflare/sandbox"
-// Export the Sandbox DO and ContainerProxy so Cloudflare can instantiate them.
-// ContainerProxy is required for outbound HTTP interception (jared.internal).
-export { JaredSandbox as Sandbox } from "./lib/containers/sandbox"
+// Export the Sandbox DO so Cloudflare can instantiate it.
+export { Sandbox } from "./lib/containers/sandbox"
 
 export type AppType = typeof app
 export default Sentry.withSentry(
