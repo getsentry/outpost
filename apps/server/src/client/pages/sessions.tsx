@@ -1,19 +1,32 @@
 import {
-  ArrowClockwise,
-  CaretDown,
   CaretLeft,
   CaretRight,
-  CaretRight as CaretRightIcon,
+  ChatsCircle,
+  CurrencyDollar,
   MagnifyingGlass,
   Robot,
+  Stack,
+  Trash,
   X,
 } from "@phosphor-icons/react"
-import { Fragment, useState } from "react"
-import { useSearchParams } from "react-router-dom"
+import { useState } from "react"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { GitHubLink } from "@/client/components/github-link"
 import { LastUpdated } from "@/client/components/last-updated"
+import type { SessionListItem } from "@/client/lib/api"
 import { entityGitHubUrl, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
-import { useSessionDetail, useSessions } from "@/client/lib/queries"
+import { useClearSessions, useSessions } from "@/client/lib/queries"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -21,195 +34,39 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 const PAGE_SIZES = [10, 25, 50] as const
 
-function SessionExpandedRow({ entityKey }: { entityKey: string }) {
-  const { data, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useSessionDetail(entityKey)
-  const [activeTab, setActiveTab] = useState<"sessions" | "messages" | "logs">("sessions")
-
-  if (isLoading) {
-    return (
-      <TableRow>
-        <TableCell colSpan={5} className="bg-muted/30 p-4">
-          <Skeleton className="h-32 w-full" />
-        </TableCell>
-      </TableRow>
-    )
+function StatusIndicator({ status }: { status: string }) {
+  const config: Record<string, { bg: string; dot: string; label: string }> = {
+    busy: {
+      bg: "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
+      dot: "bg-yellow-500 animate-pulse",
+      label: "Active",
+    },
+    idle: {
+      bg: "bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300",
+      dot: "bg-green-500",
+      label: "Idle",
+    },
+    unknown: {
+      bg: "bg-gray-50 text-gray-600 dark:bg-gray-900 dark:text-gray-400",
+      dot: "bg-gray-400",
+      label: "Offline",
+    },
   }
-
-  if (isError || !data) {
-    return (
-      <TableRow>
-        <TableCell colSpan={5} className="bg-muted/30 p-4 text-sm text-destructive">
-          Failed to load session data
-        </TableCell>
-      </TableRow>
-    )
-  }
-
-  let parsed: Record<string, unknown> = {}
-  try {
-    parsed = JSON.parse(data.sessionData)
-  } catch {
-    /* empty */
-  }
-
-  const sessions = parsed.sessions as Array<Record<string, unknown>> | undefined
-  const messages = parsed.messages as Record<string, Array<Record<string, unknown>>> | undefined
-  const logs = (parsed.logs as string) ?? ""
-  const sessionStatus = parsed.sessionStatus as Record<string, Record<string, string>> | undefined
-
+  const c = config[status] ?? config.unknown
   return (
-    <TableRow>
-      <TableCell colSpan={5} className="bg-muted/30 p-0">
-        <div className="w-full overflow-hidden p-4">
-          {/* Tabs + refresh */}
-          <div className="mb-3 flex items-center gap-1">
-            {(["sessions", "messages", "logs"] as const).map((tab) => (
-              <Button
-                key={tab}
-                variant={activeTab === tab ? "default" : "outline"}
-                size="xs"
-                onClick={() => setActiveTab(tab)}
-              >
-                {tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </Button>
-            ))}
-            <div className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-              {dataUpdatedAt ? <span>{formatTimeAgo(new Date(dataUpdatedAt).toISOString())}</span> : null}
-              <Button variant="ghost" size="xs" onClick={() => refetch()} disabled={isFetching}>
-                <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
-              </Button>
-            </div>
-          </div>
-
-          {/* Sessions tab */}
-          {activeTab === "sessions" && (
-            <div className="space-y-2">
-              {sessions?.map((s) => {
-                const id = s.id as string
-                const status = sessionStatus?.[id]?.type ?? "unknown"
-                const cost = typeof s.cost === "number" ? `$${s.cost.toFixed(4)}` : "-"
-                const tokens = s.tokens as Record<string, number> | undefined
-                const title = (s.title as string) ?? id
-                const agent = (s.agent as string) ?? "-"
-                const model = (s.model as Record<string, string>)?.id ?? "-"
-                const parentID = s.parentID as string | undefined
-                return (
-                  <div
-                    key={id}
-                    className={`rounded border p-3 text-xs ${parentID ? "ml-4 border-l-2 border-l-muted-foreground/30" : ""}`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <span className="min-w-0 break-words font-medium">{title}</span>
-                      <span
-                        className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium ${status === "busy" ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" : status === "idle" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}
-                      >
-                        {status}
-                      </span>
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-0.5 text-muted-foreground">
-                      <span>agent: {agent}</span>
-                      <span>model: {model}</span>
-                      <span>cost: {cost}</span>
-                      {tokens && (
-                        <span>
-                          in: {tokens.input ?? 0} / out: {tokens.output ?? 0}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/60">{id}</div>
-                  </div>
-                )
-              })}
-              {(!sessions || sessions.length === 0) && (
-                <div className="py-4 text-center text-sm text-muted-foreground">No sessions found</div>
-              )}
-            </div>
-          )}
-
-          {/* Messages tab */}
-          {activeTab === "messages" && (
-            <div className="max-h-[600px] space-y-3 overflow-auto">
-              {messages && Object.keys(messages).length > 0 ? (
-                Object.entries(messages).map(([sessionId, msgs]) => (
-                  <div key={sessionId}>
-                    <div className="mb-1.5 text-xs font-medium text-muted-foreground">
-                      Session: <span className="font-mono">{sessionId.slice(0, 24)}...</span>
-                    </div>
-                    <div className="space-y-1">
-                      {Array.isArray(msgs) &&
-                        msgs.map((msg, i) => {
-                          const info = msg.info as Record<string, unknown> | undefined
-                          const parts = msg.parts as Array<Record<string, unknown>> | undefined
-                          const role = (info?.role as string) ?? "unknown"
-                          return (
-                            <div
-                              key={i}
-                              className={`overflow-hidden rounded border-l-2 p-2 text-xs ${role === "assistant" ? "border-l-blue-400 bg-blue-50/50 dark:bg-blue-950/20" : "border-l-gray-300 bg-muted/30"}`}
-                            >
-                              <span
-                                className={`text-[10px] font-medium uppercase tracking-wide ${role === "assistant" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"}`}
-                              >
-                                {role}
-                              </span>
-                              {parts?.map((part, j) => {
-                                const type = part.type as string
-                                if (type === "text") {
-                                  const text = (part.text as string) ?? ""
-                                  return (
-                                    <pre
-                                      key={j}
-                                      className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed"
-                                    >
-                                      {text.slice(0, 3000)}
-                                      {text.length > 3000 && "..."}
-                                    </pre>
-                                  )
-                                }
-                                if (type === "tool-invocation" || type === "tool-result") {
-                                  return (
-                                    <div
-                                      key={j}
-                                      className="mt-1 overflow-hidden truncate rounded bg-muted px-1.5 py-1 font-mono text-[10px]"
-                                    >
-                                      <span className="font-medium text-muted-foreground">{type}:</span>{" "}
-                                      {(part.toolName as string) ?? JSON.stringify(part).slice(0, 300)}
-                                    </div>
-                                  )
-                                }
-                                return (
-                                  <div key={j} className="mt-1 text-[10px] text-muted-foreground">
-                                    [{type}]
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          )
-                        })}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="py-4 text-center text-sm text-muted-foreground">No messages captured yet</div>
-              )}
-            </div>
-          )}
-
-          {/* Logs tab */}
-          {activeTab === "logs" && (
-            <pre className="max-h-[400px] overflow-auto whitespace-pre-wrap break-all rounded bg-muted p-3 text-[11px] leading-relaxed">
-              {logs || "No logs captured"}
-            </pre>
-          )}
-        </div>
-      </TableCell>
-    </TableRow>
+    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${c.bg}`}>
+      <span className={`inline-block size-1.5 rounded-full ${c.dot}`} />
+      {c.label}
+    </span>
   )
 }
 
 export default function SessionsPage() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [searchInput, setSearchInput] = useState("")
-  const [expandedKey, setExpandedKey] = useState<string | null>(null)
+  const [clearDialogOpen, setClearDialogOpen] = useState(false)
+  const clearSessions = useClearSessions()
 
   const page = Number(searchParams.get("page")) || 1
   const limit = Number(searchParams.get("limit")) || 25
@@ -231,9 +88,14 @@ export default function SessionsPage() {
   const setPage = (p: number) => updateParams({ page: String(p) })
   const setLimit = (l: number) => updateParams({ limit: String(l), page: "1" })
 
-  const filtered = data?.data.filter((session: { entityKey: string }) => {
+  const filtered = data?.data.filter((session: SessionListItem) => {
     if (!searchInput) return true
-    return session.entityKey.toLowerCase().includes(searchInput.toLowerCase())
+    const q = searchInput.toLowerCase()
+    return (
+      session.entityKey.toLowerCase().includes(q) ||
+      (session.title ?? "").toLowerCase().includes(q) ||
+      (session.agent ?? "").toLowerCase().includes(q)
+    )
   })
 
   const pagination = data?.pagination
@@ -242,12 +104,42 @@ export default function SessionsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">Agent Sessions</h1>
+          <h1 className="text-lg font-semibold">Containers</h1>
           <p className="text-sm text-muted-foreground">
-            {pagination ? `${pagination.total} sessions` : "Live agent session data from containers"}
+            {pagination ? `${pagination.total} container${pagination.total !== 1 ? "s" : ""}` : "Live agent containers"}
           </p>
         </div>
-        <LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
+        <div className="flex items-center gap-2">
+          <AlertDialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm" disabled={clearSessions.isPending || !pagination?.total}>
+                <Trash className="mr-1.5 size-4" />
+                {clearSessions.isPending ? "Clearing..." : "Clear All"}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Clear all agent sessions?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete all {pagination?.total ?? 0} agent session records from the database.
+                  Running containers will not be affected. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    clearSessions.mutate()
+                    setClearDialogOpen(false)
+                  }}
+                >
+                  Clear All Sessions
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          <LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
+        </div>
       </div>
 
       <div className="flex items-center gap-3">
@@ -255,10 +147,10 @@ export default function SessionsPage() {
           <MagnifyingGlass className="absolute left-2 size-3.5 text-muted-foreground" />
           <input
             type="text"
-            placeholder="Search by entity..."
+            placeholder="Search by entity, title, or agent..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="h-7 w-64 border border-input bg-background pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
+            className="h-7 w-72 border border-input bg-background pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
           />
           {searchInput && (
             <button
@@ -285,7 +177,7 @@ export default function SessionsPage() {
           {isLoading ? (
             <div className="space-y-2 p-4">
               {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-10 w-full" />
+                <Skeleton key={i} className="h-14 w-full" />
               ))}
             </div>
           ) : isError ? (
@@ -301,76 +193,85 @@ export default function SessionsPage() {
             </div>
           ) : (
             <div className="w-full overflow-x-auto">
-              <Table className="table-fixed">
+              <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-8" />
-                    <TableHead className="w-[35%]">Entity</TableHead>
-                    <TableHead className="w-[25%]">Repository</TableHead>
-                    <TableHead className="w-[20%]">Status</TableHead>
-                    <TableHead className="w-[15%] text-right">Updated</TableHead>
+                    <TableHead className="min-w-[240px]">Entity</TableHead>
+                    <TableHead className="min-w-[140px]">Agent</TableHead>
+                    <TableHead className="w-[90px] text-center">Status</TableHead>
+                    <TableHead className="w-[80px] text-center">
+                      <span className="inline-flex items-center gap-1">
+                        <Stack className="size-3" /> Sessions
+                      </span>
+                    </TableHead>
+                    <TableHead className="w-[80px] text-center">
+                      <span className="inline-flex items-center gap-1">
+                        <ChatsCircle className="size-3" /> Msgs
+                      </span>
+                    </TableHead>
+                    <TableHead className="w-[80px] text-right">
+                      <span className="inline-flex items-center gap-1">
+                        <CurrencyDollar className="size-3" /> Cost
+                      </span>
+                    </TableHead>
+                    <TableHead className="w-[100px] text-right">Updated</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filtered.map(
-                    (session: {
-                      entityKey: string
-                      updatedAt: string
-                      sessionStatus?: Record<string, Record<string, string>> | null
-                      sessions?: Array<Record<string, unknown>> | null
-                    }) => {
-                      const isExpanded = expandedKey === session.entityKey
-                      const ghUrl = entityGitHubUrl(session.entityKey, "issues")
-                      const parsed = parseEntityKey(session.entityKey)
-                      const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : null
+                  {filtered.map((session: SessionListItem) => {
+                    const ghUrl = entityGitHubUrl(session.entityKey, "issues")
+                    const parsed = parseEntityKey(session.entityKey)
+                    const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : null
 
-                      const statuses = session.sessionStatus ? Object.values(session.sessionStatus) : []
-                      const hasBusy = statuses.some((s) => s.type === "busy")
-                      const statusLabel = hasBusy ? "busy" : statuses.length > 0 ? "idle" : "unknown"
-
-                      const totalCost = (session.sessions ?? []).reduce(
-                        (sum, s) => sum + (typeof s.cost === "number" ? s.cost : 0),
-                        0,
-                      )
-
-                      return (
-                        <Fragment key={session.entityKey}>
-                          <TableRow
-                            className="cursor-pointer"
-                            onClick={() => setExpandedKey(isExpanded ? null : session.entityKey)}
-                          >
-                            <TableCell className="w-8 px-2">
-                              {isExpanded ? (
-                                <CaretDown className="size-3.5 text-muted-foreground" />
-                              ) : (
-                                <CaretRightIcon className="size-3.5 text-muted-foreground" />
-                              )}
-                            </TableCell>
-                            <TableCell className="truncate font-mono text-sm">
+                    return (
+                      <TableRow
+                        key={session.entityKey}
+                        className="cursor-pointer"
+                        onClick={() => navigate(`/containers/${encodeURIComponent(session.entityKey)}`)}
+                      >
+                        <TableCell>
+                          <div className="space-y-0.5">
+                            <div className="font-mono text-sm">
                               {ghUrl ? <GitHubLink href={ghUrl}>{session.entityKey}</GitHubLink> : session.entityKey}
-                            </TableCell>
-                            <TableCell className="truncate text-muted-foreground">
-                              {repoName ? <GitHubLink href={repoGitHubUrl(repoName)}>{repoName}</GitHubLink> : "-"}
-                            </TableCell>
-                            <TableCell>
-                              <span
-                                className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${statusLabel === "busy" ? "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" : statusLabel === "idle" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"}`}
-                              >
-                                {statusLabel}
-                              </span>
-                              {totalCost > 0 && (
-                                <span className="ml-2 text-xs text-muted-foreground">${totalCost.toFixed(2)}</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right text-muted-foreground">
-                              {formatTimeAgo(session.updatedAt)}
-                            </TableCell>
-                          </TableRow>
-                          {isExpanded && <SessionExpandedRow entityKey={session.entityKey} />}
-                        </Fragment>
-                      )
-                    },
-                  )}
+                            </div>
+                            {(session.title || repoName) && (
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                {session.title && <span className="truncate">{session.title}</span>}
+                                {repoName && (
+                                  <GitHubLink href={repoGitHubUrl(repoName)}>
+                                    <span className="text-[10px]">{repoName}</span>
+                                  </GitHubLink>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-0.5">
+                            <div className="text-sm">{session.agent ?? "-"}</div>
+                            {session.model && (
+                              <div className="truncate text-[11px] text-muted-foreground">{session.model}</div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <StatusIndicator status={session.status} />
+                        </TableCell>
+                        <TableCell className="text-center font-mono text-sm tabular-nums">
+                          {session.sessionCount}
+                        </TableCell>
+                        <TableCell className="text-center font-mono text-sm tabular-nums">
+                          {session.messageCount}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm tabular-nums">
+                          {session.totalCost > 0 ? `$${session.totalCost.toFixed(2)}` : "-"}
+                        </TableCell>
+                        <TableCell className="text-right text-muted-foreground">
+                          {formatTimeAgo(session.updatedAt)}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>

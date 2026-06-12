@@ -20,6 +20,7 @@ import * as Sentry from "@sentry/cloudflare"
 import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
+import { saveSession } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
 import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
@@ -113,9 +114,10 @@ async function ensureSandboxReady(
     "STARTED=$(date +%s)",
     "MAX=7200",
     "",
-    "while true; do",
-    "  sleep 45",
+    "# Initial short delay to let OpenCode process the first prompt",
+    "sleep 10",
     "",
+    "while true; do",
     "  # Health check",
     "  curl -sf http://localhost:$PORT/global/health > /dev/null 2>&1 || break",
     "",
@@ -158,6 +160,8 @@ async function ensureSandboxReady(
     "  NOW=$(date +%s)",
     "  ELAPSED=$((NOW - STARTED))",
     "  [ $ELAPSED -ge $MAX ] && break",
+    "",
+    "  sleep 45",
     "done",
   ].join("\n")
   await sandbox.writeFile("/tmp/keepalive.sh", keepaliveScript)
@@ -175,14 +179,22 @@ async function dispatchPrompt(
 ): Promise<string> {
   const OC = `http://localhost:${OPENCODE_PORT}`
 
-  // Find or create session
+  // Find or create session — must use the root session (no parentID),
+  // not a child subagent session which has restricted permissions.
   const listResult = await sandbox.exec(`curl -sf ${OC}/session`, { cwd: "/workspace" })
   let sessionId: string | null = null
 
   if (listResult.success && listResult.stdout) {
     try {
-      const sessions = JSON.parse(listResult.stdout) as Array<{ id: string }>
-      if (sessions.length > 0) sessionId = sessions[0].id
+      const sessions = JSON.parse(listResult.stdout) as Array<{ id: string; parentID?: string }>
+      // Prefer a root session (no parentID) — child sessions are subagents
+      // that can't handle webhook prompts
+      const rootSession = sessions.find((s) => !s.parentID)
+      if (rootSession) {
+        sessionId = rootSession.id
+      } else if (sessions.length > 0) {
+        sessionId = sessions[0].id
+      }
     } catch {
       /* empty */
     }
@@ -424,6 +436,21 @@ const router = new Hono<BaseEnv>().post("/github-app", async (c) => {
         })
 
         const sessionId = await dispatchPrompt(sandbox, containerKey, prompt, eventId)
+
+        // Save an initial session record to D1 immediately so the container
+        // appears in the agent sessions list right away — don't wait for the
+        // keepalive script's first 45s cycle.
+        try {
+          const initialData = JSON.stringify({
+            sessionStatus: { [sessionId]: { type: "busy" } },
+            sessions: [{ id: sessionId, title: containerKey }],
+            logs: "",
+            messages: {},
+          })
+          await saveSession(db, containerKey, initialData)
+        } catch {
+          /* best effort — keepalive will overwrite with real data soon */
+        }
 
         await db
           .update(dbSchema.webhookEvents)

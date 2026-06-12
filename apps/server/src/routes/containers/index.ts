@@ -19,6 +19,15 @@ import type { BaseEnv } from "@/types"
 
 const OPENCODE_PORT = 4096
 
+/** Safely parse the sessionData JSON blob stored in D1. */
+function parseSessionData(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
 const router = new Hono<BaseEnv>()
   // --- Unauthenticated: container posts session data here ---
   .post("/sessions", async (c) => {
@@ -64,20 +73,35 @@ const router = new Hono<BaseEnv>()
     const total = countResult[0]?.count ?? 0
 
     const data = sessions.map((s) => {
-      let parsed: Record<string, unknown> = {}
-      try {
-        parsed = JSON.parse(s.sessionData)
-      } catch {
-        /* empty */
-      }
+      const parsed = parseSessionData(s.sessionData)
+      const sessionList = (parsed.sessions ?? []) as Array<Record<string, unknown>>
+      const messages = (parsed.messages ?? {}) as Record<string, unknown[]>
+      const statuses = parsed.sessionStatus as Record<string, Record<string, string>> | null
+
+      const totalCost = sessionList.reduce((sum, sess) => sum + (typeof sess.cost === "number" ? sess.cost : 0), 0)
+      const totalMessages = Object.values(messages).reduce(
+        (sum, msgs) => sum + (Array.isArray(msgs) ? msgs.length : 0),
+        0,
+      )
+      const statusValues = statuses ? Object.values(statuses) : []
+      const hasBusy = statusValues.some((st) => st.type === "busy")
+
+      // Prefer the root session (no parentID) for the summary preview
+      const rootSession = sessionList.find((sess) => !sess.parentID) ?? sessionList[0]
+
       return {
         entityKey: s.entityKey,
-        sessionData: s.sessionData,
         createdAt: s.createdAt,
         updatedAt: s.updatedAt,
-        sessionStatus: parsed.sessionStatus ?? null,
-        sessions: parsed.sessions ?? null,
-        logs: parsed.logs ?? null,
+        // Summary fields for the list view (no raw sessionData blob)
+        sessionCount: sessionList.length,
+        messageCount: totalMessages,
+        totalCost,
+        status: hasBusy ? "busy" : statusValues.length > 0 ? "idle" : "unknown",
+        // Root session metadata as a preview
+        title: (rootSession?.title as string) ?? null,
+        agent: (rootSession?.agent as string) ?? null,
+        model: ((rootSession?.model as Record<string, string>)?.id as string) ?? null,
       }
     })
 
@@ -87,7 +111,7 @@ const router = new Hono<BaseEnv>()
     })
   })
 
-  // Single session detail
+  // Single session detail — returns parsed, structured data
   .get("/sessions/detail", async (c) => {
     const db = c.get("db")
     const entityKey = c.req.query("entityKey")
@@ -103,7 +127,17 @@ const router = new Hono<BaseEnv>()
       return c.json({ error: "Session not found" }, 404)
     }
 
-    return c.json(session)
+    const parsed = parseSessionData(session.sessionData)
+
+    return c.json({
+      entityKey: session.entityKey,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      sessions: parsed.sessions ?? [],
+      sessionStatus: parsed.sessionStatus ?? {},
+      messages: parsed.messages ?? {},
+      logs: parsed.logs ?? "",
+    })
   })
 
   // Live container inspection
@@ -176,6 +210,35 @@ const router = new Hono<BaseEnv>()
         processes: processCheck.stdout || "(empty)",
         keepalive: keepaliveCheck.stdout?.trim() || "unknown",
       })
+    } catch (err) {
+      return c.json({ error: formatError(err) }, 500)
+    }
+  })
+
+  // Clear all agent sessions from D1
+  .delete("/sessions", async (c) => {
+    const db = c.get("db")
+    const result = await db.delete(dbSchema.agentSessions).returning({ entityKey: dbSchema.agentSessions.entityKey })
+    return c.json({ ok: true, deleted: result.length })
+  })
+
+  // Delete a single agent session from D1
+  .delete("/sessions/:entityKey", async (c) => {
+    const db = c.get("db")
+    const entityKey = decodeURIComponent(c.req.param("entityKey"))
+    await db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey))
+    return c.json({ ok: true, entityKey })
+  })
+
+  // Execute a command inside a running container
+  .post("/:entityKey/exec", async (c) => {
+    const entityKey = decodeURIComponent(c.req.param("entityKey"))
+    const body = (await c.req.json()) as { command: string; cwd?: string }
+    if (!body.command) return c.json({ error: "command required" }, 400)
+    const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
+    try {
+      const result = await sandbox.exec(body.command, { cwd: body.cwd ?? "/workspace" })
+      return c.json({ ok: true, stdout: result.stdout, stderr: result.stderr, success: result.success })
     } catch (err) {
       return c.json({ error: formatError(err) }, 500)
     }

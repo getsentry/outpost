@@ -77,3 +77,23 @@ export function useSessionDetail(entityKey: string) {
     refetchInterval: 10_000,
   })
 }
+
+export function useClearSessions() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.clearSessions(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
+export function useDeleteSession() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (entityKey: string) => api.deleteSession(entityKey),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}

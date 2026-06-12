@@ -36,15 +36,20 @@ RUN npm install -g n \
  && corepack prepare pnpm@latest --activate \
  && node --version && pnpm --version
 
-# --- OpenCode CLI ---
+# --- OpenCode CLI (pinned version) ---
+# v1.17.4 has a bug where prompts are admitted but never processed in server mode.
+# Pinning to v1.17.0 until this is fixed upstream.
 ENV PATH="/root/.opencode/bin:${PATH}"
 RUN curl -fsSL https://opencode.ai/install -o /tmp/install-opencode.sh \
- && bash /tmp/install-opencode.sh \
+ && bash /tmp/install-opencode.sh --version 1.17.0 \
  && rm /tmp/install-opencode.sh \
  && opencode --version
 
 # --- Workspace directory ---
 RUN mkdir -p /workspace/repo
+
+# --- OpenCode config + Lore plugin ---
+COPY opencode.json /root/.config/opencode/opencode.json
 
 # --- Jared agent + skills ---
 COPY agents/ /root/.config/opencode/agents/

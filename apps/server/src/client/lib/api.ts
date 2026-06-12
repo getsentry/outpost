@@ -13,6 +13,61 @@ export type SessionsParams = {
   limit?: number
 }
 
+// --- Session data types (matches OpenCode HTTP API shapes) ---
+
+export type SessionInfo = {
+  id: string
+  title?: string
+  cost?: number
+  tokens?: { input?: number; output?: number }
+  agent?: string
+  model?: { id?: string }
+  parentID?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export type MessagePart = {
+  type: string
+  text?: string
+  toolName?: string
+  args?: Record<string, unknown>
+  result?: unknown
+  state?: string
+}
+
+export type SessionMessage = {
+  info?: {
+    id?: string
+    role?: string
+    createdAt?: string
+  }
+  parts?: MessagePart[]
+}
+
+export type SessionDetailResponse = {
+  entityKey: string
+  createdAt: string
+  updatedAt: string
+  sessions: SessionInfo[]
+  sessionStatus: Record<string, { type: string }>
+  messages: Record<string, SessionMessage[]>
+  logs: string
+}
+
+export type SessionListItem = {
+  entityKey: string
+  createdAt: string
+  updatedAt: string
+  sessionCount: number
+  messageCount: number
+  totalCost: number
+  status: string
+  title: string | null
+  agent: string | null
+  model: string | null
+}
+
 export const api = {
   async getEvents(params: EventsParams = {}) {
     const query: Record<string, string> = {}
@@ -51,19 +106,37 @@ export const api = {
     return res.json()
   },
 
-  async getSessions(params: SessionsParams = {}) {
+  async getSessions(params: SessionsParams = {}): Promise<{
+    data: SessionListItem[]
+    pagination: { page: number; limit: number; total: number; totalPages: number }
+  }> {
     const query: Record<string, string> = {}
     if (params.page != null) query.page = String(params.page)
     if (params.limit != null) query.limit = String(params.limit)
 
     const res = await endpoint.api.containers.sessions.$get({ query })
     if (!res.ok) throw new Error(`Failed to fetch sessions: ${res.status}`)
+    return res.json() as Promise<{
+      data: SessionListItem[]
+      pagination: { page: number; limit: number; total: number; totalPages: number }
+    }>
+  },
+
+  async getSessionDetail(entityKey: string): Promise<SessionDetailResponse> {
+    const res = await fetch(`/api/containers/sessions/detail?entityKey=${encodeURIComponent(entityKey)}`)
+    if (!res.ok) throw new Error(`Failed to fetch session: ${res.status}`)
+    return res.json() as Promise<SessionDetailResponse>
+  },
+
+  async clearSessions() {
+    const res = await fetch("/api/containers/sessions", { method: "DELETE" })
+    if (!res.ok) throw new Error(`Failed to clear sessions: ${res.status}`)
     return res.json()
   },
 
-  async getSessionDetail(entityKey: string) {
-    const res = await fetch(`/api/containers/sessions/detail?entityKey=${encodeURIComponent(entityKey)}`)
-    if (!res.ok) throw new Error(`Failed to fetch session: ${res.status}`)
+  async deleteSession(entityKey: string) {
+    const res = await fetch(`/api/containers/sessions/${encodeURIComponent(entityKey)}`, { method: "DELETE" })
+    if (!res.ok) throw new Error(`Failed to delete session: ${res.status}`)
     return res.json()
   },
 }
