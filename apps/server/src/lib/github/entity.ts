@@ -61,16 +61,21 @@ export async function extractEntityKey(
   }
 
   // pull_request, pull_request_review_comment, pull_request_review
+  // When a PR links to an issue (e.g. "Fixes #123"), use the issue number
+  // as the entity key so the PR shares the same container/session as the issue.
   if (PR_EVENTS.has(event)) {
     const num = lookupNumber(payload, "pull_request.number")
     if (num === null) return null
     const body = lookupString(payload, "pull_request.body") ?? ""
+    const linkedIssues = extractLinkedIssues(body, repo)
+    const entityNumber = linkedIssues.length > 0 ? linkedIssues[0] : num
+    const entityKind = linkedIssues.length > 0 ? "issue" : "pull_request"
     return {
-      key: `${repo}#${num}`,
+      key: `${repo}#${entityNumber}`,
       repo,
-      number: num,
-      kind: "pull_request",
-      linkedIssues: extractLinkedIssues(body, repo),
+      number: entityNumber,
+      kind: entityKind as "issue" | "pull_request",
+      linkedIssues,
     }
   }
 
@@ -95,11 +100,14 @@ export async function extractEntityKey(
     const num = typeof first?.number === "number" ? first.number : null
     if (num === null) return null
     const linkedIssues = octokit ? await fetchLinkedIssues(octokit, repo, num) : []
+    // Use linked issue number if available (same container as the issue)
+    const entityNumber = linkedIssues.length > 0 ? linkedIssues[0] : num
+    const entityKind = linkedIssues.length > 0 ? "issue" : "pull_request"
     return {
-      key: `${repo}#${num}`,
+      key: `${repo}#${entityNumber}`,
       repo,
-      number: num,
-      kind: "pull_request",
+      number: entityNumber,
+      kind: entityKind as "issue" | "pull_request",
       linkedIssues,
     }
   }
@@ -157,11 +165,14 @@ async function resolvePushEntity(
       if (prs.length > 0) {
         const pr = prs[0]
         const linkedIssues = pr.body ? extractLinkedIssues(pr.body, repo) : []
+        // Use linked issue number if available (same container as the issue)
+        const entityNumber = linkedIssues.length > 0 ? linkedIssues[0] : pr.number
+        const entityKind = linkedIssues.length > 0 ? "issue" : "pull_request"
         return {
-          key: `${repo}#${pr.number}`,
+          key: `${repo}#${entityNumber}`,
           repo,
-          number: pr.number,
-          kind: "pull_request",
+          number: entityNumber,
+          kind: entityKind as "issue" | "pull_request",
           linkedIssues,
         }
       }

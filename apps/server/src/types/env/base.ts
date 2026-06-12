@@ -1,7 +1,7 @@
 import type { Logger } from "@jared/utils"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
-import type { JaredSandbox as Sandbox } from "@/lib/containers/sandbox"
+import type { Sandbox } from "@/lib/containers/sandbox"
 import type { createAuth } from "@/utils"
 
 export type BaseEnvBindings = {
