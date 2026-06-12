@@ -19,9 +19,10 @@ import type { BaseEnv } from "@/types"
 const router = new Hono<BaseEnv>().post("/", async (c) => {
   const logger = c.get("logger").child({ ns: "webhook.sentry" })
 
-  // Verify the webhook signature using the client secret
+  // Verify the webhook signature using the client secret (HMAC-SHA256)
   // const clientSecret = c.env.SENTRY_INTEGRATION_CLIENT_SECRET
-  // TODO: implement HMAC verification
+  // const signature = c.req.header("sentry-hook-signature")
+  // TODO: implement HMAC-SHA256 verification using clientSecret
 
   const rawBody = await c.req.text()
   let payload: Record<string, unknown> = {}
