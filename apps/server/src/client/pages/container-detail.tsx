@@ -390,9 +390,9 @@ export default function ContainerDetailPage() {
   const overallStatus = hasBusy ? "busy" : statusValues.length > 0 ? "idle" : "unknown"
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="-m-6 flex h-[calc(100%+3rem)] flex-col">
       {/* Header bar */}
-      <div className="shrink-0 border-b pb-3">
+      <div className="shrink-0 border-b px-4 py-3">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => navigate("/containers")}>
             <ArrowLeft className="size-3.5" />
