@@ -66,7 +66,7 @@ packages/
 pnpm install
 
 # Set up environment variables
-cp apps/server/.dev.vars.example apps/server/.dev.vars
+cp apps/server/.env.example apps/server/.dev.vars
 # Edit .dev.vars with your API keys and GitHub App credentials
 
 # Run D1 migrations
