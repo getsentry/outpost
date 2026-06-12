@@ -10,6 +10,7 @@ import {
   Robot,
   Stack,
   Terminal,
+  Trash,
   TreeStructure,
   Wrench,
   X,
@@ -19,7 +20,18 @@ import { useNavigate, useParams } from "react-router-dom"
 import { GitHubLink } from "@/client/components/github-link"
 import type { SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
 import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
-import { useSessionDetail } from "@/client/lib/queries"
+import { useDestroyContainer, useSessionDetail } from "@/client/lib/queries"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -318,6 +330,7 @@ export default function ContainerDetailPage() {
   const entityKey = rawKey ? decodeURIComponent(rawKey) : ""
   const navigate = useNavigate()
   const { data, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useSessionDetail(entityKey)
+  const destroyContainer = useDestroyContainer()
   const [showLogs, setShowLogs] = useState(false)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
 
@@ -433,6 +446,36 @@ export default function ContainerDetailPage() {
             <Button variant={showLogs ? "secondary" : "outline"} size="xs" onClick={() => setShowLogs(!showLogs)}>
               <Terminal className="size-3" /> Logs
             </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="xs" disabled={destroyContainer.isPending}>
+                  <Trash className="size-3" />
+                  {destroyContainer.isPending ? "Destroying..." : "Destroy"}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Destroy this container?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will force-stop the container and delete the session data for{" "}
+                    <span className="font-mono font-medium">{entityKey}</span>. The agent will stop working. This action
+                    cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => {
+                      destroyContainer.mutate(entityKey, {
+                        onSuccess: () => navigate("/containers"),
+                      })
+                    }}
+                  >
+                    Destroy Container
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
             {dataUpdatedAt && (
               <span className="text-[10px] text-muted-foreground">
                 {formatTimeAgo(new Date(dataUpdatedAt).toISOString())}

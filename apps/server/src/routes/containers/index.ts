@@ -268,16 +268,23 @@ const router = new Hono<BaseEnv>()
     }
   })
 
-  // Force-destroy a container
+  // Force-destroy a container and clean up session data
   .post("/:entityKey/destroy", async (c) => {
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
+    const db = c.get("db")
     const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
     try {
       await sandbox.destroy()
-      return c.json({ ok: true, entityKey, action: "destroyed" })
-    } catch (err) {
-      return c.json({ error: formatError(err) }, 500)
+    } catch {
+      // Container might already be dead — continue with D1 cleanup
     }
+    // Clean up session data from D1
+    try {
+      await db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey))
+    } catch {
+      /* best effort */
+    }
+    return c.json({ ok: true, entityKey, action: "destroyed" })
   })
 
 export default router

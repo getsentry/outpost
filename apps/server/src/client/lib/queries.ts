@@ -97,3 +97,14 @@ export function useDeleteSession() {
     },
   })
 }
+
+export function useDestroyContainer() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (entityKey: string) => api.destroyContainer(entityKey),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+      queryClient.invalidateQueries({ queryKey: ["sessionDetail"] })
+    },
+  })
+}

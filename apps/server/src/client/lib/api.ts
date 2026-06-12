@@ -139,4 +139,10 @@ export const api = {
     if (!res.ok) throw new Error(`Failed to delete session: ${res.status}`)
     return res.json()
   },
+
+  async destroyContainer(entityKey: string) {
+    const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/destroy`, { method: "POST" })
+    if (!res.ok) throw new Error(`Failed to destroy container: ${res.status}`)
+    return res.json()
+  },
 }
