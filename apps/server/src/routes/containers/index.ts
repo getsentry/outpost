@@ -13,11 +13,10 @@ import { formatError } from "@jared/utils"
 import { desc, eq, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
+import { OPENCODE_PORT } from "@/lib/containers/dispatch"
 import { saveSession } from "@/lib/containers/sessions"
 import { isAuthenticated } from "@/middlewares"
 import type { BaseEnv } from "@/types"
-
-const OPENCODE_PORT = 4096
 
 /**
  * Collect session data from a running OpenCode container.
@@ -54,12 +53,16 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
     /* best effort */
   }
 
-  return JSON.stringify({
-    sessionStatus: sessionResult.stdout ? JSON.parse(sessionResult.stdout) : {},
-    sessions: JSON.parse(sessionList.stdout),
-    logs: logResult.stdout || "",
-    messages,
-  })
+  try {
+    return JSON.stringify({
+      sessionStatus: sessionResult.stdout ? JSON.parse(sessionResult.stdout) : {},
+      sessions: JSON.parse(sessionList.stdout),
+      logs: logResult.stdout || "",
+      messages,
+    })
+  } catch {
+    return null
+  }
 }
 
 /** Safely parse the sessionData JSON blob stored in D1. */

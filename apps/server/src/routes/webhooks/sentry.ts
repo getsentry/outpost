@@ -37,7 +37,15 @@ async function verifySentrySignature(body: string, signature: string, secret: st
   const expected = Array.from(new Uint8Array(sig))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("")
-  return expected === signature
+  // Constant-time comparison to prevent timing side-channel attacks
+  if (expected.length !== signature.length) return false
+  const a = encoder.encode(expected)
+  const b2 = encoder.encode(signature)
+  let result = 0
+  for (let i = 0; i < a.length; i++) {
+    result |= a[i] ^ b2[i]
+  }
+  return result === 0
 }
 
 /**
@@ -293,7 +301,8 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           issueUrl,
         })
 
-        const sessionId = await dispatchPrompt(sandbox, containerKey, prompt, issueId)
+        const eventId = crypto.randomUUID()
+        const sessionId = await dispatchPrompt(sandbox, containerKey, prompt, eventId)
 
         try {
           await saveInitialSession(db, containerKey, sessionId)

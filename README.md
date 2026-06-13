@@ -101,7 +101,7 @@ The dashboard provides:
 | Provider | Status | Trigger |
 |----------|--------|---------|
 | GitHub   | Active | Label issue with `jared` |
-| Sentry   | Planned | Assign issue to `jared` |
+| Sentry   | Active | Assign issue to team `#special-projects` |
 
 ## Configuration
 

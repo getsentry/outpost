@@ -11,7 +11,7 @@
 
 2. Copy the environment template and fill in your credentials:
    ```bash
-   cp apps/server/.dev.vars.example apps/server/.dev.vars
+   cp apps/server/.env.example apps/server/.dev.vars
    ```
 
 3. Run D1 migrations locally:
