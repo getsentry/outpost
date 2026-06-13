@@ -24,6 +24,9 @@ export type BaseEnvBindings = {
     GITHUB_APP_ID: string
     GITHUB_APP_PRIVATE_KEY: string
     GITHUB_APP_WEBHOOK_SECRET: string
+    // Sentry internal integration (for assigning Sentry issues to the agent)
+    SENTRY_INTEGRATION_CLIENT_SECRET?: string
+    SENTRY_INTEGRATION_TOKEN?: string
     // Cloudflare Sandbox (OpenCode) Durable Object binding
     Sandbox: DurableObjectNamespace<Sandbox>
   }
