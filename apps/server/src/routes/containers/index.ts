@@ -31,10 +31,17 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
 
   if (!sessionList.stdout) return null
 
+  const parseListResponse = (raw: string): Array<{ id: string }> => {
+    const parsed = JSON.parse(raw) as unknown
+    const data = Array.isArray(parsed) ? parsed : (parsed as { data?: unknown }).data
+    return Array.isArray(data) ? (data as Array<{ id: string }>) : []
+  }
+
+  const sessions = parseListResponse(sessionList.stdout)
+
   // Fetch messages for each session
   let messages: Record<string, unknown[]> = {}
   try {
-    const sessions = JSON.parse(sessionList.stdout) as Array<{ id: string }>
     const msgResults = await Promise.all(
       sessions.map(async (s) => {
         const res = await sandbox.exec(
@@ -42,7 +49,7 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
           { cwd: "/workspace" },
         )
         try {
-          return { id: s.id, messages: JSON.parse(res.stdout || "[]") }
+          return { id: s.id, messages: parseListResponse(res.stdout || "[]") }
         } catch {
           return { id: s.id, messages: [] }
         }
@@ -56,7 +63,7 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
   try {
     return JSON.stringify({
       sessionStatus: sessionResult.stdout ? JSON.parse(sessionResult.stdout) : {},
-      sessions: JSON.parse(sessionList.stdout),
+      sessions,
       logs: logResult.stdout || "",
       messages,
     })
