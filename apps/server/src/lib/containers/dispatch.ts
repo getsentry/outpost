@@ -153,7 +153,7 @@ export async function dispatchPrompt(
   if (!sessionId) throw new Error("failed to find or create session")
 
   // Write prompt to file to avoid shell escaping issues
-  const promptPayload = JSON.stringify({ agent: "jared", parts: [{ type: "text", text: prompt }] })
+  const promptPayload = JSON.stringify({ agent: "jared", prompt: { text: prompt } })
   const promptFile = `/tmp/prompt-${eventId}.json`
   await sandbox.writeFile(promptFile, promptPayload)
 
