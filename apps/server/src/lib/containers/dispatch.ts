@@ -196,11 +196,13 @@ export async function dispatchPrompt(
   const promptFile = `/tmp/prompt-${eventId}.json`
   await sandbox.writeFile(promptFile, promptPayload)
 
-  // Try /api/session/:id/prompt first (v1.17.4+), fall back to prompt_async (v1.17.0).
-  // IMPORTANT: prompt_async on v1.17.0 returns 204 but silently drops the prompt,
-  // so it must NOT be tried first — its success masks the real failure.
+  // Try prompt endpoints in order of reliability:
+  // 1. /api/session/:id/prompt  — v1.17.4+ (preferred, actually processes)
+  // 2. /session/:id/prompt      — v1.17.0 (no /api/ prefix, actually processes)
+  // NOTE: prompt_async is intentionally excluded — it returns 204 but silently
+  // drops the prompt on v1.17.0, masking failures.
   const promptResult = await sandbox.exec(
-    `curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/api/session/${sessionId}/prompt 2>/dev/null || curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/session/${sessionId}/prompt_async 2>/dev/null`,
+    `curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/api/session/${sessionId}/prompt 2>/dev/null || curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/session/${sessionId}/prompt 2>/dev/null`,
     { cwd: "/workspace" },
   )
   await sandbox.exec(`rm -f ${promptFile}`, { cwd: "/workspace" })
