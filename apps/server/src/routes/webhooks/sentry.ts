@@ -264,24 +264,35 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
   // Dispatch in waitUntil so we return 200 quickly
   const envBindings = c.env
   const db = c.get("db")
+  const containerKey = `sentry/${projectSlug}#${issueId}`
+
+  // Save initial session immediately so the container appears in the UI
+  try {
+    await saveInitialSession(db, containerKey, `pending-sentry-${issueId.slice(0, 8)}`)
+  } catch {
+    /* best effort — may conflict with existing row */
+  }
 
   c.executionCtx.waitUntil(
     (async () => {
       try {
+        logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.start")
+
         // Fetch full issue context from Sentry API
         const context = await fetchSentryIssueContext(issueId, token)
+        logger.info({ issue_id: issueId }, "sentry.dispatch.context_fetched")
 
         // Determine the GitHub repo from the Sentry project
         // TODO: Use Sentry code mappings API to resolve project → repo automatically
         // For now, use the project slug as a hint and require the agent to figure it out
         const repo = projectSlug ? `getsentry/${projectSlug}` : ""
-        const containerKey = `sentry/${projectSlug}#${issueId}`
 
         const sandbox = getSandbox(envBindings.Sandbox, containerKey, {
           normalizeId: true,
           sleepAfter: "2h",
         })
 
+        logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.sandbox_ready.start")
         // TODO: Get GitHub installation token for the resolved repo
         // For now, use the GitHub App to get a token for the getsentry org
         await ensureSandboxReady(sandbox, {
@@ -293,6 +304,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           sentryDsn: envBindings.SENTRY_DSN,
           entityKey: containerKey,
         })
+        logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.sandbox_ready.done")
 
         const prompt = formatSentryPrompt({
           issue: context.issue,
@@ -301,13 +313,15 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           issueUrl,
         })
 
+        logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.prompt.start")
         const eventId = crypto.randomUUID()
         const sessionId = await dispatchPrompt(sandbox, containerKey, prompt, eventId)
+        logger.info({ issue_id: issueId, container_key: containerKey, session_id: sessionId }, "sentry.dispatch.prompt.done")
 
         try {
           await saveInitialSession(db, containerKey, sessionId)
         } catch {
-          /* best effort */
+          /* best effort — updates the pending row with real session ID */
         }
 
         logger.info(
@@ -315,7 +329,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           "sentry issue dispatched",
         )
       } catch (err) {
-        logger.error({ issue_id: issueId, reason: formatError(err) }, "sentry dispatch failed")
+        logger.error({ issue_id: issueId, container_key: containerKey, reason: formatError(err) }, "sentry dispatch failed")
         Sentry.captureException(err)
       }
     })(),

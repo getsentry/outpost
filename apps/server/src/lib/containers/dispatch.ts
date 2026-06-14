@@ -9,11 +9,50 @@ import { saveSession } from "./sessions"
 
 export const OPENCODE_PORT = 4096
 
+/** Default timeout for sandbox setup (2 minutes). */
+const SANDBOX_READY_TIMEOUT_MS = 120_000
+
+/**
+ * Wrap a promise with a timeout. Rejects with a descriptive error if the
+ * promise doesn't settle within `ms` milliseconds.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    promise.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (e) => {
+        clearTimeout(timer)
+        reject(e)
+      },
+    )
+  })
+}
+
 /**
  * Set up the sandbox: clone repo, configure git, start OpenCode.
  * Idempotent — safe to call on every event.
+ * Wrapped with a timeout to prevent indefinite hangs inside waitUntil.
  */
 export async function ensureSandboxReady(
+  sandbox: ReturnType<typeof getSandbox>,
+  opts: {
+    repo: string | null
+    botLogin: string
+    installationToken: string
+    anthropicApiKey?: string
+    openaiApiKey?: string
+    sentryDsn?: string
+    entityKey: string
+  },
+): Promise<void> {
+  return withTimeout(ensureSandboxReadyInner(sandbox, opts), SANDBOX_READY_TIMEOUT_MS, "ensureSandboxReady")
+}
+
+async function ensureSandboxReadyInner(
   sandbox: ReturnType<typeof getSandbox>,
   opts: {
     repo: string | null

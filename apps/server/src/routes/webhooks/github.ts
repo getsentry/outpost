@@ -174,14 +174,25 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
 
   const envBindings = c.env
 
+  // Save initial session immediately so the container appears in the UI
+  // before the potentially slow sandbox startup completes.
+  try {
+    await saveInitialSession(db, containerKey, `pending-${eventId.slice(0, 8)}`)
+  } catch {
+    /* best effort — may conflict with existing row */
+  }
+
   c.executionCtx.waitUntil(
     (async () => {
       try {
+        logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.start")
+
         const sandbox = getSandbox(envBindings.Sandbox, containerKey, {
           normalizeId: true,
           sleepAfter: "2h",
         })
 
+        logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.sandbox_ready.start")
         await ensureSandboxReady(sandbox, {
           repo,
           botLogin,
@@ -191,6 +202,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           sentryDsn: envBindings.SENTRY_DSN,
           entityKey: containerKey,
         })
+        logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.sandbox_ready.done")
 
         const prompt = formatEventPrompt({
           event,
@@ -203,12 +215,14 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           botLogin,
         })
 
+        logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.start")
         const sessionId = await dispatchPrompt(sandbox, containerKey, prompt, eventId)
+        logger.info({ entity_key: containerKey, event_id: eventId, session_id: sessionId }, "dispatch.prompt.done")
 
         try {
           await saveInitialSession(db, containerKey, sessionId)
         } catch {
-          /* best effort */
+          /* best effort — updates the pending row with real session ID */
         }
 
         await db
@@ -218,6 +232,8 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
 
         logger.info({ entity_key: containerKey, event_id: eventId, session_id: sessionId }, "event dispatched to agent")
       } catch (err) {
+        logger.error({ entity_key: containerKey, event_id: eventId, reason: formatError(err) }, "dispatch failed")
+        Sentry.captureException(err)
         try {
           await db
             .update(dbSchema.webhookEvents)
@@ -226,8 +242,6 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
         } catch {
           /* best effort */
         }
-        logger.error({ entity_key: containerKey, event_id: eventId, reason: formatError(err) }, "dispatch failed")
-        Sentry.captureException(err)
       }
     })(),
   )
