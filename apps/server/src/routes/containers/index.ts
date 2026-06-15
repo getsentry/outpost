@@ -19,6 +19,24 @@ import { isAuthenticated } from "@/middlewares"
 import type { BaseEnv } from "@/types"
 
 /**
+ * Normalize an API response that may be a bare array or wrapped in { data: [...] }.
+ * Returns the unwrapped array, preserving element shapes (works for sessions AND messages).
+ */
+function unwrapArray(raw: string): unknown[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (Array.isArray(parsed)) return parsed
+    if (parsed && typeof parsed === "object" && "data" in parsed) {
+      const d = (parsed as { data?: unknown }).data
+      if (Array.isArray(d)) return d
+    }
+    return []
+  } catch {
+    return []
+  }
+}
+
+/**
  * Collect session data from a running OpenCode container.
  * Returns a stringified JSON blob ready for saveSession(), or null if collection fails.
  */
@@ -31,15 +49,9 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
 
   if (!sessionList.stdout) return null
 
-  const parseListResponse = (raw: string): Array<{ id: string }> => {
-    const parsed = JSON.parse(raw) as unknown
-    const data = Array.isArray(parsed) ? parsed : (parsed as { data?: unknown }).data
-    return Array.isArray(data) ? (data as Array<{ id: string }>) : []
-  }
+  const sessions = unwrapArray(sessionList.stdout) as Array<{ id: string }>
 
-  const sessions = parseListResponse(sessionList.stdout)
-
-  // Fetch messages for each session
+  // Fetch messages for each session — messages are {info, parts} objects, NOT {id} objects
   let messages: Record<string, unknown[]> = {}
   try {
     const msgResults = await Promise.all(
@@ -49,7 +61,7 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
           { cwd: "/workspace" },
         )
         try {
-          return { id: s.id, messages: parseListResponse(res.stdout || "[]") }
+          return { id: s.id, messages: unwrapArray(res.stdout || "[]") }
         } catch {
           return { id: s.id, messages: [] }
         }
