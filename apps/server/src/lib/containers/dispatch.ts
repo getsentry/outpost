@@ -120,6 +120,17 @@ async function ensureSandboxReadyInner(
   const proc = await sandbox.startProcess(startCmd, { cwd })
   await proc.waitForPort(OPENCODE_PORT)
 
+  // Poll until OpenCode's /session endpoint responds (it can take 30-40s after
+  // the port opens while OpenCode loads the project, lore plugin, etc.).
+  // Without this, dispatchPrompt's /session call blocks for the full init time
+  // inside waitUntil, which can exhaust Cloudflare's waitUntil budget.
+  const readinessCmd = `curl -sf http://localhost:${OPENCODE_PORT}/session 2>/dev/null || curl -sf http://localhost:${OPENCODE_PORT}/api/session 2>/dev/null`
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const check = await sandbox.exec(readinessCmd, { cwd: "/workspace" })
+    if (check.success && check.stdout) break
+    await sandbox.exec("sleep 1", { cwd: "/workspace" })
+  }
+
   // Start a keepalive process that keeps the sandbox alive while OpenCode works.
   const keepaliveScript = [
     "#!/bin/bash",
