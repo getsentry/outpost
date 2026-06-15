@@ -124,7 +124,7 @@ async function ensureSandboxReadyInner(
   // the port opens while OpenCode loads the project, lore plugin, etc.).
   // Without this, dispatchPrompt's /session call blocks for the full init time
   // inside waitUntil, which can exhaust Cloudflare's waitUntil budget.
-  const readinessCmd = `curl -sf http://localhost:${OPENCODE_PORT}/session 2>/dev/null || curl -sf http://localhost:${OPENCODE_PORT}/api/session 2>/dev/null`
+  const readinessCmd = `curl -sf --max-time 2 http://localhost:${OPENCODE_PORT}/session 2>/dev/null || curl -sf --max-time 2 http://localhost:${OPENCODE_PORT}/api/session 2>/dev/null`
   for (let attempt = 0; attempt < 60; attempt++) {
     const check = await sandbox.exec(readinessCmd, { cwd: "/workspace" })
     if (check.success && check.stdout) break
