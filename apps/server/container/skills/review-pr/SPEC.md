@@ -50,4 +50,4 @@ reviewer, or assignee). Requires `repo-setup` first.
 
 ## Maintenance
 
-- The `explore` sub-agent delegation for large diffs should be monitored for quality
+- Large diffs are read in-session (sub-agents are disabled in this runtime)

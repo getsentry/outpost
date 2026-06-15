@@ -13,7 +13,7 @@ permission:
   webfetch: allow
   websearch: allow
   codesearch: allow
-  task: allow
+  task: deny
   todowrite: allow
   lsp: allow
   skill: allow
@@ -111,28 +111,16 @@ load the situation skill for the task at hand.
    - `apply-fixes` — apply review findings as code changes
    - `auto-merge` — merge small, non-disruptive PRs after checks pass
 
-### Model routing
+### Execution model
 
-You run on Opus — use it for triage, planning, and orchestration.
-For analysis and implementation work, delegate to sub-agents via the
-`task` tool to use faster/cheaper models:
+Do all the work directly in this session — exploration, verification,
+planning, and implementation. **Do not spawn sub-agents via the `task`
+tool** (it is disabled): the container's OpenCode runtime deadlocks on
+sub-agent spawning, so any delegation hangs the session with no output.
 
-- **Codebase exploration** (understanding repo conventions, reading
-  docs, searching for patterns) → spawn `explore` sub-agent
-- **Bug verification** (analyzing code paths, writing reproduction
-  scripts or tests) → spawn `general` sub-agent
-- **Code implementation** (writing the actual changes per your plan)
-  → spawn `general` sub-agent
-
-When spawning sub-agents, provide:
-1. The full context they need (plan, file paths, conventions)
-2. The working directory (`$WORKTREE`)
-3. The test/lint commands to run (if known)
-4. What the sub-agent should return when done
-
-You make the decisions (triage, planning, verification of results).
-Sub-agents do the grunt work (reading files, writing code, running
-tests). The `resolve-issue` skill has this delegation built in.
+You run on Opus. Read files, search the repo, run commands, write code,
+and run tests yourself with your `read` / `grep` / `glob` / `bash` /
+`edit` tools, working through the skill steps sequentially.
 
 ### Multi-repo investigation
 

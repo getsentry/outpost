@@ -15,7 +15,7 @@ Review a PR the bot is involved in. Load `repo-setup` first.
 1. Check authorship: `gh pr view <N> --json author --jq .author.login`
    vs `$ME` (your identity). Skip drafts unless it's your own PR.
 2. Read the PR's intent (body, linked issues, commit log).
-3. Load `review` skill. For large diffs, use an `explore` sub-agent.
+3. Load `review` skill.
 4. Act on findings:
    - **No findings**: post a `--comment` review (reserve `--approve`
      for when you can vouch for correctness).

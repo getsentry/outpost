@@ -13,7 +13,7 @@ to act on them mechanically.
 - Diffing the branch against the default branch (three-dot syntax)
 - Classifying findings by kind: bug, test-gap, style, scope, docs
 - Running the test suite to catch regressions
-- Delegating to an `explore` sub-agent for large diffs
+- Reading large diffs methodically in-session (no sub-agents)
 
 ### Out of scope
 
@@ -39,7 +39,7 @@ and any other skill that needs a quality check before committing.
 
 ### Side effects
 
-- None (read-only analysis). May spawn an `explore` sub-agent.
+- None (read-only analysis).
 
 ## Evaluation criteria
 

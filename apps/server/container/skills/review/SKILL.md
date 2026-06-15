@@ -10,8 +10,8 @@ metadata:
 # Review changes
 
 Read the diff against the default branch and produce a structured list
-of findings. The caller decides what to do with them — push fixes via
-a subagent, post a review on GitHub, or both.
+of findings. The caller decides what to do with them — apply fixes
+directly, post a review on GitHub, or both.
 
 ## Process
 
@@ -23,9 +23,10 @@ a subagent, post a review on GitHub, or both.
    Three-dot syntax shows just what this branch added, not unrelated
    changes that landed on the default branch since branching.
 
-2. For larger diffs, prefer spawning the `explore` sub-agent (via the
-   `task` tool) to do the read pass. The explore agent is read-only and
-   doesn't carry the implementation's "obvious in context" bias.
+2. For larger diffs, do the read pass methodically yourself — read the
+   changed files top to bottom before judging, so you don't carry the
+   implementation's "obvious in context" bias. (Do not use sub-agents;
+   the `task` tool is disabled.)
 
 3. If a test suite exists, run it to verify the changes don't break
    anything. Check `package.json` scripts, `Makefile`, `pytest.ini`,

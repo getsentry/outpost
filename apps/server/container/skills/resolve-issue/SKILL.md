@@ -39,8 +39,7 @@ and respond to feedback.
      Verify before starting new work.
    - **No linked PRs** → proceed with fresh implementation.
 
-3. **Understand repo conventions.** Spawn an `explore` sub-agent via
-   the `task` tool to read and summarize:
+3. **Understand repo conventions.** Read and summarize directly:
    - `CONTRIBUTING.md`, `AGENTS.md`, `DEVELOPMENT.md`, or similar docs
    - Recent commit history: `git log --oneline -20` (commit style)
    - Linter config: `biome.json`, `.eslintrc*`, `.prettierrc*`,
@@ -49,8 +48,8 @@ and respond to feedback.
      `pytest.ini`, `pyproject.toml [tool.pytest]`, `go.mod`, etc.
    - CI workflow files: `.github/workflows/*.yml` — note the test
      command and count the number of check/job names
-   The sub-agent should return: coding conventions, test command,
-   lint command, PR template path (if any), and CI check count.
+   Note for later: coding conventions, test command, lint command,
+   PR template path (if any), and CI check count.
 
 ### Phase 2: Bug Verification
 
@@ -58,7 +57,7 @@ and respond to feedback.
    - **Feature request** → skip to step 6 (planning).
    - **Bug report** → continue to verification.
 
-5. **Verify the bug exists.** Spawn a `general` sub-agent to:
+5. **Verify the bug exists** (directly):
    a. Read the relevant code paths identified in the issue body.
    b. Cross-check against the default branch HEAD — is the described
       behavior actually present in the current code?
@@ -78,8 +77,7 @@ and respond to feedback.
 
 ### Phase 3: Planning
 
-6. **Create a detailed plan.** This is your job as the orchestrator
-   (Opus). Based on the root cause (from step 5) or the feature
+6. **Create a detailed plan.** Based on the root cause (from step 5) or the feature
    scope (from step 4), produce a plan that includes:
    - The root cause or feature scope summary.
    - Every file to change and what each change does.
@@ -90,8 +88,7 @@ and respond to feedback.
 
 ### Phase 4: Implementation
 
-7. **Implement the plan.** Spawn a `general` sub-agent to make the
-   code changes. Provide:
+7. **Implement the plan** directly. Make the code changes following:
    - The full plan from step 6.
    - The working directory (`$WORKTREE`).
    - The coding conventions from step 3.
