@@ -467,10 +467,10 @@ export default function ContainerDetailPage() {
   const overallStatus = hasBusy ? "busy" : statusValues.length > 0 ? "idle" : "unknown"
 
   return (
-    <div className="-m-6 flex h-[calc(100%+3rem)] flex-col">
+    <div className="-m-6 flex h-[calc(100%+3rem)] min-w-0 flex-col overflow-hidden">
       {/* Header bar */}
       <div className="shrink-0 border-b px-4 py-3">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => navigate("/containers")}>
             <ArrowLeft className="size-3.5" />
             Back
@@ -506,7 +506,7 @@ export default function ContainerDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <Button variant={showLogs ? "secondary" : "outline"} size="xs" onClick={() => setShowLogs(!showLogs)}>
               <Terminal className="size-3" /> Logs
             </Button>
@@ -521,7 +521,7 @@ export default function ContainerDetailPage() {
       </div>
 
       {/* Main content: sidebar + chat */}
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* Session sidebar */}
         <div className="w-56 shrink-0 overflow-y-auto border-r p-2">
           <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">

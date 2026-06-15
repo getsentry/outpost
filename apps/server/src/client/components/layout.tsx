@@ -176,7 +176,7 @@ export default function Layout() {
           <Separator orientation="vertical" className="mr-2 !h-4" />
           <span className="text-sm text-muted-foreground">Outpost</span>
         </header>
-        <div className="flex-1 overflow-auto p-6">
+        <div className="min-w-0 flex-1 overflow-auto p-6">
           <Outlet />
         </div>
       </SidebarInset>
