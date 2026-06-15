@@ -141,16 +141,23 @@ function ChatMessage({ message }: { message: SessionMessage }) {
         {/* Tool calls */}
         {toolParts.length > 0 && (
           <div className="mt-2 space-y-1">
-            {toolParts.map((part, i) => (
-              <ToolCallBlock
-                key={i}
-                toolName={part.toolName ?? "unknown"}
-                isInvocation={part.type === "tool-invocation"}
-                state={part.state as string | undefined}
-                args={part.type === "tool-invocation" ? part.args : undefined}
-                result={part.type !== "tool-invocation" ? part.result : undefined}
-              />
-            ))}
+            {toolParts.map((part, i) => {
+              // v1.17.0: `state` is an object { status, input, output, ... }.
+              // Legacy: `state` is a string and args/result are top-level.
+              const stateObj = part.state && typeof part.state === "object" ? part.state : undefined
+              const status = typeof part.state === "string" ? part.state : stateObj?.status
+              const args = stateObj?.input ?? (part.type === "tool-invocation" ? part.args : undefined)
+              const result = stateObj?.output ?? (part.type !== "tool-invocation" ? part.result : undefined)
+              return (
+                <ToolCallBlock
+                  key={i}
+                  toolName={part.tool ?? part.toolName ?? "unknown"}
+                  status={status}
+                  args={args}
+                  result={result}
+                />
+              )
+            })}
           </div>
         )}
 
@@ -173,26 +180,30 @@ function ChatMessage({ message }: { message: SessionMessage }) {
 
 function ToolCallBlock({
   toolName,
-  isInvocation,
-  state,
+  status,
   args,
   result,
 }: {
   toolName: string
-  isInvocation: boolean
-  state?: string
+  status?: string
   args?: Record<string, unknown>
   result?: unknown
 }) {
   const [open, setOpen] = useState(false)
 
-  const stateColors: Record<string, string> = {
+  const statusColors: Record<string, string> = {
+    completed: "text-green-600 dark:text-green-400",
     result: "text-green-600 dark:text-green-400",
+    running: "text-blue-600 dark:text-blue-400",
     call: "text-blue-600 dark:text-blue-400",
+    pending: "text-yellow-600 dark:text-yellow-400",
     partial_call: "text-yellow-600 dark:text-yellow-400",
+    error: "text-red-600 dark:text-red-400",
   }
 
-  const hasContent = (isInvocation && args && Object.keys(args).length > 0) || (!isInvocation && result != null)
+  const hasArgs = !!args && Object.keys(args).length > 0
+  const hasResult = result != null && result !== ""
+  const hasContent = hasArgs || hasResult
 
   return (
     <div className="rounded-md border border-border/50 bg-background/80 dark:bg-muted/15">
@@ -203,8 +214,7 @@ function ToolCallBlock({
       >
         <Wrench className="size-3 shrink-0 text-muted-foreground/60" />
         <span className="font-mono font-medium">{toolName}</span>
-        {state && <span className={`text-[10px] ${stateColors[state] ?? "text-muted-foreground"}`}>({state})</span>}
-        {!isInvocation && <span className="text-[10px] text-green-600 dark:text-green-400">completed</span>}
+        {status && <span className={`text-[10px] ${statusColors[status] ?? "text-muted-foreground"}`}>({status})</span>}
         {hasContent && (
           <span className="ml-auto">
             {open ? (
@@ -216,10 +226,27 @@ function ToolCallBlock({
         )}
       </button>
       {open && hasContent && (
-        <div className="border-t border-border/30 px-2.5 py-2">
-          <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-relaxed text-muted-foreground">
-            {JSON.stringify(isInvocation ? args : result, null, 2)}
-          </pre>
+        <div className="space-y-2 border-t border-border/30 px-2.5 py-2">
+          {hasArgs && (
+            <div>
+              <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                Input
+              </div>
+              <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-relaxed text-muted-foreground">
+                {JSON.stringify(args, null, 2)}
+              </pre>
+            </div>
+          )}
+          {hasResult && (
+            <div>
+              <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                Output
+              </div>
+              <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-relaxed text-muted-foreground">
+                {typeof result === "string" ? result : JSON.stringify(result, null, 2)}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>

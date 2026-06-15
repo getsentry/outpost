@@ -27,13 +27,26 @@ export type SessionInfo = {
   updatedAt?: string
 }
 
+/** OpenCode v1.17.0 tool part state object. */
+export type ToolState = {
+  status?: string
+  input?: Record<string, unknown>
+  output?: unknown
+  title?: string
+  metadata?: Record<string, unknown>
+  time?: unknown
+}
+
 export type MessagePart = {
   type: string
   text?: string
+  // v1.17.0 tool parts: name in `tool`, details in `state` (an object).
+  tool?: string
+  state?: string | ToolState
+  // Legacy `tool-invocation` shape (kept for back-compat).
   toolName?: string
   args?: Record<string, unknown>
   result?: unknown
-  state?: string
 }
 
 export type SessionMessage = {
