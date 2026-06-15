@@ -41,15 +41,21 @@ function unwrapArray(raw: string): unknown[] {
  * Returns a stringified JSON blob ready for saveSession(), or null if collection fails.
  */
 async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Promise<string | null> {
+  // All curls use --max-time so a busy container (agent using CPU) can't hang
+  // the whole sync. Bounded so the request always returns promptly.
   const [logResult, sessionResult, sessionList] = await Promise.all([
     sandbox.exec("cat /tmp/opencode.log 2>/dev/null | tail -100", { cwd: "/workspace" }),
-    sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null`, { cwd: "/workspace" }),
-    sandbox.exec(`curl -sf http://localhost:${OPENCODE_PORT}/session 2>/dev/null`, { cwd: "/workspace" }),
+    sandbox.exec(`curl -sf --max-time 5 http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null`, {
+      cwd: "/workspace",
+    }),
+    sandbox.exec(`curl -sf --max-time 5 http://localhost:${OPENCODE_PORT}/session 2>/dev/null`, { cwd: "/workspace" }),
   ])
 
   if (!sessionList.stdout) return null
 
-  const sessions = unwrapArray(sessionList.stdout) as Array<{ id: string }>
+  // Cap the number of sessions we fetch messages for to bound the work.
+  const MAX_SESSIONS = 25
+  const sessions = (unwrapArray(sessionList.stdout) as Array<{ id: string }>).slice(0, MAX_SESSIONS)
 
   // Fetch messages for each session — messages are {info, parts} objects, NOT {id} objects
   let messages: Record<string, unknown[]> = {}
@@ -57,7 +63,7 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
     const msgResults = await Promise.all(
       sessions.map(async (s) => {
         const res = await sandbox.exec(
-          `curl -sf "http://localhost:${OPENCODE_PORT}/session/${s.id}/message?limit=50" 2>/dev/null`,
+          `curl -sf --max-time 5 "http://localhost:${OPENCODE_PORT}/session/${s.id}/message?limit=50" 2>/dev/null`,
           { cwd: "/workspace" },
         )
         try {
@@ -193,22 +199,23 @@ const router = new Hono<BaseEnv>()
       return c.json({ error: "Session not found" }, 404)
     }
 
-    // Auto-sync: if data is stale, refresh from the running container
-    const isStale = Date.now() - new Date(session.updatedAt).getTime() > 30_000
+    // Auto-sync: if data is stale, refresh from the running container IN THE
+    // BACKGROUND so a busy container (agent using CPU) never blocks the UI.
+    // The response always returns the latest D1 snapshot immediately; the next
+    // poll picks up the freshly-synced data.
+    const isStale = Date.now() - new Date(session.updatedAt).getTime() > 15_000
     if (isStale) {
-      try {
-        const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
-        const freshData = await collectContainerData(sandbox)
-        if (freshData) {
-          await saveSession(db, entityKey, freshData)
-          session = await db.query.agentSessions.findFirst({
-            where: eq(dbSchema.agentSessions.entityKey, entityKey),
-          })
-          if (!session) return c.json({ error: "Session not found" }, 404)
-        }
-      } catch {
-        // Container might be dead — return stale data
-      }
+      const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
+      c.executionCtx.waitUntil(
+        (async () => {
+          try {
+            const freshData = await collectContainerData(sandbox)
+            if (freshData) await saveSession(db, entityKey, freshData)
+          } catch {
+            // Container might be dead/busy — leave the existing snapshot in place.
+          }
+        })(),
+      )
     }
 
     const parsed = parseSessionData(session.sessionData)
