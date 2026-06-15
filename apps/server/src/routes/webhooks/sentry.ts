@@ -318,12 +318,12 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
         // Schedules the prompt via a container-side script (does not block on
         // OpenCode startup). The agent processes it autonomously.
         await dispatchPrompt(sandbox, containerKey, prompt, eventId)
-        logger.info(
-          { issue_id: issueId, container_key: containerKey },
-          "sentry issue dispatched",
-        )
+        logger.info({ issue_id: issueId, container_key: containerKey }, "sentry issue dispatched")
       } catch (err) {
-        logger.error({ issue_id: issueId, container_key: containerKey, reason: formatError(err) }, "sentry dispatch failed")
+        logger.error(
+          { issue_id: issueId, container_key: containerKey, reason: formatError(err) },
+          "sentry dispatch failed",
+        )
         Sentry.captureException(err)
       }
     })(),

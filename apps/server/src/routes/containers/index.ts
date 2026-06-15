@@ -191,7 +191,7 @@ const router = new Hono<BaseEnv>()
       return c.json({ error: "entityKey query parameter required" }, 400)
     }
 
-    let session = await db.query.agentSessions.findFirst({
+    const session = await db.query.agentSessions.findFirst({
       where: eq(dbSchema.agentSessions.entityKey, entityKey),
     })
 
