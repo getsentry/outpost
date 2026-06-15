@@ -315,17 +315,11 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
 
         logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.prompt.start")
         const eventId = crypto.randomUUID()
-        const sessionId = await dispatchPrompt(sandbox, containerKey, prompt, eventId)
-        logger.info({ issue_id: issueId, container_key: containerKey, session_id: sessionId }, "sentry.dispatch.prompt.done")
-
-        try {
-          await saveInitialSession(db, containerKey, sessionId)
-        } catch {
-          /* best effort — updates the pending row with real session ID */
-        }
-
+        // Schedules the prompt via a container-side script (does not block on
+        // OpenCode startup). The agent processes it autonomously.
+        await dispatchPrompt(sandbox, containerKey, prompt, eventId)
         logger.info(
-          { issue_id: issueId, container_key: containerKey, session_id: sessionId },
+          { issue_id: issueId, container_key: containerKey },
           "sentry issue dispatched",
         )
       } catch (err) {

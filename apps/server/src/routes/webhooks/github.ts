@@ -216,21 +216,18 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
         })
 
         logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.start")
-        const sessionId = await dispatchPrompt(sandbox, containerKey, prompt, eventId)
-        logger.info({ entity_key: containerKey, event_id: eventId, session_id: sessionId }, "dispatch.prompt.done")
-
-        try {
-          await saveInitialSession(db, containerKey, sessionId)
-        } catch {
-          /* best effort — updates the pending row with real session ID */
-        }
+        // Schedules the prompt via a container-side script (does not block on
+        // OpenCode startup). The agent processes it autonomously; the UI
+        // auto-sync picks up the real session and messages.
+        await dispatchPrompt(sandbox, containerKey, prompt, eventId)
+        logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.scheduled")
 
         await db
           .update(dbSchema.webhookEvents)
           .set({ status: "dispatched", dispatchedAt: new Date() })
           .where(eq(dbSchema.webhookEvents.id, eventId))
 
-        logger.info({ entity_key: containerKey, event_id: eventId, session_id: sessionId }, "event dispatched to agent")
+        logger.info({ entity_key: containerKey, event_id: eventId }, "event dispatched to agent")
       } catch (err) {
         logger.error({ entity_key: containerKey, event_id: eventId, reason: formatError(err) }, "dispatch failed")
         Sentry.captureException(err)
