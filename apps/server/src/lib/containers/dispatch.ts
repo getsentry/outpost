@@ -39,20 +39,31 @@ export async function ensureSandboxReady(
   },
 ): Promise<void> {
   // Check if OpenCode is already running (fast path).
+  //
+  // CRITICAL: probe readiness against an endpoint that actually exists on
+  // OpenCode v1.17.0 (`/session`, the same one the dispatch script polls). The
+  // old check hit `/global/health`/`/api/health`, which 404 on v1.17.0, so the
+  // fast path NEVER triggered — meaning every follow-up event would pkill a
+  // running `opencode serve` and abort the agent's in-flight generation
+  // (assistant message left with empty parts). We only restart when OpenCode is
+  // genuinely absent or unresponsive.
+  let alreadyRunning = false
   try {
-    const [healthCheck, procCheck] = await Promise.all([
+    const [procCheck, readyCheck] = await Promise.all([
+      sandbox.exec("pgrep -f 'opencode serve' > /dev/null 2>&1", { cwd: "/workspace" }),
       sandbox.exec(
-        `curl -sf http://localhost:${OPENCODE_PORT}/global/health 2>/dev/null || curl -sf http://localhost:${OPENCODE_PORT}/api/health 2>/dev/null`,
+        `curl -sf --max-time 5 http://localhost:${OPENCODE_PORT}/session >/dev/null 2>&1 || curl -sf --max-time 5 http://localhost:${OPENCODE_PORT}/api/session >/dev/null 2>&1`,
         { cwd: "/workspace" },
       ),
-      sandbox.exec("pgrep -f 'opencode serve' > /dev/null 2>&1", { cwd: "/workspace" }),
     ])
-    if (healthCheck.success && procCheck.success) return
+    alreadyRunning = procCheck.success && readyCheck.success
   } catch {
-    // Not running
+    // Treat as not running.
   }
+  if (alreadyRunning) return
 
-  // Kill any stale OpenCode processes (leftover from a previous run/deploy)
+  // Kill any stale OpenCode processes (leftover from a previous run/deploy).
+  // Only reached when OpenCode is NOT serving, so this never aborts a live agent.
   await sandbox.exec("pkill -f 'opencode serve' 2>/dev/null; sleep 1", { cwd: "/workspace" })
 
   // Clone repo if needed
