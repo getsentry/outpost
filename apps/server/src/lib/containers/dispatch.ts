@@ -164,18 +164,18 @@ export async function dispatchPrompt(
   if (!sessionId) throw new Error("failed to find or create session")
 
   // Write prompt to file to avoid shell escaping issues
-  const promptPayload = JSON.stringify({ agent: "jared", prompt: { text: prompt } })
+  const promptPayload = JSON.stringify({ agent: "jared", parts: [{ type: "text", text: prompt }] })
   const promptFile = `/tmp/prompt-${eventId}.json`
   await sandbox.writeFile(promptFile, promptPayload)
 
-  // Try prompt endpoints in order of reliability:
-  // 1. /api/session/:id/prompt  — v1.17.4+ (preferred, actually processes)
-  // 2. /session/:id/prompt      — v1.17.0 (no /api/ prefix, actually processes)
-  // 3. /session/:id/prompt_async — v1.17.0 last resort (may return 204 without processing)
-  // IMPORTANT: prompt_async on v1.17.0 returns 204 but silently drops the prompt,
-  // so it must NOT be tried first — its success masks the real failure.
+  // Send the prompt. Verified against OpenCode v1.17.0:
+  //   - /session/:id/prompt_async       → 204, ACTUALLY processes (correct endpoint)
+  //   - /api/session/:id/prompt         → fallback for v1.17.4+
+  // NOTE: a plain /session/:id/prompt (no /api/, no _async) does NOT exist on
+  // v1.17.0 — it hits a catch-all that returns 200 without processing, which
+  // masks failures. Do not use it. Payload MUST be { agent, parts: [...] }.
   const promptResult = await sandbox.exec(
-    `curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/api/session/${sessionId}/prompt 2>/dev/null || curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/session/${sessionId}/prompt 2>/dev/null || curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/session/${sessionId}/prompt_async 2>/dev/null`,
+    `curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/session/${sessionId}/prompt_async 2>/dev/null || curl -sf -X POST -H 'Content-Type: application/json' -d @${promptFile} ${OC}/api/session/${sessionId}/prompt 2>/dev/null`,
     { cwd: "/workspace" },
   )
   await sandbox.exec(`rm -f ${promptFile}`, { cwd: "/workspace" })
