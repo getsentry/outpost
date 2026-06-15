@@ -64,8 +64,14 @@ function ChatMessage({ message }: { message: SessionMessage }) {
   // OpenCode v1.17.0 emits part types: text, reasoning, tool, step-start, etc.
   const textParts = parts.filter((p) => (p.type === "text" || p.type === "reasoning") && p.text)
   const toolParts = parts.filter((p) => typeof p.type === "string" && p.type.startsWith("tool"))
+  // Internal stream markers OpenCode emits that aren't worth showing.
+  const NOISE = new Set(["step-start", "step-finish", "snapshot", "patch"])
   const otherParts = parts.filter(
-    (p) => p.type !== "text" && p.type !== "reasoning" && !(typeof p.type === "string" && p.type.startsWith("tool")),
+    (p) =>
+      p.type !== "text" &&
+      p.type !== "reasoning" &&
+      !(typeof p.type === "string" && p.type.startsWith("tool")) &&
+      !NOISE.has(p.type),
   )
 
   const hasVisibleContent = textParts.length > 0 || toolParts.length > 0 || otherParts.length > 0

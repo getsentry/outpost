@@ -45,10 +45,10 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
   // the whole sync. Bounded so the request always returns promptly.
   const [logResult, sessionResult, sessionList] = await Promise.all([
     sandbox.exec("cat /tmp/opencode.log 2>/dev/null | tail -100", { cwd: "/workspace" }),
-    sandbox.exec(`curl -sf --max-time 5 http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null`, {
+    sandbox.exec(`curl -sf --max-time 8 http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null`, {
       cwd: "/workspace",
     }),
-    sandbox.exec(`curl -sf --max-time 5 http://localhost:${OPENCODE_PORT}/session 2>/dev/null`, { cwd: "/workspace" }),
+    sandbox.exec(`curl -sf --max-time 8 http://localhost:${OPENCODE_PORT}/session 2>/dev/null`, { cwd: "/workspace" }),
   ])
 
   if (!sessionList.stdout) return null
@@ -63,7 +63,7 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
     const msgResults = await Promise.all(
       sessions.map(async (s) => {
         const res = await sandbox.exec(
-          `curl -sf --max-time 5 "http://localhost:${OPENCODE_PORT}/session/${s.id}/message?limit=50" 2>/dev/null`,
+          `curl -sf --max-time 12 "http://localhost:${OPENCODE_PORT}/session/${s.id}/message?limit=50" 2>/dev/null`,
           { cwd: "/workspace" },
         )
         try {
