@@ -5,7 +5,7 @@
   "compatibility_date": "2025-12-01",
   "compatibility_flags": ["nodejs_compat"],
   "version_metadata": {
-    "binding": "CF_VERSION_METADATA",
+    "binding": "CF_VERSION_METADATA"
   },
   "upload_source_maps": true,
   // "kv_namespaces": [
@@ -21,14 +21,14 @@
   //   }
   // ],
   "placement": {
-    "mode": "smart",
+    "mode": "smart"
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "jared",
-      "database_id": "d52c2301-5a23-4bb1-a15b-225725900001",
-    },
+      "database_id": "d52c2301-5a23-4bb1-a15b-225725900001"
+    }
   ],
   // "ai": {
   //   "binding": "AI"
@@ -40,36 +40,36 @@
       "max_instances": 10,
       "instance_type": "standard-3",
       "ssh": {
-        "enabled": true,
+        "enabled": true
       },
       "authorized_keys": [
         {
           "name": "aditya",
-          "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEOr1/J9gXKCeqijk8guM5K0GoAfbRmq3xm4vtKlEB/c",
-        },
-      ],
-    },
+          "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEOr1/J9gXKCeqijk8guM5K0GoAfbRmq3xm4vtKlEB/c"
+        }
+      ]
+    }
   ],
   "durable_objects": {
     "bindings": [
       {
         "class_name": "Sandbox",
-        "name": "Sandbox",
-      },
-    ],
+        "name": "Sandbox"
+      }
+    ]
   },
   "migrations": [
     {
       "new_sqlite_classes": ["OpenCodeContainer"],
-      "tag": "v1",
+      "tag": "v1"
     },
     {
       "renamed_classes": [{ "from": "OpenCodeContainer", "to": "Sandbox" }],
-      "tag": "v2",
-    },
+      "tag": "v2"
+    }
   ],
   "observability": {
-    "enabled": true,
+    "enabled": true
     // "head_sampling_rate": 1
   },
   "ratelimits": [
@@ -78,12 +78,12 @@
       "namespace_id": "1465",
       "simple": {
         "limit": 100,
-        "period": 60,
-      },
-    },
+        "period": 60
+      }
+    }
   ],
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/health", "/openapi.json"],
-  },
+    "run_worker_first": ["/api/*", "/health", "/openapi.json"]
+  }
 }
