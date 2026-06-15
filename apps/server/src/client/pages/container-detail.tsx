@@ -16,7 +16,7 @@ import {
   X,
 } from "@phosphor-icons/react"
 import { Fragment, useMemo, useState } from "react"
-import { useNavigate, useParams } from "react-router-dom"
+import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { GitHubLink } from "@/client/components/github-link"
 import type { SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
 import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
@@ -61,12 +61,17 @@ function ChatMessage({ message }: { message: SessionMessage }) {
   const isAssistant = role === "assistant"
   const isUser = role === "user"
 
-  const textParts = parts.filter((p) => p.type === "text" && p.text)
-  const toolParts = parts.filter((p) => p.type === "tool-invocation" || p.type === "tool-result")
-  const otherParts = parts.filter((p) => p.type !== "text" && p.type !== "tool-invocation" && p.type !== "tool-result")
+  // OpenCode v1.17.0 emits part types: text, reasoning, tool, step-start, etc.
+  const textParts = parts.filter((p) => (p.type === "text" || p.type === "reasoning") && p.text)
+  const toolParts = parts.filter((p) => typeof p.type === "string" && p.type.startsWith("tool"))
+  const otherParts = parts.filter(
+    (p) => p.type !== "text" && p.type !== "reasoning" && !(typeof p.type === "string" && p.type.startsWith("tool")),
+  )
 
   const hasVisibleContent = textParts.length > 0 || toolParts.length > 0 || otherParts.length > 0
-  if (!hasVisibleContent) return null
+  // Assistant messages may still be streaming (no parts yet). Show a working
+  // indicator rather than hiding the message, so agent activity is visible.
+  if (!hasVisibleContent && !isAssistant) return null
 
   return (
     <div className={`flex gap-3 px-4 py-3 ${isUser ? "bg-muted/30" : ""}`}>
@@ -148,6 +153,13 @@ function ChatMessage({ message }: { message: SessionMessage }) {
             [{part.type}]
           </div>
         ))}
+
+        {isAssistant && !hasVisibleContent && (
+          <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
+            <ArrowClockwise className="size-3 animate-spin" />
+            Working…
+          </div>
+        )}
       </div>
     </div>
   )
@@ -327,7 +339,11 @@ function SessionSidebarItem({
 
 export default function ContainerDetailPage() {
   const { entityKey: rawKey } = useParams<{ entityKey: string }>()
-  const entityKey = rawKey ? decodeURIComponent(rawKey) : ""
+  const [searchParams] = useSearchParams()
+  // Prefer the query-param form (/containers/detail?key=...) which is refresh-safe;
+  // the path-param form (/containers/:entityKey) breaks on reload because the
+  // encoded slash (%2F) in the entity key isn't matched by SPA asset fallback.
+  const entityKey = searchParams.get("key") ?? (rawKey ? decodeURIComponent(rawKey) : "")
   const navigate = useNavigate()
   const { data, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useSessionDetail(entityKey)
   const destroyContainer = useDestroyContainer()

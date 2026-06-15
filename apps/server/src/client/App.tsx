@@ -27,6 +27,7 @@ function App() {
             <Route path="events" element={<EventsPage />} />
             <Route path="events/:id" element={<EventDetailPage />} />
             <Route path="containers" element={<SessionsPage />} />
+            <Route path="containers/detail" element={<ContainerDetailPage />} />
             <Route path="containers/:entityKey" element={<ContainerDetailPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>

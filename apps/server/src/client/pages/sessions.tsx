@@ -227,7 +227,7 @@ export default function SessionsPage() {
                       <TableRow
                         key={session.entityKey}
                         className="cursor-pointer"
-                        onClick={() => navigate(`/containers/${encodeURIComponent(session.entityKey)}`)}
+                        onClick={() => navigate(`/containers/detail?key=${encodeURIComponent(session.entityKey)}`)}
                       >
                         <TableCell>
                           <div className="space-y-0.5">

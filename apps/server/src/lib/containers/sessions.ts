@@ -26,26 +26,44 @@ export async function saveSession(
       const oldData = JSON.parse(existing.sessionData) as Record<string, unknown>
       const newData = JSON.parse(sessionData) as Record<string, unknown>
 
-      // Merge messages: for each session, collect unique messages by checking message ID
-      const oldMsgs = (oldData.messages ?? {}) as Record<string, Array<Record<string, unknown>>>
-      const newMsgs = (newData.messages ?? {}) as Record<string, Array<Record<string, unknown>>>
+      // Merge messages by ID, UPDATING existing messages in place. Assistant
+      // messages stream in: an early sync captures them with empty/partial parts,
+      // and later syncs return the same message ID with more parts. We must
+      // replace the stored copy with the richer one (more parts wins) — otherwise
+      // the agent's response never appears. Older messages beyond the fetch limit
+      // are preserved.
+      type Msg = Record<string, unknown>
+      const oldMsgs = (oldData.messages ?? {}) as Record<string, Msg[]>
+      const newMsgs = (newData.messages ?? {}) as Record<string, Msg[]>
 
-      const mergedMsgs: Record<string, Array<Record<string, unknown>>> = { ...oldMsgs }
-      for (const [sid, msgs] of Object.entries(newMsgs)) {
-        if (!mergedMsgs[sid]) {
-          mergedMsgs[sid] = msgs
-        } else {
-          const existingIds = new Set(
-            mergedMsgs[sid].map((m) => (m.info as Record<string, unknown>)?.id).filter(Boolean),
-          )
-          for (const msg of msgs) {
-            const msgId = (msg.info as Record<string, unknown>)?.id
-            if (!msgId || !existingIds.has(msgId)) {
-              mergedMsgs[sid].push(msg)
-              if (msgId) existingIds.add(msgId)
-            }
+      const idOf = (m: Msg): string | undefined => (m.info as Msg | undefined)?.id as string | undefined
+      const partCount = (m: Msg): number => (Array.isArray(m.parts) ? (m.parts as unknown[]).length : 0)
+
+      const mergedMsgs: Record<string, Msg[]> = {}
+      const sids = new Set([...Object.keys(oldMsgs), ...Object.keys(newMsgs)])
+      for (const sid of sids) {
+        const ordered: Msg[] = []
+        const indexById = new Map<string, number>()
+        const noId: Msg[] = []
+        const add = (m: Msg) => {
+          const id = idOf(m)
+          if (!id) {
+            noId.push(m)
+            return
+          }
+          const idx = indexById.get(id)
+          if (idx === undefined) {
+            indexById.set(id, ordered.length)
+            ordered.push(m)
+          } else {
+            // Keep the richer version so a mid-stream empty re-fetch never clobbers
+            // already-populated content.
+            ordered[idx] = partCount(m) >= partCount(ordered[idx]) ? m : ordered[idx]
           }
         }
+        for (const m of oldMsgs[sid] ?? []) add(m)
+        for (const m of newMsgs[sid] ?? []) add(m)
+        mergedMsgs[sid] = [...ordered, ...noId]
       }
 
       mergedData = JSON.stringify({
