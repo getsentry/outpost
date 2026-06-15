@@ -333,6 +333,65 @@ export default function ContainerDetailPage() {
   const destroyContainer = useDestroyContainer()
   const [showLogs, setShowLogs] = useState(false)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [destroyOpen, setDestroyOpen] = useState(false)
+
+  const handleDestroy = () => {
+    destroyContainer.mutate(entityKey, {
+      onSuccess: () => {
+        setDestroyOpen(false)
+        navigate("/containers")
+      },
+      onError: () => setDestroyOpen(false),
+    })
+  }
+
+  // Shared header actions (Refresh + Destroy) — rendered on both the normal
+  // view and the "not found" view so they never disappear.
+  const headerActions = (
+    <div className="flex items-center gap-1">
+      <Button variant="outline" size="xs" onClick={() => refetch()} disabled={isFetching}>
+        <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
+        Refresh
+      </Button>
+      <AlertDialog open={destroyOpen} onOpenChange={setDestroyOpen}>
+        <AlertDialogTrigger asChild>
+          <Button variant="outline" size="xs" disabled={destroyContainer.isPending}>
+            <Trash className="size-3" />
+            Destroy
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Destroy this container?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will force-stop the container and delete the session data for{" "}
+              <span className="font-mono font-medium">{entityKey}</span>. The agent will stop working. This action
+              cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={destroyContainer.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={destroyContainer.isPending}
+              onClick={(e) => {
+                e.preventDefault()
+                handleDestroy()
+              }}
+            >
+              {destroyContainer.isPending ? (
+                <>
+                  <ArrowClockwise className="size-3 animate-spin" />
+                  Destroying...
+                </>
+              ) : (
+                "Destroy Container"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
 
   if (isLoading) {
     return (
@@ -349,11 +408,16 @@ export default function ContainerDetailPage() {
   if (isError || !data) {
     return (
       <div className="space-y-4">
-        <Button variant="ghost" size="sm" onClick={() => navigate("/containers")}>
-          <ArrowLeft className="size-3.5" />
-          Back to containers
-        </Button>
-        <div className="py-12 text-center text-sm text-muted-foreground">Container not found</div>
+        <div className="flex items-center justify-between gap-2">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/containers")}>
+            <ArrowLeft className="size-3.5" />
+            Back to containers
+          </Button>
+          {headerActions}
+        </div>
+        <div className="py-12 text-center text-sm text-muted-foreground">
+          Container not found or still starting up. Try refreshing.
+        </div>
       </div>
     )
   }
@@ -442,48 +506,16 @@ export default function ContainerDetailPage() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <Button variant={showLogs ? "secondary" : "outline"} size="xs" onClick={() => setShowLogs(!showLogs)}>
               <Terminal className="size-3" /> Logs
             </Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="outline" size="xs" disabled={destroyContainer.isPending}>
-                  <Trash className="size-3" />
-                  {destroyContainer.isPending ? "Destroying..." : "Destroy"}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Destroy this container?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will force-stop the container and delete the session data for{" "}
-                    <span className="font-mono font-medium">{entityKey}</span>. The agent will stop working. This action
-                    cannot be undone.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                  <AlertDialogAction
-                    onClick={() => {
-                      destroyContainer.mutate(entityKey, {
-                        onSuccess: () => navigate("/containers"),
-                      })
-                    }}
-                  >
-                    Destroy Container
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
             {dataUpdatedAt && (
               <span className="text-[10px] text-muted-foreground">
                 {formatTimeAgo(new Date(dataUpdatedAt).toISOString())}
               </span>
             )}
-            <Button variant="ghost" size="xs" onClick={() => refetch()} disabled={isFetching}>
-              <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
-            </Button>
+            {headerActions}
           </div>
         </div>
       </div>
