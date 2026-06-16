@@ -28,5 +28,5 @@
     },
   },
   "include": ["src", "drizzle.config.ts", "scripts"],
-  "exclude": ["src/client"],
+  "exclude": ["src/client", "src/components", "src/hooks"],
 }

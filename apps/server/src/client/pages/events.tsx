@@ -1,9 +1,9 @@
 import { CaretLeft, CaretRight, Funnel, ListBullets, MagnifyingGlass, Trash, X } from "@phosphor-icons/react"
 import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { GitHubLink } from "@/client/components/github-link"
-import { LastUpdated } from "@/client/components/last-updated"
-import { StatusBadge } from "@/client/components/status-badge"
+import { GitHubLink } from "@/components/github-link"
+import { LastUpdated } from "@/components/last-updated"
+import { StatusBadge } from "@/components/status-badge"
 import { entityGitHubUrl, formatTimeAgo, repoGitHubUrl } from "@/client/lib/format"
 import { useClearEvents, useEventStats, useEvents, useEventsGrouped } from "@/client/lib/queries"
 import {
