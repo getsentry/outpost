@@ -17,10 +17,10 @@ import {
 } from "@phosphor-icons/react"
 import { Fragment, useMemo, useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
-import { GitHubLink } from "@/components/github-link"
 import type { SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
 import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
 import { useDestroyContainer, useSessionDetail } from "@/client/lib/queries"
+import { GitHubLink } from "@/components/github-link"
 import {
   AlertDialog,
   AlertDialogAction,

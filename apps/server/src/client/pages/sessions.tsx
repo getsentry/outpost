@@ -11,11 +11,11 @@ import {
 } from "@phosphor-icons/react"
 import { useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { GitHubLink } from "@/components/github-link"
-import { LastUpdated } from "@/components/last-updated"
 import type { SessionListItem } from "@/client/lib/api"
 import { entityGitHubUrl, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
 import { useClearSessions, useSessions } from "@/client/lib/queries"
+import { GitHubLink } from "@/components/github-link"
+import { LastUpdated } from "@/components/last-updated"
 import {
   AlertDialog,
   AlertDialogAction,

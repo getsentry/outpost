@@ -1,7 +1,4 @@
 import { BrowserRouter, Route, Routes } from "react-router-dom"
-import { AuthGuard } from "@/components/auth-guard"
-import { ErrorBoundary } from "@/components/error-boundary"
-import Layout from "@/components/layout"
 import ContainerDetailPage from "@/client/pages/container-detail"
 import DashboardPage from "@/client/pages/dashboard"
 import EventDetailPage from "@/client/pages/event-detail"
@@ -9,6 +6,9 @@ import EventsPage from "@/client/pages/events"
 import LoginPage from "@/client/pages/login"
 import NotFoundPage from "@/client/pages/not-found"
 import SessionsPage from "@/client/pages/sessions"
+import { AuthGuard } from "@/components/auth-guard"
+import { ErrorBoundary } from "@/components/error-boundary"
+import Layout from "@/components/layout"
 
 function App() {
   return (
