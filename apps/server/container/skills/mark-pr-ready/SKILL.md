@@ -31,10 +31,19 @@ and self-review found no remaining issues.
    gh pr ready <N>
    ```
 
-3. Request reviewers. GitHub auto-assigns from CODEOWNERS when a
-   draft PR is marked ready (if branch protection requires reviews),
-   so explicit assignment is often unnecessary. If the repo doesn't
-   use branch protection, try to find an owner:
+3. Request reviewers. Always add the creator of the originating
+   issue as a reviewer — they have the most context on the problem
+   and should sign off on the fix:
+   ```sh
+   ISSUE_AUTHOR=$(gh issue view <issue-N> --json author --jq '.author.login' 2>/dev/null)
+   if [ -n "$ISSUE_AUTHOR" ]; then
+     gh pr edit <N> --add-reviewer "$ISSUE_AUTHOR" 2>/dev/null || true
+   fi
+   ```
+   Then fall back to CODEOWNERS. GitHub auto-assigns from CODEOWNERS
+   when a draft PR is marked ready (if branch protection requires
+   reviews), so explicit assignment is often unnecessary. If the repo
+   doesn't use branch protection, try to find an owner:
    ```sh
    CODEOWNERS_FILE=""
    for f in .github/CODEOWNERS CODEOWNERS docs/CODEOWNERS; do
@@ -48,7 +57,8 @@ and self-review found no remaining issues.
      done
    fi
    ```
-   If reviewer assignment fails, skip silently.
+   If reviewer assignment fails (e.g. the issue author can't review
+   their own org's PR, or isn't a collaborator), skip silently.
 
 4. Add labels:
    ```sh

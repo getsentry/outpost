@@ -12,6 +12,7 @@ non-disruptive changes, but this skill itself never merges.
 
 - Verifying CI status via `gh pr checks`
 - Marking the PR ready with `gh pr ready`
+- Adding the originating issue's creator as a reviewer
 - Requesting reviewers from CODEOWNERS
 - Adding labels (`bot-generated` + priority labels from the issue)
 - Posting a confirmation comment
@@ -47,6 +48,7 @@ the author.
 ## Evaluation criteria
 
 - CI is verified green before marking ready
+- The originating issue's creator is added as a reviewer
 - Reviewer assignment failures are silently skipped
 - Label creation failures are silently skipped (don't create labels)
 - The confirmation comment varies its wording
