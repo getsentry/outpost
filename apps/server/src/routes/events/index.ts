@@ -1,6 +1,7 @@
 import { and, desc, eq, like, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import { webhookEvents } from "@/db/schema"
+import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { isAuthenticated } from "@/middlewares"
 import type { AuthEnv } from "@/types"
 
@@ -160,6 +161,47 @@ const router = new Hono<AuthEnv>()
     }
 
     return c.json(event)
+  })
+  // Manually re-dispatch a stored event to the agent. Reuses the exact dispatch
+  // path the webhook runs, reading the inputs from D1 instead of HTTP headers.
+  .post("/:id/resend", async (c) => {
+    const db = c.get("db")
+    const logger = c.get("logger").child({ ns: "events.resend" })
+    const id = c.req.param("id")
+
+    const event = await db.query.webhookEvents.findFirst({
+      where: eq(webhookEvents.id, id),
+    })
+
+    if (!event) {
+      return c.json({ error: "Event not found" }, 404)
+    }
+
+    // Resend currently supports GitHub-origin events only — we need an
+    // installation id to mint a fresh token for the agent's git operations.
+    if (!event.installationId) {
+      return c.json({ error: "Cannot resend: event has no GitHub installation" }, 400)
+    }
+
+    // Optimistically mark pending so the UI reflects the in-flight resend; the
+    // dispatch helper updates it to dispatched/failed when it completes.
+    await db.update(webhookEvents).set({ status: "pending" }).where(eq(webhookEvents.id, id))
+
+    c.executionCtx.waitUntil(
+      dispatchGitHubEvent(c.env, db, logger, {
+        eventId: event.id,
+        containerKey: event.entityKey,
+        event: event.event,
+        action: event.action,
+        deliveryId: event.deliveryId,
+        sender: event.sender,
+        repo: event.repo,
+        installationId: event.installationId,
+        payload: event.payload,
+      }),
+    )
+
+    return c.json({ ok: true, id, entityKey: event.entityKey })
   })
 
 export default router

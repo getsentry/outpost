@@ -1,11 +1,22 @@
-import { ArrowLeft, CaretDown, CaretRight, Copy } from "@phosphor-icons/react"
+import { ArrowClockwise, ArrowLeft, CaretDown, CaretRight, Copy, PaperPlaneTilt } from "@phosphor-icons/react"
 import { useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { copyToClipboard } from "@/client/lib/clipboard"
 import { entityGitHubUrl, formatDate, repoGitHubUrl } from "@/client/lib/format"
-import { useEvent } from "@/client/lib/queries"
+import { useEvent, useResendEvent } from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
 import { StatusBadge } from "@/components/status-badge"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -48,6 +59,15 @@ export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { data: event, isLoading, isError } = useEvent(id ?? "")
+  const resendEvent = useResendEvent()
+  const [resendOpen, setResendOpen] = useState(false)
+
+  const handleResend = () => {
+    if (!id) return
+    resendEvent.mutate(id, {
+      onSettled: () => setResendOpen(false),
+    })
+  }
 
   if (isLoading) {
     return (
@@ -85,7 +105,54 @@ export default function EventDetailPage() {
           {event.action ? `.${event.action}` : ""}
         </h1>
         <StatusBadge status={event.status} />
+
+        <AlertDialog open={resendOpen} onOpenChange={setResendOpen}>
+          <AlertDialogTrigger
+            render={
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                disabled={!event.installationId || resendEvent.isPending}
+                title={event.installationId ? undefined : "Resend is only available for GitHub events"}
+              >
+                {resendEvent.isPending ? (
+                  <ArrowClockwise className="size-3.5 animate-spin" />
+                ) : (
+                  <PaperPlaneTilt className="size-3.5" />
+                )}
+                Resend
+              </Button>
+            }
+          />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Resend this event to the agent?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This re-dispatches the event to its container (<span className="font-mono">{event.entityKey}</span>) and
+                re-runs the agent on it. If the agent is already working, this queues another turn.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={resendEvent.isPending}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={resendEvent.isPending}
+                onClick={(e) => {
+                  e.preventDefault()
+                  handleResend()
+                }}
+              >
+                {resendEvent.isPending ? "Resending..." : "Resend"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
+      {resendEvent.isError && (
+        <p className="text-sm text-destructive">
+          Failed to resend: {resendEvent.error instanceof Error ? resendEvent.error.message : "unknown error"}
+        </p>
+      )}
 
       <Card>
         <CardHeader>

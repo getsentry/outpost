@@ -48,6 +48,18 @@ export function useEventsGrouped() {
   })
 }
 
+export function useResendEvent() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.resendEvent(id),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: ["event", id] })
+      queryClient.invalidateQueries({ queryKey: ["events"] })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
 export function useClearEvents() {
   const queryClient = useQueryClient()
   return useMutation({

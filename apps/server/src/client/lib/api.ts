@@ -106,6 +106,15 @@ export const api = {
     return res.json()
   },
 
+  async resendEvent(id: string) {
+    const res = await endpoint.api.events[":id"].resend.$post({ param: { id } })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null
+      throw new Error(body?.error ?? `Failed to resend event: ${res.status}`)
+    }
+    return res.json()
+  },
+
   async getEventStats() {
     const res = await endpoint.api.events.stats.$get()
     if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`)

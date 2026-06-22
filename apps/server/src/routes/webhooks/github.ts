@@ -4,18 +4,15 @@
 // parses the payload, extracts entity information, stores the event
 // in D1, and dispatches it to the OpenCode sandbox.
 
-import { getSandbox } from "@cloudflare/sandbox"
 import { formatError } from "@jared/utils"
 import { verify } from "@octokit/webhooks-methods"
 import * as Sentry from "@sentry/cloudflare"
-import { eq } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
-import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
 import { createGitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
+import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
-import { formatEventPrompt } from "@/lib/github/prompt"
 import type { BaseEnv } from "@/types"
 
 const router = new Hono<BaseEnv>().post("/", async (c) => {
@@ -160,88 +157,19 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
     })
   }
 
-  // --- Dispatch to sandbox in waitUntil ---
-  let installationToken = ""
-  if (installationId) {
-    try {
-      const octokit = app.getInstallationOctokit(installationId)
-      const auth = (await octokit.auth({ type: "installation" })) as { token: string }
-      installationToken = auth.token
-    } catch (err) {
-      logger.warn({ error: formatError(err) }, "failed to mint installation token")
-    }
-  }
-
-  const envBindings = c.env
-
-  // Save initial session immediately so the container appears in the UI
-  // before the potentially slow sandbox startup completes.
-  try {
-    await saveInitialSession(db, containerKey, `pending-${eventId.slice(0, 8)}`)
-  } catch {
-    /* best effort — may conflict with existing row */
-  }
-
+  // --- Dispatch to sandbox in waitUntil (shared with the manual resend path) ---
   c.executionCtx.waitUntil(
-    (async () => {
-      try {
-        logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.start")
-
-        const sandbox = getSandbox(envBindings.Sandbox, containerKey, {
-          normalizeId: true,
-          sleepAfter: "2h",
-        })
-
-        logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.sandbox_ready.start")
-        await ensureSandboxReady(sandbox, {
-          repo,
-          botLogin,
-          installationToken,
-          anthropicApiKey: envBindings.ANTHROPIC_API_KEY,
-          openaiApiKey: envBindings.OPENAI_API_KEY,
-          sentryDsn: envBindings.SENTRY_DSN,
-          entityKey: containerKey,
-          appUrl: envBindings.APP_URL,
-        })
-        logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.sandbox_ready.done")
-
-        const prompt = formatEventPrompt({
-          event,
-          action,
-          deliveryId,
-          sender,
-          repo,
-          entityKey: containerKey,
-          payload: rawBody,
-          botLogin,
-        })
-
-        logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.start")
-        // Schedules the prompt via a container-side script (does not block on
-        // OpenCode startup). The agent processes it autonomously; the UI
-        // auto-sync picks up the real session and messages.
-        await dispatchPrompt(sandbox, containerKey, prompt, eventId)
-        logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.scheduled")
-
-        await db
-          .update(dbSchema.webhookEvents)
-          .set({ status: "dispatched", dispatchedAt: new Date() })
-          .where(eq(dbSchema.webhookEvents.id, eventId))
-
-        logger.info({ entity_key: containerKey, event_id: eventId }, "event dispatched to agent")
-      } catch (err) {
-        logger.error({ entity_key: containerKey, event_id: eventId, reason: formatError(err) }, "dispatch failed")
-        Sentry.captureException(err)
-        try {
-          await db
-            .update(dbSchema.webhookEvents)
-            .set({ status: "failed" })
-            .where(eq(dbSchema.webhookEvents.id, eventId))
-        } catch {
-          /* best effort */
-        }
-      }
-    })(),
+    dispatchGitHubEvent(c.env, db, logger, {
+      eventId,
+      containerKey,
+      event,
+      action,
+      deliveryId,
+      sender,
+      repo,
+      installationId,
+      payload: rawBody,
+    }),
   )
 
   return c.json({
