@@ -174,13 +174,16 @@ export default function Layout() {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <SidebarInset>
+      {/* h-svh + overflow-hidden gives the inset a definite height so pages can
+          own their own internal scrolling (e.g. the container detail page only
+          scrolls its messages list, keeping the header/sidebar pinned). */}
+      <SidebarInset className="h-svh overflow-hidden">
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 !h-4" />
           <span className="text-sm text-muted-foreground">Outpost</span>
         </header>
-        <div className="min-w-0 flex-1 overflow-auto p-6">
+        <div className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
           <Outlet />
         </div>
       </SidebarInset>

@@ -10,11 +10,12 @@
 
 import { getSandbox } from "@cloudflare/sandbox"
 import { formatError } from "@jared/utils"
-import { desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
-import { OPENCODE_PORT } from "@/lib/containers/dispatch"
+import { applyGitHubAuth, OPENCODE_PORT } from "@/lib/containers/dispatch"
 import { saveSession, summarizeSession } from "@/lib/containers/sessions"
+import { createGitHubApp } from "@/lib/github/app"
 import { isAuthenticated } from "@/middlewares"
 import type { BaseEnv } from "@/types"
 
@@ -294,6 +295,43 @@ const router = new Hono<BaseEnv>()
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
     await db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey))
     return c.json({ ok: true, entityKey })
+  })
+
+  // Re-mint and re-apply a fresh GitHub installation token inside the container.
+  // Installation tokens expire after ~1h, which blocks the agent from pushing on
+  // long/resumed runs. The container (or a user) can call this to recover without
+  // waiting for the next event delivery.
+  .post("/:entityKey/refresh-token", async (c) => {
+    const entityKey = decodeURIComponent(c.req.param("entityKey"))
+    const db = c.get("db")
+
+    // Find the most recent event for this entity that carried both an
+    // installation id and a repo — that's what we need to mint a scoped token.
+    const event = await db.query.webhookEvents.findFirst({
+      where: and(eq(dbSchema.webhookEvents.entityKey, entityKey), isNotNull(dbSchema.webhookEvents.installationId)),
+      orderBy: desc(dbSchema.webhookEvents.createdAt),
+    })
+
+    if (!event?.installationId) {
+      return c.json({ error: "No GitHub installation found for this container" }, 404)
+    }
+
+    try {
+      const app = createGitHubApp({
+        appId: c.env.GITHUB_APP_ID,
+        privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
+        webhookSecret: c.env.GITHUB_APP_WEBHOOK_SECRET,
+      })
+      const octokit = app.getInstallationOctokit(event.installationId)
+      const auth = (await octokit.auth({ type: "installation" })) as { token: string }
+
+      const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
+      await applyGitHubAuth(sandbox, { repo: event.repo, installationToken: auth.token })
+
+      return c.json({ ok: true, entityKey, repo: event.repo })
+    } catch (err) {
+      return c.json({ error: formatError(err) }, 500)
+    }
   })
 
   // Execute a command inside a running container

@@ -4,8 +4,10 @@ import {
   CaretDown,
   CaretRight,
   ChatText,
+  Check,
   Clock,
   Code,
+  Copy,
   CurrencyDollar,
   Robot,
   Stack,
@@ -75,6 +77,33 @@ function summarizeSession(
   return { agent, model, cost: sessionCost > 0 ? sessionCost : messageCost }
 }
 
+/** Small inline button that copies text to the clipboard with a brief confirmation. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Clipboard may be unavailable (e.g. non-secure context) — fail silently.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+      aria-label="Copy message"
+    >
+      {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+      {copied ? "Copied" : "Copy"}
+    </button>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Chat message components
 // ---------------------------------------------------------------------------
@@ -100,6 +129,12 @@ function ChatMessage({ message }: { message: SessionMessage }) {
       !(typeof p.type === "string" && p.type.startsWith("tool")) &&
       !NOISE.has(p.type),
   )
+
+  // Concatenated visible text for the copy button (text + reasoning parts only).
+  const copyText = textParts
+    .map((p) => p.text ?? "")
+    .join("\n\n")
+    .trim()
 
   const hasVisibleContent = textParts.length > 0 || toolParts.length > 0 || otherParts.length > 0
   // Assistant messages may still be streaming (no parts yet). Show a working
@@ -198,6 +233,12 @@ function ChatMessage({ message }: { message: SessionMessage }) {
           <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
             <ArrowClockwise className="size-3 animate-spin" />
             Working…
+          </div>
+        )}
+
+        {copyText && (
+          <div className="mt-2">
+            <CopyButton text={copyText} />
           </div>
         )}
       </div>
@@ -650,7 +691,7 @@ export default function ContainerDetailPage() {
         </div>
 
         {/* Chat area */}
-        <div className="flex min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {/* Active session header */}
           {activeSession && (
             <div className="flex items-center gap-3 border-b px-4 py-2">

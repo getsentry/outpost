@@ -201,6 +201,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           openaiApiKey: envBindings.OPENAI_API_KEY,
           sentryDsn: envBindings.SENTRY_DSN,
           entityKey: containerKey,
+          appUrl: envBindings.APP_URL,
         })
         logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.sandbox_ready.done")
 

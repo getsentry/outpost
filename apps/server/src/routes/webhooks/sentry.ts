@@ -303,6 +303,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           openaiApiKey: envBindings.OPENAI_API_KEY,
           sentryDsn: envBindings.SENTRY_DSN,
           entityKey: containerKey,
+          appUrl: envBindings.APP_URL,
         })
         logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.sandbox_ready.done")
 
