@@ -54,6 +54,11 @@ export type SessionMessage = {
     id?: string
     role?: string
     createdAt?: string
+    // Assistant messages carry the agent/model/cost the session ran with. These
+    // are the source of truth when the session object is a pending placeholder.
+    agent?: string
+    modelID?: string
+    cost?: number
   }
   parts?: MessagePart[]
 }

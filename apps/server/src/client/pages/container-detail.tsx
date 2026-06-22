@@ -48,6 +48,33 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`inline-block size-2 rounded-full ${styles[status] ?? "bg-gray-400"}`} />
 }
 
+/**
+ * Derive a session's agent/model/cost, falling back to the values carried on its
+ * messages when the session object is a "pending" placeholder (which has no
+ * agent/model and a zero cost). Mirrors the backend `summarizeSession` helper.
+ */
+function summarizeSession(
+  session: SessionInfo | undefined,
+  messages: SessionMessage[] = [],
+): { agent: string | null; model: string | null; cost: number } {
+  const infos = messages.map((m) => m.info).filter((info): info is NonNullable<SessionMessage["info"]> => !!info)
+
+  let agent = session?.agent ?? null
+  let model = session?.model?.id ?? null
+  if (!agent || !model) {
+    for (const info of infos) {
+      if (!agent && info.agent) agent = info.agent
+      if (!model && info.modelID) model = info.modelID
+      if (agent && model) break
+    }
+  }
+
+  const sessionCost = typeof session?.cost === "number" ? session.cost : 0
+  const messageCost = infos.reduce((sum, info) => sum + (typeof info.cost === "number" ? info.cost : 0), 0)
+
+  return { agent, model, cost: sessionCost > 0 ? sessionCost : messageCost }
+}
+
 // ---------------------------------------------------------------------------
 // Chat message components
 // ---------------------------------------------------------------------------
@@ -327,12 +354,16 @@ function SessionSidebarItem({
   session,
   status,
   messageCount,
+  agent,
+  cost,
   isActive,
   onClick,
 }: {
   session: SessionInfo
   status: string
   messageCount: number
+  agent: string | null
+  cost: number
   isActive: boolean
   onClick: () => void
 }) {
@@ -355,11 +386,11 @@ function SessionSidebarItem({
           <span className="truncate text-xs font-medium">{session.title ?? "Session"}</span>
         </div>
         <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-          {session.agent && <span>{session.agent}</span>}
+          {agent && <span>{agent}</span>}
           <span>
             {messageCount} msg{messageCount !== 1 ? "s" : ""}
           </span>
-          {typeof session.cost === "number" && session.cost > 0 && <span>${session.cost.toFixed(4)}</span>}
+          {cost > 0 && <span>${cost.toFixed(4)}</span>}
         </div>
       </div>
     </button>
@@ -503,14 +534,29 @@ export default function ContainerDetailPage() {
     if (!placed.has(s.id)) orderedSessions.push(s)
   }
 
+  const allMessages = Object.values(messages).flat()
+
   // Active session
   const effectiveSessionId = activeSessionId ?? orderedSessions[0]?.id ?? null
-  const activeMessages = effectiveSessionId ? (messages[effectiveSessionId] ?? []) : []
+  const ownActiveMessages = effectiveSessionId ? (messages[effectiveSessionId] ?? []) : []
   const activeSession = orderedSessions.find((s) => s.id === effectiveSessionId)
+  // A lone placeholder session keys its messages under a different id than the one
+  // it advertises, so fall back to every message when this session has none of its
+  // own. This also feeds the derived agent/model/cost in the header.
+  const activeMessages =
+    ownActiveMessages.length === 0 && orderedSessions.length === 1 ? allMessages : ownActiveMessages
+  const activeSummary = summarizeSession(activeSession, activeMessages)
 
-  // Summary
-  const totalCost = sessions.reduce((sum, s) => sum + (typeof s.cost === "number" ? s.cost : 0), 0)
-  const totalMessages = Object.values(messages).reduce((sum, msgs) => sum + (Array.isArray(msgs) ? msgs.length : 0), 0)
+  // Summary. Cost is derived per-session with a message fallback so pending
+  // placeholder sessions (no cost on the session object) still report a total.
+  // When the messages live under a different key than the session id (pending
+  // placeholders), the per-session sum is 0, so fall back to every message.
+  const perSessionCost = sessions.reduce((sum, s) => {
+    const msgs = Array.isArray(messages[s.id]) ? messages[s.id] : []
+    return sum + summarizeSession(s, msgs).cost
+  }, 0)
+  const totalCost = perSessionCost > 0 ? perSessionCost : summarizeSession(sessions[0], allMessages).cost
+  const totalMessages = allMessages.length
   const statusValues = Object.values(sessionStatus)
   const hasBusy = statusValues.some((s) => s.type === "busy")
   const overallStatus = hasBusy ? "busy" : statusValues.length > 0 ? "idle" : "unknown"
@@ -578,13 +624,20 @@ export default function ContainerDetailPage() {
           </div>
           <div className="space-y-0.5">
             {orderedSessions.map((s) => {
-              const msgCount = Array.isArray(messages[s.id]) ? messages[s.id].length : 0
+              const ownMessages = Array.isArray(messages[s.id]) ? messages[s.id] : []
+              // A lone placeholder session keys its messages under a different id;
+              // fall back to every message so its count/agent/cost aren't blank.
+              const sessionMessages =
+                ownMessages.length === 0 && orderedSessions.length === 1 ? allMessages : ownMessages
+              const itemSummary = summarizeSession(s, sessionMessages)
               return (
                 <SessionSidebarItem
                   key={s.id}
                   session={s}
                   status={sessionStatus[s.id]?.type ?? "unknown"}
-                  messageCount={msgCount}
+                  messageCount={sessionMessages.length}
+                  agent={itemSummary.agent}
+                  cost={itemSummary.cost}
                   isActive={s.id === effectiveSessionId}
                   onClick={() => setActiveSessionId(s.id)}
                 />
@@ -608,21 +661,21 @@ export default function ContainerDetailPage() {
                   <span className="truncate text-sm font-medium">{activeSession.title ?? "Session"}</span>
                 </div>
                 <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                  {activeSession.agent && (
+                  {activeSummary.agent && (
                     <span className="inline-flex items-center gap-1">
                       <Robot className="size-3" />
-                      {activeSession.agent}
+                      {activeSummary.agent}
                     </span>
                   )}
-                  {activeSession.model?.id && (
+                  {activeSummary.model && (
                     <span className="inline-flex items-center gap-1">
                       <Code className="size-3" />
-                      {activeSession.model.id}
+                      {activeSummary.model}
                     </span>
                   )}
-                  {typeof activeSession.cost === "number" && activeSession.cost > 0 && (
+                  {activeSummary.cost > 0 && (
                     <span className="inline-flex items-center gap-1">
-                      <CurrencyDollar className="size-3" />${activeSession.cost.toFixed(4)}
+                      <CurrencyDollar className="size-3" />${activeSummary.cost.toFixed(4)}
                     </span>
                   )}
                   {activeSession.tokens && (
@@ -637,9 +690,9 @@ export default function ContainerDetailPage() {
           )}
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto">
+          <div className="min-w-0 flex-1 overflow-y-auto">
             {activeMessages.length > 0 ? (
-              <div className="divide-y divide-border/30">
+              <div className="min-w-0 divide-y divide-border/30">
                 {activeMessages.map((msg, i) => (
                   <ChatMessage key={msg.info?.id ?? `${effectiveSessionId}-${i}`} message={msg} />
                 ))}

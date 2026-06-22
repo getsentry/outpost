@@ -68,7 +68,11 @@ function AppSidebar() {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" tooltip="Outpost">
+            <SidebarMenuButton
+              size="lg"
+              tooltip="Outpost"
+              className="cursor-default hover:bg-transparent hover:text-current active:bg-transparent active:text-current"
+            >
               <div className="flex aspect-square size-8 items-center justify-center bg-primary text-primary-foreground">
                 <List className="size-4" weight="bold" />
               </div>

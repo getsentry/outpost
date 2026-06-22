@@ -14,7 +14,7 @@ import { desc, eq, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
 import { OPENCODE_PORT } from "@/lib/containers/dispatch"
-import { saveSession } from "@/lib/containers/sessions"
+import { saveSession, summarizeSession } from "@/lib/containers/sessions"
 import { isAuthenticated } from "@/middlewares"
 import type { BaseEnv } from "@/types"
 
@@ -149,16 +149,29 @@ const router = new Hono<BaseEnv>()
       const messages = (parsed.messages ?? {}) as Record<string, unknown[]>
       const statuses = parsed.sessionStatus as Record<string, Record<string, string>> | null
 
-      const totalCost = sessionList.reduce((sum, sess) => sum + (typeof sess.cost === "number" ? sess.cost : 0), 0)
-      const totalMessages = Object.values(messages).reduce(
-        (sum, msgs) => sum + (Array.isArray(msgs) ? msgs.length : 0),
-        0,
-      )
+      const allMessages = Object.values(messages).flat() as Array<Record<string, unknown>>
+      const totalMessages = allMessages.length
       const statusValues = statuses ? Object.values(statuses) : []
       const hasBusy = statusValues.some((st) => st.type === "busy")
 
       // Prefer the root session (no parentID) for the summary preview
       const rootSession = sessionList.find((sess) => !sess.parentID) ?? sessionList[0]
+
+      // The session object may be a "pending" placeholder with no agent/model/cost;
+      // in that case derive those fields from the messages instead. The container
+      // stores the real conversation under a different key than the placeholder it
+      // advertises, so fall back to every message when the id doesn't line up.
+      const rootId = rootSession?.id as string | undefined
+      const rootMessages =
+        rootId && Array.isArray(messages[rootId]) ? (messages[rootId] as Array<Record<string, unknown>>) : allMessages
+      const summary = summarizeSession(rootSession ?? {}, rootMessages)
+
+      // Total cost across every session, falling back to message-derived cost.
+      const totalCost = sessionList.reduce((sum, sess) => {
+        const sid = sess.id as string | undefined
+        const msgs = sid && Array.isArray(messages[sid]) ? (messages[sid] as Array<Record<string, unknown>>) : []
+        return sum + summarizeSession(sess, msgs).cost
+      }, 0)
 
       return {
         entityKey: s.entityKey,
@@ -167,12 +180,12 @@ const router = new Hono<BaseEnv>()
         // Summary fields for the list view (no raw sessionData blob)
         sessionCount: sessionList.length,
         messageCount: totalMessages,
-        totalCost,
+        totalCost: totalCost > 0 ? totalCost : summary.cost,
         status: hasBusy ? "busy" : statusValues.length > 0 ? "idle" : "unknown",
         // Root session metadata as a preview
         title: (rootSession?.title as string) ?? null,
-        agent: (rootSession?.agent as string) ?? null,
-        model: ((rootSession?.model as Record<string, string>)?.id as string) ?? null,
+        agent: summary.agent,
+        model: summary.model,
       }
     })
 

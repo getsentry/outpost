@@ -93,3 +93,47 @@ export async function saveSession(
       },
     })
 }
+
+type AnyRecord = Record<string, unknown>
+
+/**
+ * Derive a session's summary metadata (agent, model, cost), falling back to the
+ * data carried on its messages when the session object itself is incomplete.
+ *
+ * The container's `/session` endpoint sometimes returns a "pending" placeholder
+ * (only `id` + `title`, no agent/model/cost) while the real conversation is
+ * recorded under a different session id in the `messages` map. In that case the
+ * session object alone reports `agent: null`, `model: null`, `cost: 0`, so we
+ * reconstruct those fields from the assistant messages instead.
+ */
+export function summarizeSession(
+  session: AnyRecord,
+  messages: AnyRecord[] = [],
+): { agent: string | null; model: string | null; cost: number } {
+  const infos = messages
+    .map((m) => (m.info ?? m) as AnyRecord)
+    .filter((info): info is AnyRecord => !!info && typeof info === "object")
+
+  // Prefer the explicit session fields, then fall back to whatever the messages
+  // reported (the most recent assistant message wins for agent/model).
+  let agent = typeof session.agent === "string" ? session.agent : null
+  let model =
+    typeof (session.model as AnyRecord | undefined)?.id === "string"
+      ? ((session.model as AnyRecord).id as string)
+      : null
+
+  if (!agent || !model) {
+    for (const info of infos) {
+      if (!agent && typeof info.agent === "string") agent = info.agent
+      if (!model && typeof info.modelID === "string") model = info.modelID
+      if (agent && model) break
+    }
+  }
+
+  // The session's own `cost` is authoritative when present and non-zero;
+  // otherwise sum the per-message costs (assistant messages carry `cost`).
+  const sessionCost = typeof session.cost === "number" ? session.cost : 0
+  const messageCost = infos.reduce((sum, info) => sum + (typeof info.cost === "number" ? info.cost : 0), 0)
+
+  return { agent, model, cost: sessionCost > 0 ? sessionCost : messageCost }
+}
