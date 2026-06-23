@@ -37,11 +37,10 @@ RUN npm install -g n \
  && node --version && pnpm --version
 
 # --- OpenCode CLI (pinned version) ---
-# v1.17.4 has a bug where prompts are admitted but never processed in server mode.
-# Pinning to v1.17.0 until this is fixed upstream.
+# v1.17.9 is the canary target for validating newer server-mode session handling.
 ENV PATH="/root/.opencode/bin:${PATH}"
 RUN curl -fsSL https://opencode.ai/install -o /tmp/install-opencode.sh \
- && bash /tmp/install-opencode.sh --version 1.17.0 \
+ && bash /tmp/install-opencode.sh --version 1.17.9 \
  && rm /tmp/install-opencode.sh \
  && opencode --version
 
