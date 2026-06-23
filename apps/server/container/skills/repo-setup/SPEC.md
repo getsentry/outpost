@@ -2,28 +2,31 @@
 
 ## Intent
 
-Provide a safe, isolated working directory for each agent session so
-concurrent sessions never overwrite each other's changes. This is the
-prerequisite skill for every situation skill.
+Prepare the container's target repository checkout at `/workspace/repo` on the
+right branch for the current issue or PR. This is the prerequisite skill for
+every situation skill.
 
 ## Scope
 
 ### In scope
 
-- Cloning or refreshing the target repository
-- Creating git worktrees for branch isolation
+- Refreshing refs in `/workspace/repo`
 - Determining the correct branch name from issue or PR context
+- Switching `/workspace/repo` to a new issue branch or an existing PR branch
+- Preserving in-progress changes on follow-up events when already on the right
+  branch
 
 ### Out of scope
 
+- Creating git worktrees or cloning a second copy of the target repo
 - Installing dependencies or running setup scripts (the situation skill handles that)
 - Making any code changes
 - Pushing or committing
 
 ## Invocation
 
-Loaded first by `jared` before every situation skill. Every
-code-touching workflow starts with `repo-setup`.
+Loaded first by `jared` before every situation skill. Every code-touching
+workflow starts with `repo-setup`.
 
 ## Runtime contract
 
@@ -34,21 +37,31 @@ code-touching workflow starts with `repo-setup`.
 
 ### Output
 
-- A worktree at `~/dev/<owner>/<repo>-wt/<branch>` ready for work
-- Current directory set to the worktree
+- `/workspace/repo` exists and is a git repository
+- `/workspace/repo` is on the intended branch
+- The agent uses `/workspace/repo` as the working directory for all subsequent
+  commands
 
 ### Side effects
 
-- Creates or updates the shared clone at `~/dev/<owner>/<repo>`
-- Creates a worktree directory on disk
+- Fetches refs from the remote
+- Creates or updates a local branch in `/workspace/repo`
+- Does not create worktrees
 
 ## Evaluation criteria
 
-- Concurrent sessions for different branches on the same repo do not interfere
-- Worktree is on the correct branch (new branch from default for issues, PR head branch for PRs)
-- `git status` in the worktree is clean after setup
+- The target repo is edited in `/workspace/repo`, matching OpenCode's project
+  root and snapshots
+- New issue work starts from the default branch on `issue-<number>-<slug>`
+- Existing PR work checks out the PR head branch
+- Follow-up events do not discard dirty in-progress work on the correct branch
+- `git status` in `/workspace/repo` is understandable before the situation
+  skill proceeds
 
 ## Maintenance
 
-- If git worktree behavior changes across git versions, the commands here may need updating
-- The `--depth=50` clone depth is a balance between speed and having enough history for rebasing
+- Keep `/workspace/repo` as the only target-repo checkout unless the container
+  lifecycle changes. Multi-repo investigation may still clone other repos under
+  `~/dev/...` for read-only context.
+- The container runtime already clones the target repo before OpenCode starts;
+  if that changes, update this skill and the runtime together.
