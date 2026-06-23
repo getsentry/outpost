@@ -23,10 +23,12 @@ directly, post a review on GitHub, or both.
    Three-dot syntax shows just what this branch added, not unrelated
    changes that landed on the default branch since branching.
 
-2. For larger diffs, do the read pass methodically yourself — read the
-   changed files top to bottom before judging, so you don't carry the
-   implementation's "obvious in context" bias. (Do not use sub-agents;
-   the `task` tool is disabled.)
+2. For larger diffs, read the changed files top to bottom before
+   judging, so you don't carry the implementation's "obvious in
+   context" bias. You may delegate the read-and-summarize pass to the
+   `explore` subagent (cheaper, read-only) to get a structured rundown
+   of what changed — but make every review *judgment* (is this a real
+   finding?) yourself.
 
 3. If a test suite exists, run it to verify the changes don't break
    anything. Check `package.json` scripts, `Makefile`, `pytest.ini`,

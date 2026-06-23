@@ -13,7 +13,8 @@ to act on them mechanically.
 - Diffing the branch against the default branch (three-dot syntax)
 - Classifying findings by kind: bug, test-gap, style, scope, docs
 - Running the test suite to catch regressions
-- Reading large diffs methodically in-session (no sub-agents)
+- Reading large diffs methodically (optionally via the `explore`
+  subagent for the read pass; judgments stay with the primary)
 
 ### Out of scope
 
