@@ -39,9 +39,7 @@ and respond to feedback.
      Verify before starting new work.
    - **No linked PRs** → proceed with fresh implementation.
 
-3. **Understand repo conventions.** Delegate this survey to the
-   `explore` subagent (read-only, cheaper model) and use its brief; ask
-   it to report:
+3. **Understand repo conventions.** Read and summarize directly:
    - `CONTRIBUTING.md`, `AGENTS.md`, `DEVELOPMENT.md`, or similar docs
    - Recent commit history: `git log --oneline -20` (commit style)
    - Linter config: `biome.json`, `.eslintrc*`, `.prettierrc*`,
@@ -50,7 +48,6 @@ and respond to feedback.
      `pytest.ini`, `pyproject.toml [tool.pytest]`, `go.mod`, etc.
    - CI workflow files: `.github/workflows/*.yml` — note the test
      command and count the number of check/job names
-   - Existing utility functions relevant to the issue
    Note for later: coding conventions, test command, lint command,
    PR template path (if any), and CI check count.
 
@@ -60,9 +57,7 @@ and respond to feedback.
    - **Feature request** → skip to step 6 (planning).
    - **Bug report** → continue to verification.
 
-5. **Verify the bug exists.** You may delegate the code-path *reading*
-   to `explore` (e.g. "find and summarize the code paths involved in
-   <behavior>"), but make the root-cause judgment yourself:
+5. **Verify the bug exists** (directly):
    a. Read the relevant code paths identified in the issue body.
    b. Cross-check against the default branch HEAD — is the described
       behavior actually present in the current code?
@@ -93,18 +88,16 @@ and respond to feedback.
 
 ### Phase 4: Implementation
 
-7. **Implement the plan.** Once your plan from step 6 is precise, hand
-   the first-pass edits to the `worker` subagent (cheaper model), giving
-   it: the full plan, the working directory (`$WORKTREE`), the coding
-   conventions from step 3, and the exact files/changes/tests to write.
-   Then **review `worker`'s output yourself** before trusting it — the
-   correctness judgment stays with you. For small or subtle changes,
-   just do them directly.
+7. **Implement the plan** directly. Make the code changes following:
+   - The full plan from step 6.
+   - The working directory (`$WORKTREE`).
+   - The coding conventions from step 3.
+   - Clear instructions: implement every item in the plan, write the
+     specified tests, and report what was done.
 
 8. **Verify the implementation.**
-   - Check that every item in the plan was implemented (your judgment).
-   - Run the test suite (use the test command from step 3) — you may
-     delegate the test run + failure summary to `worker`.
+   - Check that every item in the plan was implemented.
+   - Run the test suite (use the test command from step 3).
    - If this was a bug fix, run the reproduction from step 5.
 
 9. **Loop if failing.** If tests fail or the issue isn't resolved:

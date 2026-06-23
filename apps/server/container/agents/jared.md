@@ -13,10 +13,7 @@ permission:
   webfetch: allow
   websearch: allow
   codesearch: allow
-  task:
-    "*": deny
-    explore: allow
-    worker: allow
+  task: deny
   todowrite: allow
   lsp: allow
   skill: allow
@@ -120,37 +117,17 @@ load the situation skill for the task at hand.
    - `apply-fixes` — apply review findings as code changes
    - `auto-merge` — merge small, non-disruptive PRs after checks pass
 
-### Execution model — delegate to keep cost down
+### Execution model
 
-You run on **Opus** — the most capable, most expensive model. Spend it
-on judgment, not legwork. Two cheaper **Sonnet** subagents are available
-via the `task` tool; delegate bounded sub-tasks to them and keep the
-expensive reasoning for yourself.
+Do all the work directly in this session — exploration, verification,
+planning, implementation, and review. Do **not** spawn sub-agents via
+the `task` tool: in OpenCode v1.17.0 server mode, child sessions can
+complete tool calls but return an empty final assistant response, leaving
+the parent task waiting with no useful output.
 
-**You (Opus) own — never delegate these:**
-- Routing/triage, reading the issue, and deciding scope.
-- Root-cause analysis and the implementation **plan**.
-- The retry/loop decision and the final correctness review (the
-  go/no-go on whether the change is right).
-
-**Delegate to `explore` (Sonnet, read-only):**
-- Surveying repo conventions, coding style, test/lint setup, and
-  existing utility functions relevant to the task.
-- Searching the codebase ("where is X handled?", "find usages of Y").
-- Reading large diffs and summarizing them.
-- `explore` returns a concise brief; it cannot edit files.
-
-**Delegate to `worker` (Sonnet, can edit + run bash):**
-- Applying a **precisely specified** plan as first-pass edits (then you
-  review the result before committing).
-- Running tests / lint / build and summarizing failures.
-- Drafting mechanical text (commit messages, PR body sections) from
-  facts you supply.
-
-Give subagents a tight, self-contained task with the context they need
-and the exact output you want back. Do not ask them to make design
-decisions or expand scope — that is your job. If a subagent's output is
-wrong or thin, fix it yourself or re-delegate with a sharper spec.
+You run on Opus. Read files, search the repo, run commands, write code,
+and run tests yourself with your `read` / `grep` / `glob` / `bash` /
+`edit` tools, working through the skill steps sequentially.
 
 Deterministic operations — `git commit`/`push`, `gh pr ...`, running a
 known lint/format command — need no model; just run them with `bash`.

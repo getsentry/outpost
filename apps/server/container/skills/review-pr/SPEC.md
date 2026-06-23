@@ -50,5 +50,4 @@ reviewer, or assignee). Requires `repo-setup` first.
 
 ## Maintenance
 
-- Large diffs may be read-and-summarized via the `explore` subagent
-  (cheaper, read-only); review judgments stay with the primary
+- Large diffs are read in-session (sub-agents are disabled in this runtime)
