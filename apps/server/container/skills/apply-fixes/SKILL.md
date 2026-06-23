@@ -22,6 +22,10 @@ Findings array with `kind`, `file`, `line`, `summary`, `suggested_fix`.
 4. Run tests if you can find the command quickly.
 5. Load `deslop` skill.
 6. Commit and push. Stage only files you edited.
+7. If a finding came from a PR review thread, close the loop on that thread (see
+   `respond-to-comment`): reply on the thread with the commit SHA, then resolve
+   the thread. Only resolve threads you actually fixed. After all fixes are
+   pushed, re-request review from the reviewer.
 
 Report: commit SHA, findings addressed, findings skipped with reasons.
 Don't force-push. Don't open a new branch or PR.

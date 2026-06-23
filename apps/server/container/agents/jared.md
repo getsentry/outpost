@@ -66,7 +66,9 @@ Read the event type, action, and payload. Decide:
 - **CI passed on my draft PR** (`check_suite` or `workflow_run` with
   conclusion `success` on a draft PR where I'm the author) →
   self-review and mark ready via `mark-pr-ready` skill
-- **Comment/review on a PR I'm involved in** → respond to comment
+- **Comment/review on a PR I'm involved in** → respond to comment.
+  Reply on the review thread (never a top-level comment), and resolve
+  threads you fix — see the `respond-to-comment` skill.
 - **Push to default branch** → check if the push broke something
   (look for failing status checks on HEAD). If CI is green or no
   relevant PRs, `SKIPPED: push with no actionable failure`.

@@ -24,14 +24,81 @@ setup), stop: `SKIPPED: own comment`.
 ## Workflow
 
 1. Check PR authorship — only push to your own PR's branch.
-2. If actionable on your own PR: implement fix, load `deslop`, commit,
-   push, reply with commit SHA.
+2. If actionable on your own PR: implement the fix, load `deslop`, commit,
+   push, then reply on the thread with the commit SHA and resolve the thread
+   (see below). After all fixes, re-request review.
 3. If actionable on someone else's PR: reply with a `suggestion` block
    or description. Don't push.
-4. If not actionable: reply with the reason.
+4. If not actionable: reply on the thread with the reason and leave it open
+   for a human to resolve.
 
-Reply to inline comments via the thread API. Reply to top-level
-comments via `gh pr comment`.
+## Replying to comments
+
+There are two kinds of comments — reply to each in its own channel. **Never
+use `gh pr comment` to answer an inline review comment**; that posts a
+top-level PR comment that isn't attached to the thread.
+
+**Inline review comment** (`pull_request_review_comment`, or a comment inside a
+`pull_request_review`) — reply on the thread via the replies endpoint:
+
+```sh
+gh api -X POST \
+  "repos/<OWNER>/<REPO>/pulls/<N>/comments/<COMMENT_ID>/replies" \
+  -f body="Fixed in <SHA>."
+```
+
+`<COMMENT_ID>` is the review comment's `id` from the event payload (use the
+top-level comment of the thread — the one with `in_reply_to_id` unset).
+
+**Top-level PR comment** (`issue_comment` on a PR, not tied to a line) — reply
+with:
+
+```sh
+gh pr comment <N> --body "..."
+```
+
+## Resolving a thread (only after you fixed it)
+
+Resolve a review thread **only** when you pushed a code change that addresses
+it. Leave won't-fix / not-actionable threads open with an explanatory reply.
+
+1. Find the thread node id for the comment you addressed:
+
+   ```sh
+   THREAD_ID=$(gh api graphql -f query='
+     query($owner: String!, $repo: String!, $pr: Int!) {
+       repository(owner: $owner, name: $repo) {
+         pullRequest(number: $pr) {
+           reviewThreads(first: 100) {
+             nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
+           }
+         }
+       }
+     }' -f owner=<OWNER> -f repo=<REPO> -F pr=<N> \
+     --jq '.data.repository.pullRequest.reviewThreads.nodes[]
+            | select(.comments.nodes[0].databaseId == <COMMENT_ID>) | .id')
+   ```
+
+2. Resolve it:
+
+   ```sh
+   gh api graphql -f query='
+     mutation($threadId: ID!) {
+       resolveReviewThread(input: { threadId: $threadId }) {
+         thread { isResolved }
+       }
+     }' -f threadId="$THREAD_ID"
+   ```
+
+## Re-requesting review
+
+After pushing fixes for a reviewer's feedback, re-request their review so they
+see the PR is ready again:
+
+```sh
+gh api -X POST "repos/<OWNER>/<REPO>/pulls/<N>/requested_reviewers" \
+  -f "reviewers[]=<REVIEWER_LOGIN>"
+```
 
 Keep replies concise and natural — write like a teammate, not a
 support bot. No filler phrases, no emoji unless the thread uses them.

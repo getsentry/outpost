@@ -8,7 +8,15 @@ import type { Octokit } from "@octokit/rest"
 import type { EntityKey } from "./types"
 
 // PR-related events that extract from payload.pull_request.
-const PR_EVENTS = new Set(["pull_request", "pull_request_review_comment", "pull_request_review"])
+const PR_EVENTS = new Set([
+  "pull_request",
+  "pull_request_review_comment",
+  "pull_request_review",
+  // Fired when a review thread is resolved/unresolved. Without this the event
+  // returns a null entity and is silently skipped, so the agent never learns a
+  // thread changed state.
+  "pull_request_review_thread",
+])
 
 // CI events that extract from a pull_requests array inside the event object.
 const CI_EVENTS: Record<string, string> = {
@@ -60,7 +68,7 @@ export async function extractEntityKey(
     }
   }
 
-  // pull_request, pull_request_review_comment, pull_request_review
+  // pull_request, pull_request_review_comment, pull_request_review, pull_request_review_thread
   // When a PR links to an issue (e.g. "Fixes #123"), use the issue number
   // as the entity key so the PR shares the same container/session as the issue.
   if (PR_EVENTS.has(event)) {
