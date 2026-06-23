@@ -55,6 +55,8 @@ workflow starts with `repo-setup`.
 - New issue work starts from the default branch on `issue-<number>-<slug>`
 - Existing PR work checks out the PR head branch
 - Follow-up events do not discard dirty in-progress work on the correct branch
+- Dirty work on an unexpected branch is not silently carried across branch
+  switches or discarded
 - `git status` in `/workspace/repo` is understandable before the situation
   skill proceeds
 

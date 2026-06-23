@@ -31,7 +31,9 @@ own container, so `/workspace/repo` is already isolated.
 3. **Preserve in-progress follow-up work**. If `/workspace/repo` is already on
    the intended branch and has uncommitted changes, keep them and skip branch
    reset/checkout. The previous event may have left in-progress changes that the
-   current follow-up event needs to continue.
+   current follow-up event needs to continue. If there are uncommitted changes
+   on a different branch, stop and inspect before switching — do not risk
+   carrying changes to the wrong branch or discarding work.
    ```sh
    git status --short
    git branch --show-current
