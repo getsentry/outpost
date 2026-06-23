@@ -1,0 +1,74 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "jared",
+  "main": "apps/server/dist/jared/index.js",
+  "compatibility_date": "2025-12-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  },
+  "upload_source_maps": true,
+  "placement": {
+    "mode": "smart"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "jared",
+      "database_id": "d52c2301-5a23-4bb1-a15b-225725900001"
+    }
+  ],
+  "containers": [
+    {
+      "class_name": "Sandbox",
+      "image": "./apps/server/container/Dockerfile",
+      "max_instances": 10,
+      "instance_type": "standard-3",
+      "ssh": {
+        "enabled": true
+      },
+      "authorized_keys": [
+        {
+          "name": "aditya",
+          "public_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEOr1/J9gXKCeqijk8guM5K0GoAfbRmq3xm4vtKlEB/c"
+        }
+      ]
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "Sandbox",
+        "name": "Sandbox"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "new_sqlite_classes": ["OpenCodeContainer"],
+      "tag": "v1"
+    },
+    {
+      "renamed_classes": [{ "from": "OpenCodeContainer", "to": "Sandbox" }],
+      "tag": "v2"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "ratelimits": [
+    {
+      "name": "RATE_LIMITER",
+      "namespace_id": "1465",
+      "simple": {
+        "limit": 100,
+        "period": 60
+      }
+    }
+  ],
+  "assets": {
+    "directory": "apps/server/dist/client",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/health", "/openapi.json"]
+  }
+}
