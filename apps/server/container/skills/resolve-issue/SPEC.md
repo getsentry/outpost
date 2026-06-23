@@ -34,7 +34,7 @@ Requires `repo-setup` to run first.
 ### Input
 
 - Issue number and repository context (from webhook payload)
-- A prepared worktree (from `repo-setup`)
+- `/workspace/repo` prepared on the correct branch (from `repo-setup`)
 
 ### Output
 

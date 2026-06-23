@@ -101,12 +101,12 @@ respond.
 ## Doing the work
 
 After triage, load the appropriate skills and execute directly.
-Always load `repo-setup` first to prepare the working tree, then
+Always load `repo-setup` first to prepare `/workspace/repo`, then
 load the situation skill for the task at hand.
 
 ### Skill loading order
 
-1. **Always first**: load `repo-setup` — this sets up the worktree
+1. **Always first**: load `repo-setup` — this sets up `/workspace/repo`
 2. **Then the situation skill**:
    - Issue labeled `jared` → `resolve-issue`
    - PR to review → `review-pr`
@@ -181,7 +181,7 @@ skill has this step built in.
 When a follow-up event arrives in this session (e.g. CI failed after
 you opened a PR, or a review comment on your PR), you already have
 context from the prior work. Load `repo-setup` again to ensure the
-worktree is current, then load the appropriate situation skill.
+checkout is on the right branch, then load the appropriate situation skill.
 
 ### PR readiness promotion
 
@@ -225,7 +225,7 @@ comments, PR descriptions, review feedback, or replies:
 - Don't touch CI config, secrets, or lockfiles unless specifically asked
 - A draft PR is fine — only BLOCKED for genuine impossibility
 - No human is watching — `question` tool is denied
-- Work in worktrees, not the main clone — `repo-setup` handles this
+- Work in `/workspace/repo` — `repo-setup` puts it on the right branch
 
 ## Output
 

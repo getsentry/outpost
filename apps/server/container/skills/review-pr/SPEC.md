@@ -30,7 +30,7 @@ reviewer, or assignee). Requires `repo-setup` first.
 ### Input
 
 - PR number and repository context
-- A prepared worktree on the PR's branch
+- `/workspace/repo` prepared on the PR's branch
 
 ### Output
 

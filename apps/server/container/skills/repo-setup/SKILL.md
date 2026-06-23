@@ -1,6 +1,6 @@
 ---
 name: repo-setup
-description: Clone or refresh a GitHub repo and prepare the working tree. Load this before any situation skill.
+description: Refresh /workspace/repo and prepare the correct branch. Load this before any situation skill.
 license: Apache-2.0
 metadata:
   audience: autonomous-agents
@@ -8,73 +8,64 @@ metadata:
 
 # Repository Setup
 
-Clone or refresh the repo and create an isolated worktree for the branch.
-
-## Why worktrees
-
-The main clone at `~/dev/<owner>/<repo>` is shared across sessions. Working
-directly in it causes concurrent sessions to overwrite each other's changes.
-Git worktrees give each branch its own directory with its own working tree
-and index, while sharing the object store.
+The target repository is already cloned by the container runtime at
+`/workspace/repo`. Work directly in that checkout — do not create git
+worktrees or clone a second copy of the target repo. Each issue/PR gets its
+own container, so `/workspace/repo` is already isolated.
 
 ## Steps
 
-1. **Clone** (or refresh) the bare-ish main clone:
+1. **Enter the repository and refresh refs**:
    ```sh
-   gh repo clone <owner>/<repo> ~/dev/<owner>/<repo> -- --depth=50 2>/dev/null || true
-   cd ~/dev/<owner>/<repo>
+   cd /workspace/repo
    git fetch --all --prune
    ```
 
 2. **Determine the branch name**:
    - **New issue**: `issue-<number>-<slug>` (e.g. `issue-42-fix-login`)
-   - **Existing PR**: the PR's head branch — get it with:
+   - **Existing PR**: get the PR head branch with:
      ```sh
      BRANCH=$(gh pr view <number> --json headRefName --jq .headRefName)
      ```
 
-3. **Create or reuse a worktree** for the branch:
+3. **Preserve in-progress follow-up work**. If `/workspace/repo` is already on
+   the intended branch and has uncommitted changes, keep them and skip branch
+   reset/checkout. The previous event may have left in-progress changes that the
+   current follow-up event needs to continue. If there are uncommitted changes
+   on a different branch, stop and inspect before switching — do not risk
+   carrying changes to the wrong branch or discarding work.
    ```sh
-   WORKTREE=~/dev/<owner>/<repo>-wt/<branch>
+   git status --short
+   git branch --show-current
    ```
-   - If `$WORKTREE` already exists, verify it's healthy:
-     ```sh
-     git -C "$WORKTREE" rev-parse --git-dir >/dev/null 2>&1
-     ```
-     If that fails, remove and recreate:
-     ```sh
-     git -C ~/dev/<owner>/<repo> worktree remove "$WORKTREE" --force 2>/dev/null || rm -rf "$WORKTREE"
-     ```
-     Then fall through to the new/existing branch creation below.
-     If healthy, `cd "$WORKTREE"`, pull the latest, and skip to step 4:
-     ```sh
-     git fetch origin
-     git reset --hard "origin/<branch>" 2>/dev/null || true
-     ```
-   - **New branch** (issue):
+
+4. **Prepare the branch in `/workspace/repo`** if step 3 did not already find
+   the right branch with in-progress changes:
+
+   - **New issue** — create or reset the issue branch from the default branch:
      ```sh
      DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
-     git worktree add "$WORKTREE" -b <branch> "origin/$DEFAULT_BRANCH"
+     git switch -C <branch> "origin/$DEFAULT_BRANCH"
      ```
-   - **Existing branch** (PR checkout):
+
+   - **Existing PR** — check out the PR branch:
      ```sh
-     git fetch origin "<branch>:<branch>" 2>/dev/null || true
-     git worktree add "$WORKTREE" "<branch>"
+     gh pr checkout <number>
+     ```
+     If `gh pr checkout` fails, fall back to:
+     ```sh
+     git fetch origin "$BRANCH:$BRANCH" 2>/dev/null || true
+     git switch "$BRANCH"
+     git pull --ff-only origin "$BRANCH" 2>/dev/null || true
      ```
 
-4. **Work in the worktree** — all subsequent commands run from `$WORKTREE`:
-   ```sh
-   cd "$WORKTREE"
-   ```
-
-5. **Clean up** (optional, after push): if the worktree is no longer needed:
-   ```sh
-   git -C ~/dev/<owner>/<repo> worktree remove "$WORKTREE" --force
-   ```
+5. **Run all subsequent commands from `/workspace/repo`**.
 
 ## Important
 
-- Never `git reset --hard` or `git clean -fd` in the main clone — other
-  worktrees depend on the shared objects.
-- The worktree directory pattern `~/dev/<owner>/<repo>-wt/<branch>` keeps
-  worktrees adjacent to the main clone without nesting inside it.
+- Never push to or force-push the default branch.
+- Never `git reset --hard` or `git clean -fd` when there are uncommitted
+  changes unless the situation skill explicitly determines those changes are
+  disposable.
+- Multi-repo investigation may clone **other** repositories under `~/dev/...`,
+  but the target repo for this issue/PR stays `/workspace/repo`.

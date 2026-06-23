@@ -9,7 +9,7 @@ metadata:
 # Resolve Issue
 
 Take an issue from labeled to "draft PR opened." Load `repo-setup`
-first to get on a feature branch.
+first to prepare `/workspace/repo` on a feature branch.
 
 **Default to shipping a draft PR.** A best-effort first cut is more
 valuable than a "too big" comment. Other agents will review it, fix CI,
@@ -95,7 +95,7 @@ and respond to feedback.
 
 7. **Implement the plan.** Once your plan from step 6 is precise, hand
    the first-pass edits to the `worker` subagent (cheaper model), giving
-   it: the full plan, the working directory (`$WORKTREE`), the coding
+   it: the full plan, the working directory (`/workspace/repo`), the coding
    conventions from step 3, and the exact files/changes/tests to write.
    Then **review `worker`'s output yourself** before trusting it — the
    correctness judgment stays with you. For small or subtle changes,
