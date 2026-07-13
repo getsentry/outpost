@@ -10,10 +10,19 @@ metadata:
 
 Triage a comment on a PR the bot is involved in. Load `repo-setup` first.
 
-## Self-loop guard
+## Addressing guard
 
-If the comment author equals your identity (`$ME` — see agent identity
-setup), stop: `SKIPPED: own comment`.
+Before triaging, confirm the comment is actually for you:
+
+- If the comment author equals your identity (`$ME` — see agent identity
+  setup), stop: `SKIPPED: own comment`.
+- If the body explicitly `@`-mentions a specific other user and does NOT
+  `@`-mention `$ME`, the question is aimed at someone else — stop:
+  `SKIPPED: directed at @<user>`. Applies to inline and top-level
+  comments alike. Exceptions (keep going): the comment also `@`-mentions
+  `$ME`, or it's a direct reply to one of your own comments.
+- A comment with no `@`-mention of another user is not affected by this
+  guard — proceed to triage as normal.
 
 ## Triage
 

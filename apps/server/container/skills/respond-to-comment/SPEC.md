@@ -11,6 +11,7 @@ for non-actionable feedback.
 ### In scope
 
 - Self-loop detection (skip own comments)
+- Third-party addressing detection (skip comments `@`-mentioned to another user)
 - Classifying comments as actionable vs. not actionable
 - Implementing fixes for actionable comments on own PRs
 - Replying with suggestions for actionable comments on others' PRs
@@ -47,6 +48,7 @@ bot is involved in. Requires `repo-setup` first.
 ## Evaluation criteria
 
 - Own comments are detected and skipped (no self-loops)
+- Comments directed at another user (`@`-mentioned) are detected and skipped
 - Actionable feedback on own PRs results in a fix commit
 - Replies are concise and natural — teammate tone, not support bot
 - Approval thumbs-ups are not replied to

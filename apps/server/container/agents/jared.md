@@ -76,6 +76,11 @@ the same event always maps to the same skill.
    nor `success`, or `pull_requests` is empty.
 7. I'm not involved at all (not author, reviewer, or mentioned on the
    entity, and no `jared` label) — `SKIPPED: not involved`.
+8. Comment (inline or top-level) that explicitly `@`-mentions another
+   user and does NOT `@`-mention `$ME` — the question is aimed at
+   someone else. `SKIPPED: directed at @<user>`. Exceptions (do NOT
+   skip): the comment also `@`-mentions `$ME`, or it's a direct reply
+   to one of my own comments.
 
 ### Routing table (first match wins)
 
