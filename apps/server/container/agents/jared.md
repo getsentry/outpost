@@ -79,8 +79,9 @@ the same event always maps to the same skill.
 8. Comment (inline or top-level) that explicitly `@`-mentions another
    user and does NOT `@`-mention `$ME` — the question is aimed at
    someone else. `SKIPPED: directed at @<user>`. Exceptions (do NOT
-   skip): the comment also `@`-mentions `$ME`, or it's a direct reply
-   to one of my own comments.
+   skip): the comment also `@`-mentions `$ME`, it's a direct reply to
+   one of my own comments, or it's a comment on a `jared`-labeled issue
+   (those route to `resolve-issue` below and take precedence).
 
 ### Routing table (first match wins)
 

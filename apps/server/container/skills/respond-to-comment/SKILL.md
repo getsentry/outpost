@@ -20,7 +20,10 @@ Before triaging, confirm the comment is actually for you:
   `@`-mention `$ME`, the question is aimed at someone else — stop:
   `SKIPPED: directed at @<user>`. Applies to inline and top-level
   comments alike. Exceptions (keep going): the comment also `@`-mentions
-  `$ME`, or it's a direct reply to one of your own comments.
+  `$ME`, it's a direct reply to one of your own comments, or it's a
+  comment on a `jared`-labeled issue (the router resumes `resolve-issue`
+  for those, so answers to your own questions are never dropped even if
+  they `@`-mention a helper).
 - A comment with no `@`-mention of another user is not affected by this
   guard — proceed to triage as normal.
 
