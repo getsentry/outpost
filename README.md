@@ -57,7 +57,7 @@ packages/
 - [pnpm](https://pnpm.io) 10+
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/) (Cloudflare Workers CLI)
 - A GitHub App configured with webhook permissions
-- Anthropic API key for the AI agent
+- Anthropic API key for the AI agent (or OpenRouter API key)
 
 ### Local development
 
@@ -118,7 +118,8 @@ The GitHub App needs the following permissions:
 | `GITHUB_APP_ID` | GitHub App ID |
 | `GITHUB_APP_PRIVATE_KEY` | GitHub App private key (PEM) |
 | `GITHUB_APP_WEBHOOK_SECRET` | Webhook HMAC secret |
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude |
+| `OPENROUTER_API_KEY` | OpenRouter API key (primary) |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Claude (fallback) |
 | `OPENAI_API_KEY` | OpenAI API key (optional, fallback) |
 | `APP_URL` | Dashboard URL |
 | `BETTER_AUTH_SECRET` | Auth session secret |

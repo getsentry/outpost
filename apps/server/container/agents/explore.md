@@ -1,7 +1,7 @@
 ---
 description: Read-only codebase explorer. Surveys conventions, utilities, and code paths and returns a concise brief. Cannot modify files.
 mode: subagent
-model: anthropic/claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 temperature: 0.1
 permission:
   read: allow

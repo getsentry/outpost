@@ -22,6 +22,7 @@ interface ContainerConfig {
   botLogin: string
   botEmail: string
   sentryDsn: string
+  openrouterApiKey: string
   anthropicApiKey: string
   openaiApiKey: string
   sessionData: string | null
@@ -56,6 +57,9 @@ async function writeEnvFile(config: ContainerConfig) {
   }
   if (config.sentryDsn) {
     lines.push(`export SENTRY_DSN="${config.sentryDsn}"`)
+  }
+  if (config.openrouterApiKey) {
+    lines.push(`export OPENROUTER_API_KEY="${config.openrouterApiKey}"`)
   }
   if (config.anthropicApiKey) {
     lines.push(`export ANTHROPIC_API_KEY="${config.anthropicApiKey}"`)

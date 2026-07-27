@@ -1,7 +1,7 @@
 ---
 description: Unified GitHub agent. Receives raw webhook payloads, triages events, and executes work directly. Manages the full lifecycle from issue labeling through merged PR.
 mode: primary
-model: anthropic/claude-opus-4-8
+model: openrouter/anthropic/claude-opus-4.8
 temperature: 0.2
 permission:
   read: allow

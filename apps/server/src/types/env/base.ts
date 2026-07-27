@@ -20,6 +20,7 @@ export type BaseEnvBindings = {
     // Agent API keys - For local testing
     ANTHROPIC_API_KEY?: string
     OPENAI_API_KEY?: string
+    OPENROUTER_API_KEY?: string
     // GitHub App credentials for webhook handling
     GITHUB_APP_ID: string
     GITHUB_APP_PRIVATE_KEY: string

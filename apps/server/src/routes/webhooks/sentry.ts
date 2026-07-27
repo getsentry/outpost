@@ -299,6 +299,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           repo: repo || null,
           botLogin: "jared-outpost[bot]",
           installationToken: "", // TODO: mint from GitHub App
+          openrouterApiKey: envBindings.OPENROUTER_API_KEY,
           anthropicApiKey: envBindings.ANTHROPIC_API_KEY,
           openaiApiKey: envBindings.OPENAI_API_KEY,
           sentryDsn: envBindings.SENTRY_DSN,
