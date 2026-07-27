@@ -30,6 +30,7 @@ export type SandboxSetupOpts = {
   repo: string | null
   botLogin: string
   installationToken: string
+  openrouterApiKey?: string
   anthropicApiKey?: string
   openaiApiKey?: string
   sentryDsn?: string
@@ -144,6 +145,7 @@ export async function ensureSandboxReady(
   // Write env file (everything except GH_TOKEN, which applyGitHubAuth manages so
   // the same logic handles initial setup and later refreshes).
   const envLines: string[] = []
+  if (opts.openrouterApiKey) envLines.push(`export OPENROUTER_API_KEY="${opts.openrouterApiKey}"`)
   if (opts.anthropicApiKey) envLines.push(`export ANTHROPIC_API_KEY="${opts.anthropicApiKey}"`)
   if (opts.openaiApiKey) envLines.push(`export OPENAI_API_KEY="${opts.openaiApiKey}"`)
   if (opts.sentryDsn) envLines.push(`export SENTRY_DSN="${opts.sentryDsn}"`)

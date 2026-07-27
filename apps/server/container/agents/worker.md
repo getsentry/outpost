@@ -1,7 +1,7 @@
 ---
 description: Mechanical execution subagent. Applies a precisely specified plan, runs tests/lint, and drafts mechanical text. Does not redesign or expand scope.
 mode: subagent
-model: anthropic/claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 temperature: 0.2
 permission:
   read: allow

@@ -83,6 +83,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       repo: evt.repo,
       botLogin,
       installationToken,
+      openrouterApiKey: env.OPENROUTER_API_KEY,
       anthropicApiKey: env.ANTHROPIC_API_KEY,
       openaiApiKey: env.OPENAI_API_KEY,
       sentryDsn: env.SENTRY_DSN,
