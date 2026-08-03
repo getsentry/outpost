@@ -1,72 +1,15 @@
-import { createLogger, formatError } from "@jared/utils"
+/**
+ * Phase 2 entry: re-export the Flue app route map and Cloudflare DO classes.
+ * Flue's vite plugin generates/augments the Worker entry; this file remains the
+ * authored composition point and preserves the prior Sentry-wrapped default.
+ */
+
 import * as Sentry from "@sentry/cloudflare"
-import { Hono } from "hono"
-import { contextStorage } from "hono/context-storage"
-import { cors } from "hono/cors"
-import { HTTPException } from "hono/http-exception"
-import { logger } from "hono/logger"
-import { requestId } from "hono/request-id"
-import { secureHeaders } from "hono/secure-headers"
-import { auth, base, rateLimit } from "./middlewares"
-import router from "./routes"
+import app, { type AppType } from "./app.ts"
 import type { BaseEnvBindings } from "./types/env/base"
 
-const app = new Hono<BaseEnvBindings>()
-  .use(
-    logger(),
-    requestId(),
-    cors({
-      origin: (origin, c) => {
-        const allowedOrigin = c.env.APP_URL
-        if (origin === allowedOrigin) return origin
-        if (c.env.ENV === "development") {
-          try {
-            const url = new URL(origin)
-            if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-              return origin
-            }
-          } catch {
-            // Invalid origin
-          }
-        }
-        return ""
-      },
-      credentials: true,
-    }),
-    secureHeaders(),
-    contextStorage(),
-    base(),
-    auth(),
-    rateLimit(),
-  )
-  .route("/", router)
-  .onError((err, c) => {
-    const logger = createLogger({
-      namespace: "http",
-      level: c.env.ENV === "development" ? "debug" : "info",
-    })
-
-    if (c.env.ENV === "development") {
-      logger.error({ error: formatError(err) }, "unhandled error")
-    } else {
-      Sentry.captureException(err)
-    }
-
-    if (err instanceof HTTPException) {
-      return err.getResponse()
-    }
-
-    return c.json({ error: "Internal server error" }, 500)
-  })
-
+export type { AppType }
 export { ContainerProxy } from "@cloudflare/sandbox"
-// Export the Sandbox DO so Cloudflare can instantiate it.
-export { Sandbox } from "./lib/containers/sandbox"
+export { Sandbox } from "./lib/containers/sandbox.ts"
 
-export type AppType = typeof app
-export default Sentry.withSentry(
-  (env: BaseEnvBindings["Bindings"]) => ({
-    dsn: env.SENTRY_DSN,
-  }),
-  app,
-)
+export default Sentry.withSentry((env: BaseEnvBindings["Bindings"]) => ({ dsn: env.SENTRY_DSN }), app)

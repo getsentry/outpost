@@ -28,8 +28,17 @@ export type BaseEnvBindings = {
     // Sentry internal integration (for assigning Sentry issues to the agent)
     SENTRY_INTEGRATION_CLIENT_SECRET?: string
     SENTRY_INTEGRATION_TOKEN?: string
-    // Cloudflare Sandbox (OpenCode) Durable Object binding
+    // Cloudflare Sandbox Durable Object binding (thin Linux sandbox for Flue)
     Sandbox: DurableObjectNamespace<Sandbox>
+    /**
+     * Phase 2 flag: when "1"/"true", agent brain runs as a Flue Durable Object
+     * and the container is a thin sandbox (no in-container Flue/Lore process).
+     */
+    FLUE_NATIVE?: string
+    /** Standalone Lore gateway base URL (Phase 2). */
+    LORE_GATEWAY_URL?: string
+    /** Flue-generated Jared agent DO binding (Phase 2). */
+    FLUE_JARED_AGENT?: DurableObjectNamespace
   }
   Variables: {
     logger: Logger

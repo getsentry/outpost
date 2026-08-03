@@ -1,30 +1,33 @@
 # Outpost
 
-AI coding agent infrastructure for Sentry. Outpost connects GitHub issues to an autonomous coding agent ([OpenCode](https://opencode.ai)) running inside Cloudflare Containers, with a dashboard to monitor sessions in real time.
+AI coding agent infrastructure for Sentry. Outpost connects GitHub issues to an autonomous coding agent ([Flue](https://flueframework.com), powered by [Pi](https://pi.dev)) running on Cloudflare Workers + Containers, with a dashboard to monitor sessions in real time.
 
 ## How it works
 
 1. **Label a GitHub issue** with `jared` — a webhook fires to the Outpost Worker
-2. **A container spins up** with OpenCode, clones the repo, and starts working on the issue
+2. **A Flue Durable Object** admits the prompt; a thin Sandbox container provides git/gh/node
 3. **The agent analyzes the issue**, explores the codebase, implements a fix, runs tests, and opens a draft PR
 4. **Monitor progress** in the Outpost dashboard — see live sessions, messages, tool calls, and cost
 
-When the agent creates a PR that references the issue (e.g. "Fixes #123"), subsequent PR events (reviews, CI results) are routed to the **same container and session**, preserving full context.
+When the agent creates a PR that references the issue (e.g. "Fixes #123"), subsequent PR events (reviews, CI results) are routed to the **same conversation**, preserving full context.
 
 ## Architecture
 
 ```
-GitHub Webhook → Cloudflare Worker → Cloudflare Container (Sandbox)
-                      ↓                      ↓
-                   D1 (SQLite)          OpenCode + Agent
-                      ↓                      ↓
-                 Dashboard UI          GitHub API (PRs, reviews)
+GitHub Webhook → Cloudflare Worker (Hono + Flue)
+                      ├─ Flue Jared Durable Object  (agent brain + session + cron)
+                      │        └─ Cloudflare Sandbox container (git / gh / node)
+                      ├─ D1 (webhook events + dashboard session mirror)
+                      └─ Lore gateway (standalone) ← model traffic
 ```
 
-- **Worker**: Hono app on Cloudflare Workers — handles webhooks, serves the dashboard, manages containers
-- **Container**: Cloudflare Sandbox running OpenCode with the Jared agent and custom skills
-- **Database**: Cloudflare D1 (SQLite) — stores webhook events and agent session data
+- **Worker**: Hono app on Cloudflare Workers — webhooks, dashboard, Flue agent routes
+- **Flue agent**: Durable Object with subagents (`explore`, `worker`), skills, and native schedules
+- **Container**: Thin Cloudflare Sandbox — Linux workspace only (no harness process)
+- **Lore**: Standalone LLM memory gateway — see [docs/LORE_GATEWAY.md](docs/LORE_GATEWAY.md)
 - **Dashboard**: React SPA with session sidebar, chat-style message viewer, and container management
+
+`FLUE_NATIVE=1` (default in `wrangler.jsonc`) enables Phase 2. Set `FLUE_NATIVE=0` and build `container/Dockerfile.phase1` to run Flue in-container (Phase 1 rollback path).
 
 ## Project structure
 
@@ -32,21 +35,23 @@ GitHub Webhook → Cloudflare Worker → Cloudflare Container (Sandbox)
 apps/
   server/                   # Cloudflare Worker + React dashboard
     src/
-      routes/
-        webhooks/           # Webhook handlers (GitHub, Sentry)
-        containers/         # Container management API
-        events/             # Webhook event listing
-      lib/
-        github/             # GitHub App auth, entity extraction, prompts
-        containers/         # Sandbox setup, dispatch, session persistence
-      client/               # React SPA (pages, components, hooks)
+      agents/               # Flue 'use agent' modules (jared + subagents)
+      cloudflare.ts         # Sandbox export + cron scheduled handler
+      app.ts                # Hono + Flue createAgentRouter mount
+      routes/               # webhooks, containers, events, …
+      lib/containers/       # sandbox setup, Flue dispatch, session persistence
+      client/               # React SPA
     container/
-      Dockerfile            # Container image (OpenCode + tools)
-      agents/               # Agent definitions (jared.md)
-      skills/               # Agent skills (resolve-issue, fix-ci, etc.)
+      Dockerfile            # Thin sandbox image (Phase 2)
+      Dockerfile.phase1     # In-container Flue + Lore (Phase 1)
+      flue/                 # Phase 1 Node Flue app source
+      .agents/skills/       # Workspace skills discovered by Flue
 packages/
-  utils/                    # Shared utilities (logger, error formatting)
-  validations/              # Shared Zod schemas
+  utils/
+  validations/
+docs/
+  FLUE_PARITY.md            # Phase 0 spike findings
+  LORE_GATEWAY.md           # Standalone Lore deploy notes
 ```
 
 ## Setup
@@ -57,7 +62,8 @@ packages/
 - [pnpm](https://pnpm.io) 10+
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/) (Cloudflare Workers CLI)
 - A GitHub App configured with webhook permissions
-- Anthropic API key for the AI agent (or OpenRouter API key)
+- OpenRouter / Anthropic / OpenAI API keys
+- (Phase 2) A standalone [Lore](https://github.com/BYK/loreai) gateway — see `docs/LORE_GATEWAY.md`
 
 ### Local development
 
@@ -81,50 +87,16 @@ The dashboard will be available at `http://localhost:5173`.
 ### Deploy
 
 ```bash
-# Deploy to Cloudflare Workers
 pnpm deploy
 ```
 
-This builds the Worker + client, pushes the container image, and deploys everything.
-
 ## Dashboard
 
-The dashboard provides:
-
-- **Containers page** — list of all agent containers with session count, message count, cost, and status
-- **Container detail** — session sidebar + chat-style message viewer showing the full conversation
-- **Webhook events** — all incoming GitHub webhooks with status tracking (pending → dispatched → completed)
+- **Containers page** — agent containers with session count, message count, cost, and status
+- **Container detail** — session sidebar + chat-style message viewer
+- **Webhook events** — incoming GitHub webhooks with status tracking
 - **Container management** — destroy containers, clear sessions, execute commands
 
-## Webhook providers
+## Migration notes
 
-| Provider | Status | Trigger |
-|----------|--------|---------|
-| GitHub   | Active | Label issue with `jared` |
-| Sentry   | Active | Assign issue to team `#special-projects` |
-
-## Configuration
-
-### GitHub App
-
-The GitHub App needs the following permissions:
-- **Repository**: Contents (read/write), Issues (read/write), Pull requests (read/write), Metadata (read)
-- **Webhook events**: Issues, Issue comments, Pull requests, Pull request reviews, Check suites, Workflow runs
-
-### Environment variables
-
-| Variable | Description |
-|----------|-------------|
-| `GITHUB_APP_ID` | GitHub App ID |
-| `GITHUB_APP_PRIVATE_KEY` | GitHub App private key (PEM) |
-| `GITHUB_APP_WEBHOOK_SECRET` | Webhook HMAC secret |
-| `OPENROUTER_API_KEY` | OpenRouter API key (primary) |
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude (fallback) |
-| `OPENAI_API_KEY` | OpenAI API key (optional, fallback) |
-| `APP_URL` | Dashboard URL |
-| `BETTER_AUTH_SECRET` | Auth session secret |
-| `SENTRY_DSN` | Sentry error tracking DSN |
-
-## License
-
-Private — Sentry Enterprise
+See [docs/FLUE_PARITY.md](docs/FLUE_PARITY.md) for the OpenCode → Flue capability matrix and topology.

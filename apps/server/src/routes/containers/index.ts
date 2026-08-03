@@ -1,19 +1,23 @@
 // Container management routes.
 //
 // Groups all container-related operations under /api/containers:
-//   POST /sessions         — unauthenticated, called from inside containers
+//   POST /sessions         — unauthenticated, called from inside containers (Phase 1)
 //   GET  /sessions         — authenticated, paginated list of agent sessions
-//   GET  /sessions/detail  — authenticated, single session detail (auto-syncs from container)
+//   GET  /sessions/detail  — authenticated, single session detail (syncs Flue DO or container)
 //   GET  /:entityKey/debug — authenticated, live container inspection + D1 sync
 //   POST /:entityKey/exec  — authenticated, execute command inside container
 //   POST /:entityKey/destroy — authenticated, force-destroy a container
+//
+// Phase 2 (FLUE_NATIVE=1): session detail prefers Flue Durable Object history
+// via @flue/sdk instead of curling an in-container harness.
 
 import { getSandbox } from "@cloudflare/sandbox"
 import { formatError } from "@jared/utils"
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
-import { applyGitHubAuth, OPENCODE_PORT } from "@/lib/containers/dispatch"
+import { applyGitHubAuth, FLUE_AGENT_MOUNT, FLUE_PORT, OPENCODE_PORT } from "@/lib/containers/dispatch"
+import { fetchFlueHistory, flueHistoryToSessionData } from "@/lib/containers/flue-dispatch"
 import { saveSession, summarizeSession } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
 import { isAuthenticated } from "@/middlewares"
@@ -38,12 +42,49 @@ function unwrapArray(raw: string): unknown[] {
 }
 
 /**
- * Collect session data from a running OpenCode container.
+ * Collect session data from a Phase 1 in-container Flue (or legacy OpenCode) process.
  * Returns a stringified JSON blob ready for saveSession(), or null if collection fails.
+ *
+ * Phase 2 prefers fetchFlueHistory() against the Durable Object conversation URL.
  */
 async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Promise<string | null> {
-  // All curls use --max-time so a busy container (agent using CPU) can't hang
-  // the whole sync. Bounded so the request always returns promptly.
+  // Prefer Flue ping + history (Phase 1 in-container).
+  const fluePing = await sandbox.exec(
+    `curl -sf --max-time 5 http://localhost:${FLUE_PORT}/api/ping 2>/dev/null`,
+    { cwd: "/workspace" },
+  )
+  if (fluePing.success) {
+    const [logResult, histResult] = await Promise.all([
+      sandbox.exec("tail -100 /tmp/flue.log 2>/dev/null || true", { cwd: "/workspace" }),
+      sandbox.exec(
+        `CONV=$(cat /tmp/dispatch-session-id 2>/dev/null || echo default); curl -sf --max-time 8 "http://localhost:${FLUE_PORT}${FLUE_AGENT_MOUNT}/$CONV?view=history" 2>/dev/null`,
+        { cwd: "/workspace" },
+      ),
+    ])
+    if (!histResult.stdout) return null
+    try {
+      const hist = JSON.parse(histResult.stdout) as Record<string, unknown>
+      const sid = (await sandbox.exec("cat /tmp/dispatch-session-id 2>/dev/null || echo default", {
+        cwd: "/workspace",
+      })).stdout?.trim() || "default"
+      const messages =
+        (Array.isArray(hist.messages) && hist.messages) ||
+        (Array.isArray(hist.records) && hist.records) ||
+        (Array.isArray(hist.items) && hist.items) ||
+        []
+      return JSON.stringify({
+        sessions: [{ id: sid, title: sid, agent: "jared" }],
+        sessionStatus: { [sid]: { type: "busy" } },
+        messages: { [sid]: messages },
+        logs: logResult.stdout || "",
+        flue: true,
+      })
+    } catch {
+      return null
+    }
+  }
+
+  // Legacy OpenCode fallback (pre-migration containers still running).
   const [logResult, sessionResult, sessionList] = await Promise.all([
     sandbox.exec("cat /tmp/opencode.log 2>/dev/null | tail -100", { cwd: "/workspace" }),
     sandbox.exec(`curl -sf --max-time 8 http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null`, {
@@ -54,11 +95,9 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
 
   if (!sessionList.stdout) return null
 
-  // Cap the number of sessions we fetch messages for to bound the work.
   const MAX_SESSIONS = 25
   const sessions = (unwrapArray(sessionList.stdout) as Array<{ id: string }>).slice(0, MAX_SESSIONS)
 
-  // Fetch messages for each session — messages are {info, parts} objects, NOT {id} objects
   let messages: Record<string, unknown[]> = {}
   try {
     const msgResults = await Promise.all(
@@ -219,14 +258,23 @@ const router = new Hono<BaseEnv>()
     // poll picks up the freshly-synced data.
     const isStale = Date.now() - new Date(session.updatedAt).getTime() > 15_000
     if (isStale) {
-      const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
+      const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
       c.executionCtx.waitUntil(
         (async () => {
           try {
+            if (flueNative) {
+              // Phase 2: pull conversation history from the Flue Durable Object.
+              const history = await fetchFlueHistory(c.env, entityKey)
+              if (history) {
+                await saveSession(db, entityKey, flueHistoryToSessionData(entityKey, history))
+              }
+              return
+            }
+            const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
             const freshData = await collectContainerData(sandbox)
             if (freshData) await saveSession(db, entityKey, freshData)
           } catch {
-            // Container might be dead/busy — leave the existing snapshot in place.
+            // Container / agent might be dead/busy — leave the existing snapshot.
           }
         })(),
       )
@@ -271,11 +319,13 @@ const router = new Hono<BaseEnv>()
 
       return c.json({
         entityKey,
+        flueLogs: (parsed.logs as string) || "(empty)",
         opencodeLogs: (parsed.logs as string) || "(empty)",
         sessionStatus: JSON.stringify(parsed.sessionStatus ?? {}),
         sessions: JSON.stringify(parsed.sessions ?? []),
         processes: processCheck.stdout || "(empty)",
         keepalive: keepaliveCheck.stdout?.trim() || "unknown",
+        harness: parsed.flue ? "flue" : "legacy",
       })
     } catch (err) {
       return c.json({ error: formatError(err) }, 500)

@@ -10,8 +10,8 @@ dist/
 # (README, AGENTS.md, etc.), not here.
 .opencode/
 
-# Managed by lore — agent-local, not version-controlled
-AGENTS.md
+# Managed by lore — agent-local at repo root, not version-controlled
+/AGENTS.md
 
 .terraform
 

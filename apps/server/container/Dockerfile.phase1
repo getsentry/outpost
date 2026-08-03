@@ -1,0 +1,50 @@
+# Phase 1: Flue Node server + Lore gateway inside the Cloudflare Sandbox.
+# Retained for rollback / local validation. Production uses the thin Dockerfile
+# (Phase 2) with FLUE_NATIVE=1.
+#
+# linux/amd64 only (Cloudflare Containers requirement).
+
+FROM docker.io/cloudflare/sandbox:0.7.0
+
+RUN apt-get update \
+ && install -d -m 0755 /etc/apt/keyrings \
+ && apt-get install -y --no-install-recommends ca-certificates curl \
+ && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      fd-find fzf gh git jq ripgrep \
+ && ln -s /usr/bin/fdfind /usr/local/bin/fd \
+ && rm -rf /var/lib/apt/lists/*
+
+ENV N_PREFIX=/usr/local
+RUN npm install -g n \
+ && n 22 \
+ && hash -r \
+ && corepack enable \
+ && corepack prepare pnpm@latest --activate
+
+RUN mkdir -p /workspace/repo /opt/flue
+
+COPY flue/package.json /opt/flue/package.json
+WORKDIR /opt/flue
+RUN pnpm install --prod=false
+COPY flue/ /opt/flue/
+RUN pnpm build \
+ && mkdir -p /workspace/repo/.agents \
+ && cp -R /opt/flue/.agents/skills /workspace/repo/.agents/skills \
+ && cp /opt/flue/AGENTS.md /workspace/repo/AGENTS.md
+
+RUN curl -fsSL https://withlore.ai/install | bash || true
+
+COPY .agents/skills/ /root/.agents/skills/
+COPY AGENTS.md /root/AGENTS.md
+
+ENV PORT=4096
+ENV FLUE_PORT=4096
+ENV LORE_GATEWAY_URL=http://127.0.0.1:3207
+EXPOSE 4096
+WORKDIR /workspace/repo

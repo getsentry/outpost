@@ -1,6 +1,10 @@
-# OpenCode Container for Cloudflare Sandbox
-# Uses the Cloudflare Sandbox base image. The Worker controls lifecycle
-# via the Sandbox SDK (exec, startProcess, waitForPort).
+# Thin Cloudflare Sandbox image for Outpost (Phase 2).
+#
+# The Flue agent brain runs as a Durable Object in the Worker. This container
+# is only a Linux workspace: git, gh, node, ripgrep, and workspace skills.
+# No OpenCode / Flue / Lore process runs here.
+#
+# For the Phase 1 in-container Flue harness image, see Dockerfile.phase1.
 # linux/amd64 only (Cloudflare Containers requirement).
 
 FROM docker.io/cloudflare/sandbox:0.7.0
@@ -27,7 +31,6 @@ RUN apt-get update \
 
 # --- Node.js 22 + pnpm ---
 # Agent needs these to run typecheck, lint, and tests in target repos.
-# The sandbox base image has Node 20; we need 22 for pnpm and target repos.
 ENV N_PREFIX=/usr/local
 RUN npm install -g n \
  && n 22 \
@@ -36,22 +39,14 @@ RUN npm install -g n \
  && corepack prepare pnpm@latest --activate \
  && node --version && pnpm --version
 
-# --- OpenCode CLI (pinned version) ---
-# v1.17.9 is the canary target for validating newer server-mode session handling.
-ENV PATH="/root/.opencode/bin:${PATH}"
-RUN curl -fsSL https://opencode.ai/install -o /tmp/install-opencode.sh \
- && bash /tmp/install-opencode.sh --version 1.17.9 \
- && rm /tmp/install-opencode.sh \
- && opencode --version
+# --- Workspace ---
+RUN mkdir -p /workspace/repo /.agents/skills /root/.agents/skills
 
-# --- Workspace directory ---
-RUN mkdir -p /workspace/repo
+# Flue discovers workspace skills at <cwd>/.agents/skills and AGENTS.md at cwd.
+COPY .agents/skills/ /workspace/repo/.agents/skills/
+COPY .agents/skills/ /root/.agents/skills/
+COPY AGENTS.md /workspace/repo/AGENTS.md
+COPY AGENTS.md /root/AGENTS.md
 
-# --- OpenCode config + Lore plugin ---
-COPY opencode.json /root/.config/opencode/opencode.json
-
-# --- Jared agent + skills ---
-COPY agents/ /root/.config/opencode/agents/
-COPY skills/ /root/.config/opencode/skills/
-
-EXPOSE 4096
+WORKDIR /workspace/repo
+# No harness process — the Worker attaches this sandbox via cloudflareSandbox().

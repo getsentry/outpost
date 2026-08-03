@@ -3,7 +3,7 @@
 // Receives webhook events from a Sentry internal integration when issues
 // are assigned to the #special-projects team. Fetches full error context
 // (stack trace, breadcrumbs, tags) and dispatches a fix prompt to the
-// OpenCode sandbox.
+// Flue agent (Durable Object or in-container).
 //
 // Flow:
 //   1. Issue assigned to team #special-projects → webhook fires
@@ -293,6 +293,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
         })
 
         logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.sandbox_ready.start")
+        const flueNative = envBindings.FLUE_NATIVE === "1" || envBindings.FLUE_NATIVE === "true"
         // TODO: Get GitHub installation token for the resolved repo
         // For now, use the GitHub App to get a token for the getsentry org
         await ensureSandboxReady(sandbox, {
@@ -305,6 +306,8 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           sentryDsn: envBindings.SENTRY_DSN,
           entityKey: containerKey,
           appUrl: envBindings.APP_URL,
+          thinSandbox: flueNative,
+          loreGatewayUrl: envBindings.LORE_GATEWAY_URL,
         })
         logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.sandbox_ready.done")
 
@@ -317,9 +320,13 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
 
         logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.prompt.start")
         const eventId = crypto.randomUUID()
-        // Schedules the prompt via a container-side script (does not block on
-        // OpenCode startup). The agent processes it autonomously.
-        await dispatchPrompt(sandbox, containerKey, prompt, eventId)
+        // Admit the prompt without blocking waitUntil on agent startup.
+        if (flueNative) {
+          const { dispatchToFlueAgent } = await import("@/lib/containers/flue-dispatch")
+          await dispatchToFlueAgent(envBindings, { entityKey: containerKey, prompt, logger })
+        } else {
+          await dispatchPrompt(sandbox, containerKey, prompt, eventId)
+        }
         logger.info({ issue_id: issueId, container_key: containerKey }, "sentry issue dispatched")
       } catch (err) {
         logger.error(

@@ -1,0 +1,23 @@
+{
+  "name": "@jared/flue-container",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "start": "node dist/server.mjs"
+  },
+  "dependencies": {
+    "@flue/runtime": "2.0.1",
+    "@flue/sdk": "2.0.1",
+    "hono": "^4.12.23",
+    "valibot": "^1.1.0"
+  },
+  "devDependencies": {
+    "@flue/cli": "2.0.1",
+    "@flue/vite": "2.0.1",
+    "typescript": "^5.9.2",
+    "vite": "^8.0.12"
+  }
+}
