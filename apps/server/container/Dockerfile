@@ -4,6 +4,10 @@
 # is only a Linux workspace: git, gh, node, ripgrep, and workspace skills.
 # No OpenCode / Flue / Lore process runs here.
 #
+# IMPORTANT: skills/AGENTS.md are baked under /root/.agents — NEVER under
+# /workspace/repo. The Worker clones the target repo into /workspace/repo and
+# then copies skills in via ensureWorkspaceSkills().
+#
 # For the Phase 1 in-container Flue harness image, see Dockerfile.phase1.
 # linux/amd64 only (Cloudflare Containers requirement).
 
@@ -30,7 +34,6 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # --- Node.js 22 + pnpm ---
-# Agent needs these to run typecheck, lint, and tests in target repos.
 ENV N_PREFIX=/usr/local
 RUN npm install -g n \
  && n 22 \
@@ -39,13 +42,12 @@ RUN npm install -g n \
  && corepack prepare pnpm@latest --activate \
  && node --version && pnpm --version
 
-# --- Workspace ---
-RUN mkdir -p /workspace/repo /.agents/skills /root/.agents/skills
+# Empty clone target — Worker populates this via git clone.
+RUN mkdir -p /workspace/repo \
+ && rm -rf /workspace/repo/* /workspace/repo/.[!.]* 2>/dev/null || true
 
-# Flue discovers workspace skills at <cwd>/.agents/skills and AGENTS.md at cwd.
-COPY .agents/skills/ /workspace/repo/.agents/skills/
+# Skills live outside the clone target so git clone never fails on a nonempty dir.
 COPY .agents/skills/ /root/.agents/skills/
-COPY AGENTS.md /workspace/repo/AGENTS.md
 COPY AGENTS.md /root/AGENTS.md
 
 WORKDIR /workspace/repo

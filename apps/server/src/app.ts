@@ -1,12 +1,14 @@
 /**
  * Flue + Outpost route map.
  *
- * On the Cloudflare target, Flue treats this default export as the Worker fetch
- * handler composition surface. Existing Outpost API routes stay under /api/*;
- * the Jared agent is mounted at /agents/jared/:conversationId.
+ * Flue's generated Worker entry (`virtual:flue/worker`) imports this default
+ * export as the fetch handler. Agent routes are mounted BEFORE rate limiting
+ * so in-process / SDK dispatch is not blocked by unidentified callers.
  */
 
+import { createLogger, formatError } from "@jared/utils"
 import { createAgentRouter } from "@flue/runtime/routing"
+import * as Sentry from "@sentry/cloudflare"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
 import { cors } from "hono/cors"
@@ -14,8 +16,6 @@ import { HTTPException } from "hono/http-exception"
 import { logger } from "hono/logger"
 import { requestId } from "hono/request-id"
 import { secureHeaders } from "hono/secure-headers"
-import { createLogger, formatError } from "@jared/utils"
-import * as Sentry from "@sentry/cloudflare"
 import { Jared } from "./agents/jared.ts"
 import { auth, base, rateLimit } from "./middlewares"
 import router from "./routes"
@@ -47,11 +47,11 @@ const app = new Hono<BaseEnvBindings>()
     contextStorage(),
     base(),
     auth(),
-    rateLimit(),
   )
-  // Flue agent surface — unauthenticated from Worker-internal / SDK callers.
-  // Protect with network controls; conversation ids are entity keys.
+  // Flue agent surface — before rateLimit so Worker-internal dispatch and
+  // dashboard history pulls are not rejected for lacking a rate-limit key.
   .route("/agents/jared", createAgentRouter(Jared))
+  .use(rateLimit())
   .route("/", router)
   .onError((err, c) => {
     const log = createLogger({
@@ -73,4 +73,6 @@ const app = new Hono<BaseEnvBindings>()
   })
 
 export type AppType = typeof app
-export default app
+
+/** Flue's generated Worker entry uses this as the fetch handler. */
+export default Sentry.withSentry((env: BaseEnvBindings["Bindings"]) => ({ dsn: env.SENTRY_DSN }), app)

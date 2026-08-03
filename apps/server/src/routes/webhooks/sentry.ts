@@ -287,12 +287,17 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
         // For now, use the project slug as a hint and require the agent to figure it out
         const repo = projectSlug ? `getsentry/${projectSlug}` : ""
 
-        const sandbox = getSandbox(envBindings.Sandbox, containerKey, {
+        const { toAgentInstanceId } = await import("@/lib/containers/ids")
+        const sandboxId = toAgentInstanceId(containerKey)
+        const sandbox = getSandbox(envBindings.Sandbox, sandboxId, {
           normalizeId: true,
           sleepAfter: "2h",
         })
 
-        logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.sandbox_ready.start")
+        logger.info(
+          { issue_id: issueId, container_key: containerKey, sandbox_id: sandboxId },
+          "sentry.dispatch.sandbox_ready.start",
+        )
         const flueNative = envBindings.FLUE_NATIVE === "1" || envBindings.FLUE_NATIVE === "true"
         // TODO: Get GitHub installation token for the resolved repo
         // For now, use the GitHub App to get a token for the getsentry org
@@ -309,7 +314,10 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           thinSandbox: flueNative,
           loreGatewayUrl: envBindings.LORE_GATEWAY_URL,
         })
-        logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.sandbox_ready.done")
+        logger.info(
+          { issue_id: issueId, container_key: containerKey, sandbox_id: sandboxId },
+          "sentry.dispatch.sandbox_ready.done",
+        )
 
         const prompt = formatSentryPrompt({
           issue: context.issue,

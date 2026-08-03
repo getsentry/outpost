@@ -59,4 +59,6 @@ Lore is a long-lived HTTP proxy with a local SQLite DB (`~/.local/share/lore/lor
 
 - Flue 2.x on Cloudflare Agents SDK — pin `agents@^0.14.2` and validate durability APIs at build.
 - Session data model changes from OpenCode `{sessions, messages, sessionStatus}` scrape → Flue conversation stream; dashboard adapters needed.
-- Outpost's existing Vite dual-mode (client SPA + Worker) must compose with `flue()` before `cloudflare()`.
+- Outpost's existing Vite dual-mode (client SPA + Worker) must compose with `flue()` + `cloudflare({ config: flueWorkerConfig() })`.
+- **Sandbox id alignment**: prep, Flue conversation id, and Jared `useSandbox(getSandbox(...))` MUST share `toAgentInstanceId(entityKey)`.
+- Default `FLUE_NATIVE=0` until Phase 2 is proven in a real Cloudflare deploy.

@@ -16,6 +16,8 @@ import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
 import { saveSession } from "./sessions"
 
+import { toAgentInstanceId } from "./ids"
+
 /** Flue HTTP port inside the container (Phase 1). */
 export const FLUE_PORT = 4096
 
@@ -27,6 +29,11 @@ export const AGENT = "jared"
 
 /** Conversation URL prefix inside the container. */
 export const FLUE_AGENT_MOUNT = `/agents/${AGENT}`
+
+/** @deprecated Prefer {@link toAgentInstanceId}. */
+export function sanitizeConversationId(entityKey: string): string {
+  return toAgentInstanceId(entityKey)
+}
 
 export type SandboxSetupOpts = {
   repo: string | null
@@ -166,13 +173,25 @@ async function ensureRepoCloned(
 
   const checkRepo = await sandbox.exec("test -d /workspace/repo/.git", { cwd: "/workspace" })
   if (!checkRepo.success) {
+    // Clone target must be empty — baked image files (if any) live under
+    // /root/.agents, never under /workspace/repo. Clear any stray contents.
+    await sandbox.exec(
+      "rm -rf /workspace/repo && mkdir -p /workspace/repo /workspace",
+      { cwd: "/workspace" },
+    )
     const cloneUrl = opts.installationToken
       ? `https://x-access-token:${opts.installationToken}@github.com/${opts.repo}.git`
       : `https://github.com/${opts.repo}.git`
-    const cloneResult = await sandbox.exec(`git clone --depth 50 ${cloneUrl} /workspace/repo`, {
-      cwd: "/workspace",
-    })
-    if (!cloneResult.success) throw new Error(`git clone failed: ${cloneResult.stderr}`)
+    // Clone into a temp dir then move, so a partial failure never leaves a
+    // half-populated /workspace/repo that blocks the next attempt.
+    const cloneResult = await sandbox.exec(
+      `git clone --depth 50 ${cloneUrl} /workspace/repo-tmp && mv /workspace/repo-tmp /workspace/repo`,
+      { cwd: "/workspace" },
+    )
+    if (!cloneResult.success) {
+      await sandbox.exec("rm -rf /workspace/repo-tmp", { cwd: "/workspace" })
+      throw new Error(`git clone failed: ${cloneResult.stderr}`)
+    }
   }
 
   if (opts.botLogin) {
@@ -200,13 +219,18 @@ async function writeEnvFile(sandbox: ReturnType<typeof getSandbox>, opts: Sandbo
   await sandbox.writeFile("/tmp/flue-env.sh", `${envLines.join("\n")}\n`)
 }
 
-/** Ensure Flue workspace skills exist under /workspace/repo/.agents/skills. */
+/**
+ * Copy Flue workspace skills into the cloned repo AFTER clone.
+ * Source of truth is /root/.agents/skills (baked into the image outside the
+ * clone target) and optionally /opt/flue for Phase 1 images.
+ */
 async function ensureWorkspaceSkills(sandbox: ReturnType<typeof getSandbox>): Promise<void> {
   await sandbox.exec(
     "mkdir -p /workspace/repo/.agents && " +
+      "([ -d /root/.agents/skills ] && cp -R /root/.agents/skills /workspace/repo/.agents/ || true) && " +
+      "([ -f /root/AGENTS.md ] && cp /root/AGENTS.md /workspace/repo/AGENTS.md || true) && " +
       "([ -d /opt/flue/.agents/skills ] && cp -R /opt/flue/.agents/skills /workspace/repo/.agents/ || true) && " +
-      "([ -f /opt/flue/AGENTS.md ] && cp /opt/flue/AGENTS.md /workspace/repo/AGENTS.md || true) && " +
-      "([ -d /root/.agents/skills ] && cp -R /root/.agents/skills /workspace/repo/.agents/ || true)",
+      "([ -f /opt/flue/AGENTS.md ] && cp /opt/flue/AGENTS.md /workspace/repo/AGENTS.md || true)",
     { cwd: "/workspace" },
   )
 }
@@ -222,7 +246,7 @@ async function startSessionReporter(
   if (!opts.appUrl) return
 
   const ingestUrl = `${opts.appUrl.replace(/\/$/, "")}/api/containers/sessions`
-  const conversationId = opts.entityKey.replace(/[^a-zA-Z0-9_-]/g, "-")
+  const conversationId = toAgentInstanceId(opts.entityKey)
 
   const reporterScript = [
     "#!/bin/bash",
@@ -283,7 +307,7 @@ export async function dispatchPrompt(
   prompt: string,
   eventId: string,
 ): Promise<void> {
-  const conversationId = containerKey.replace(/[^a-zA-Z0-9_-]/g, "-")
+  const conversationId = toAgentInstanceId(containerKey)
   const promptPayload = JSON.stringify({ kind: "user", body: prompt })
   const promptFile = `/tmp/prompt-${eventId}.json`
   await sandbox.writeFile(promptFile, promptPayload)

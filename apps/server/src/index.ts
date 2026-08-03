@@ -1,15 +1,9 @@
 /**
- * Phase 2 entry: re-export the Flue app route map and Cloudflare DO classes.
- * Flue's vite plugin generates/augments the Worker entry; this file remains the
- * authored composition point and preserves the prior Sentry-wrapped default.
+ * Compatibility shim for tests / tooling that still import `@/index`.
+ * The Cloudflare Worker entry is Flue's `virtual:flue/worker`, which imports
+ * `src/app.ts` and re-exports `src/cloudflare.ts`.
  */
 
-import * as Sentry from "@sentry/cloudflare"
-import app, { type AppType } from "./app.ts"
-import type { BaseEnvBindings } from "./types/env/base"
-
-export type { AppType }
+export { default, type AppType } from "./app.ts"
 export { ContainerProxy } from "@cloudflare/sandbox"
 export { Sandbox } from "./lib/containers/sandbox.ts"
-
-export default Sentry.withSentry((env: BaseEnvBindings["Bindings"]) => ({ dsn: env.SENTRY_DSN }), app)

@@ -18,6 +18,7 @@ import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
 import { applyGitHubAuth, FLUE_AGENT_MOUNT, FLUE_PORT, OPENCODE_PORT } from "@/lib/containers/dispatch"
 import { fetchFlueHistory, flueHistoryToSessionData } from "@/lib/containers/flue-dispatch"
+import { toAgentInstanceId } from "@/lib/containers/ids"
 import { saveSession, summarizeSession } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
 import { isAuthenticated } from "@/middlewares"
@@ -270,7 +271,7 @@ const router = new Hono<BaseEnv>()
               }
               return
             }
-            const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
+            const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
             const freshData = await collectContainerData(sandbox)
             if (freshData) await saveSession(db, entityKey, freshData)
           } catch {
@@ -296,7 +297,7 @@ const router = new Hono<BaseEnv>()
   // Live container inspection — collects data from container and saves to D1
   .get("/:entityKey/debug", async (c) => {
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
-    const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
+    const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
 
     try {
       const [processCheck, keepaliveCheck] = await Promise.all([
@@ -375,7 +376,7 @@ const router = new Hono<BaseEnv>()
       const octokit = app.getInstallationOctokit(event.installationId)
       const auth = (await octokit.auth({ type: "installation" })) as { token: string }
 
-      const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
+      const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
       await applyGitHubAuth(sandbox, { repo: event.repo, installationToken: auth.token })
 
       return c.json({ ok: true, entityKey, repo: event.repo })
@@ -389,7 +390,7 @@ const router = new Hono<BaseEnv>()
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
     const body = (await c.req.json()) as { command: string; cwd?: string }
     if (!body.command) return c.json({ error: "command required" }, 400)
-    const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
+    const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
     try {
       const result = await sandbox.exec(body.command, { cwd: body.cwd ?? "/workspace" })
       return c.json({ ok: true, stdout: result.stdout, stderr: result.stderr, success: result.success })
@@ -402,7 +403,7 @@ const router = new Hono<BaseEnv>()
   .post("/:entityKey/destroy", async (c) => {
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
     const db = c.get("db")
-    const sandbox = getSandbox(c.env.Sandbox, entityKey, { normalizeId: true })
+    const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
     try {
       await sandbox.destroy()
     } catch {

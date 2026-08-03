@@ -1,26 +1,29 @@
 // Phase 2: dispatch prompts to the Jared Flue Durable Object.
 //
-// The Worker admits messages into the agent conversation via Flue's HTTP
-// surface (createAgentRouter mount) or @flue/sdk. The container is only a
-// thin Linux sandbox attached by the agent via useSandbox(cloudflareSandbox).
+// Prefer in-process `dispatch()` (no public HTTP hairpin, no rate-limit key).
+// HTTP via @flue/sdk remains available for external callers / dashboard history.
+//
+// Jared is imported lazily so Node/vitest modules that only need helpers
+// (jaredConversationUrl, flueHistoryToSessionData) do not load cloudflare:workers.
 
 import { createFlueClient } from "@flue/sdk"
 import type { Logger } from "@jared/utils"
 import type { BaseEnvBindings } from "@/types/env/base"
 import { AGENT } from "./dispatch"
+import { toAgentInstanceId } from "./ids"
 
 type Env = BaseEnvBindings["Bindings"]
 
 /** Build the absolute conversation URL for a Jared agent instance. */
 export function jaredConversationUrl(appUrl: string, entityKey: string): string {
   const base = appUrl.replace(/\/$/, "")
-  const id = entityKey.replace(/[^a-zA-Z0-9_-]/g, "-")
+  const id = toAgentInstanceId(entityKey)
   return `${base}/agents/${AGENT}/${id}`
 }
 
 /**
  * Admit a user prompt into the Jared Flue agent Durable Object.
- * Returns once the message is accepted (202) — does not wait for settlement.
+ * Uses in-process dispatch so we do not depend on APP_URL or rate limits.
  */
 export async function dispatchToFlueAgent(
   env: Env,
@@ -30,32 +33,28 @@ export async function dispatchToFlueAgent(
     logger?: Logger
   },
 ): Promise<{ conversationUrl: string; submissionId?: string }> {
-  const appUrl = env.APP_URL
-  if (!appUrl) {
-    throw new Error("APP_URL is required to dispatch to the Flue agent")
-  }
+  const id = toAgentInstanceId(opts.entityKey)
+  const appUrl = env.APP_URL?.replace(/\/$/, "") ?? ""
+  const conversationUrl = appUrl ? `${appUrl}/agents/${AGENT}/${id}` : `/agents/${AGENT}/${id}`
 
-  const conversationUrl = jaredConversationUrl(appUrl, opts.entityKey)
-  const client = createFlueClient({ url: conversationUrl })
+  opts.logger?.info({ entity_key: opts.entityKey, instance_id: id }, "flue.dispatch.send")
 
-  opts.logger?.info({ entity_key: opts.entityKey, conversationUrl }, "flue.dispatch.send")
+  const { dispatch } = await import("@flue/runtime")
+  const { Jared } = await import("@/agents/jared.ts")
 
-  const admission = await client.send({
+  const receipt = await dispatch(Jared, {
+    id,
     message: { kind: "user", body: opts.prompt },
   })
 
-  opts.logger?.info(
-    {
-      entity_key: opts.entityKey,
-      submissionId: (admission as { submissionId?: string }).submissionId,
-    },
-    "flue.dispatch.admitted",
-  )
+  const submissionId =
+    typeof receipt === "object" && receipt && "submissionId" in receipt
+      ? String((receipt as { submissionId: string }).submissionId)
+      : undefined
 
-  return {
-    conversationUrl,
-    submissionId: (admission as { submissionId?: string }).submissionId,
-  }
+  opts.logger?.info({ entity_key: opts.entityKey, instance_id: id, submissionId }, "flue.dispatch.admitted")
+
+  return { conversationUrl, submissionId }
 }
 
 /**
@@ -81,13 +80,15 @@ export async function fetchFlueHistory(
 
 /**
  * Normalize Flue history into the dashboard session blob shape.
+ * Maps Flue `{ role, parts }` messages into the OpenCode-like
+ * `{ info: { role }, parts }` shape the UI already renders.
  */
 export function flueHistoryToSessionData(
   entityKey: string,
   history: Record<string, unknown> | null,
 ): string {
-  const sid = entityKey.replace(/[^a-zA-Z0-9_-]/g, "-")
-  const messages =
+  const sid = toAgentInstanceId(entityKey)
+  const rawMessages =
     history && Array.isArray(history.messages)
       ? history.messages
       : history && Array.isArray(history.records)
@@ -95,6 +96,8 @@ export function flueHistoryToSessionData(
         : history && Array.isArray(history.items)
           ? history.items
           : []
+
+  const messages = rawMessages.map((m, index) => normalizeFlueMessage(m, index))
 
   return JSON.stringify({
     sessions: [{ id: sid, title: entityKey, agent: AGENT }],
@@ -104,4 +107,36 @@ export function flueHistoryToSessionData(
     flue: true,
     flueHistory: history,
   })
+}
+
+/** Adapt a Flue conversation message into the dashboard's SessionMessage shape. */
+function normalizeFlueMessage(raw: unknown, index: number): Record<string, unknown> {
+  if (!raw || typeof raw !== "object") {
+    return { info: { id: `flue-${index}`, role: "unknown" }, parts: [] }
+  }
+  const m = raw as Record<string, unknown>
+
+  // Already OpenCode-shaped
+  if (m.info && typeof m.info === "object") return m
+
+  const role = typeof m.role === "string" ? m.role : "unknown"
+  const id = typeof m.id === "string" ? m.id : `flue-${index}`
+  const parts = Array.isArray(m.parts)
+    ? m.parts
+    : typeof m.body === "string"
+      ? [{ type: "text", text: m.body }]
+      : typeof m.text === "string"
+        ? [{ type: "text", text: m.text }]
+        : []
+
+  return {
+    info: {
+      id,
+      role,
+      agent: typeof m.agent === "string" ? m.agent : undefined,
+      modelID: typeof m.model === "string" ? m.model : undefined,
+      createdAt: typeof m.createdAt === "string" || typeof m.createdAt === "number" ? m.createdAt : undefined,
+    },
+    parts,
+  }
 }

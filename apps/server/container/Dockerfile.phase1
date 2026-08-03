@@ -27,21 +27,23 @@ RUN npm install -g n \
  && corepack enable \
  && corepack prepare pnpm@latest --activate
 
-RUN mkdir -p /workspace/repo /opt/flue
+RUN mkdir -p /workspace/repo /opt/flue /root/.agents
 
 COPY flue/package.json /opt/flue/package.json
 WORKDIR /opt/flue
 RUN pnpm install --prod=false
 COPY flue/ /opt/flue/
-RUN pnpm build \
- && mkdir -p /workspace/repo/.agents \
- && cp -R /opt/flue/.agents/skills /workspace/repo/.agents/skills \
- && cp /opt/flue/AGENTS.md /workspace/repo/AGENTS.md
+# Build Flue app. Skills stay under /opt/flue and /root/.agents — NEVER under
+# /workspace/repo (Worker git-clones into that path).
+RUN pnpm build
 
 RUN curl -fsSL https://withlore.ai/install | bash || true
 
 COPY .agents/skills/ /root/.agents/skills/
 COPY AGENTS.md /root/AGENTS.md
+# Also keep a copy next to the Flue app for ensureWorkspaceSkills().
+RUN mkdir -p /opt/flue/.agents && cp -R /root/.agents/skills /opt/flue/.agents/skills \
+ && cp /root/AGENTS.md /opt/flue/AGENTS.md
 
 ENV PORT=4096
 ENV FLUE_PORT=4096

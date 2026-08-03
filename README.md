@@ -27,7 +27,7 @@ GitHub Webhook → Cloudflare Worker (Hono + Flue)
 - **Lore**: Standalone LLM memory gateway — see [docs/LORE_GATEWAY.md](docs/LORE_GATEWAY.md)
 - **Dashboard**: React SPA with session sidebar, chat-style message viewer, and container management
 
-`FLUE_NATIVE=1` (default in `wrangler.jsonc`) enables Phase 2. Set `FLUE_NATIVE=0` and build `container/Dockerfile.phase1` to run Flue in-container (Phase 1 rollback path).
+`FLUE_NATIVE=0` (default in `wrangler.jsonc`) keeps Phase 1 in-container Flue until Phase 2 is validated. Set `FLUE_NATIVE=1` and use the thin `Dockerfile` for DO-native.
 
 ## Project structure
 

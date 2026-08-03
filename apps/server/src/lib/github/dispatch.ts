@@ -13,6 +13,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
 import { dispatchToFlueAgent } from "@/lib/containers/flue-dispatch"
+import { toAgentInstanceId } from "@/lib/containers/ids"
 import { createGitHubApp } from "@/lib/github/app"
 import { formatEventPrompt } from "@/lib/github/prompt"
 import type { BaseEnvBindings } from "@/types/env/base"
@@ -82,9 +83,10 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
   try {
     logger.info({ entity_key: containerKey, event_id: eventId, flue_native: flueNative }, "dispatch.start")
 
-    const sandbox = getSandbox(env.Sandbox, containerKey, { normalizeId: true, sleepAfter: "2h" })
+    const sandboxId = toAgentInstanceId(containerKey)
+    const sandbox = getSandbox(env.Sandbox, sandboxId, { normalizeId: true, sleepAfter: "2h" })
 
-    logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.sandbox_ready.start")
+    logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.start")
     await ensureSandboxReady(sandbox, {
       repo: evt.repo,
       botLogin,
@@ -98,7 +100,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       thinSandbox: flueNative,
       loreGatewayUrl: env.LORE_GATEWAY_URL,
     })
-    logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.sandbox_ready.done")
+    logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.done")
 
     const prompt = formatEventPrompt({
       event: evt.event,

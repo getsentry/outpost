@@ -1,6 +1,6 @@
 import path from "node:path"
 import { cloudflare } from "@cloudflare/vite-plugin"
-import { flue } from "@flue/vite"
+import { flue, flueWorkerConfig } from "@flue/vite"
 import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { type AliasOptions, defineConfig } from "vite"
@@ -28,10 +28,10 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [
-      // flue() must come before cloudflare(): it prepares the generated Worker
-      // entry and merges Flue DO bindings into the wrangler input config.
+      // flue() MUST precede cloudflare(), and cloudflare MUST receive
+      // flueWorkerConfig() so Flue can inject virtual:flue/worker + DO bindings.
       flue(),
-      cloudflare(),
+      cloudflare({ config: flueWorkerConfig() }),
       tailwindcss(),
     ],
     resolve: {

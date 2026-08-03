@@ -1,7 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "jared",
-  "main": "src/index.ts",
+  // Leave `main` unset so Flue's vite plugin can set it to `virtual:flue/worker`
+  // (generated entry that registers agents + exports FlueJaredAgent + Sandbox).
   "compatibility_date": "2026-06-01",
   "compatibility_flags": ["nodejs_compat"],
   "version_metadata": {
@@ -53,15 +54,14 @@
       "tag": "v2"
     },
     {
-      // Flue-generated Jared agent Durable Object (Phase 2).
-      // Class name follows Flue convention: Flue + AgentName + Agent.
       "new_sqlite_classes": ["FlueJaredAgent"],
       "tag": "v3-flue-jared"
     }
   ],
   "triggers": {
-    // Optional application-wide cron (UTC). Per-conversation schedules use DO schedule().
-    "crons": ["0 */6 * * *"]
+    // Intentionally empty — per-conversation follow-ups use DO scheduleFollowUp().
+    // An app-wide cron that dispatches Jared would spin unused sandboxes.
+    "crons": []
   },
   "observability": {
     "enabled": true,
@@ -84,8 +84,8 @@
     "run_worker_first": ["/api/*", "/agents/*", "/health", "/openapi.json"]
   },
   "vars": {
-    // Flip to "1" to run the agent brain as a Flue Durable Object (Phase 2).
-    // Leave unset/"0" for Phase 1 in-container Flue.
-    "FLUE_NATIVE": "1"
+    // Keep Phase 1 (in-container Flue) as the safe default until Phase 2 is
+    // validated in a real Cloudflare deploy. Flip to "1" for DO-native.
+    "FLUE_NATIVE": "0"
   }
 }

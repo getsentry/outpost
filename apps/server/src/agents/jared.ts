@@ -24,14 +24,19 @@ interface Env {
  *   implement → Opus 4.6  (apply plan + tests)
  *   ship      → xAI Grok  (commit / push / draft PR)
  *
- * Runs as a Flue Durable Object. Filesystem/shell work happens in an attached
- * Cloudflare Sandbox container. Conversation state lives in DO SQLite.
+ * `id` is the Flue conversation id — the SAME sanitized entity key used when
+ * the Worker clones the repo via getSandbox(Sandbox, id). Do not re-sanitize.
  */
 export function Jared({ id }: AgentProps) {
   useModel(Models.triage)
 
   const { Sandbox } = env as unknown as Env
-  useSandbox(cloudflareSandbox(getSandbox(Sandbox, id), { cwd: "/workspace/repo" }))
+  // Match prep options in github/dispatch.ts: normalizeId + 2h sleepAfter.
+  useSandbox(
+    cloudflareSandbox(getSandbox(Sandbox, id, { normalizeId: true, sleepAfter: "2h" }), {
+      cwd: "/workspace/repo",
+    }),
+  )
 
   useSubagent(exploreSubagent)
   useSubagent(implementSubagent)
