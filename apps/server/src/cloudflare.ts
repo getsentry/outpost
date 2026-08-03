@@ -5,13 +5,25 @@
  * agent DO classes). The default export contributes non-HTTP handlers only —
  * do NOT export fetch here (that lives in app.ts).
  *
- * Application-wide cron is disabled in wrangler (empty crons). Use Jared's
- * scheduleFollowUp() for per-conversation quiet-period / CI follow-ups.
+ * The application-wide cron only performs D1 housekeeping. Agent follow-ups
+ * remain per-conversation via Jared's scheduleFollowUp().
  */
+
+import { deleteExpiredWebhookEvents } from "./lib/events/retention.ts"
 
 export { Sandbox } from "./lib/containers/sandbox.ts"
 
 export default {
-  // Reserved for future platform scheduled handlers. Keep empty so a misfired
-  // cron cannot attach a sandbox via Jared.
+  async scheduled(
+    controller: ScheduledController,
+    env: { DB: D1Database },
+    _ctx: ExecutionContext,
+  ): Promise<void> {
+    const deleted = await deleteExpiredWebhookEvents(env.DB, controller.scheduledTime)
+    console.info("webhook_events.retention.completed", {
+      cron: controller.cron,
+      deleted,
+      cutoffHours: 24,
+    })
+  },
 }

@@ -61,9 +61,9 @@
     }
   ],
   "triggers": {
-    // Intentionally empty — per-conversation follow-ups use DO scheduleFollowUp().
-    // An app-wide cron that dispatches Jared would spin unused sandboxes.
-    "crons": []
+    // Daily at 03:17 UTC: delete webhook_events older than 24 hours.
+    // Agent follow-ups remain per-conversation via DO scheduleFollowUp().
+    "crons": ["17 3 * * *"]
   },
   "observability": {
     "enabled": true,
