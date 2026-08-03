@@ -1,4 +1,4 @@
-'use agent'
+"use agent"
 
 import { useModel, useSandbox, useSubagent } from "@flue/runtime"
 import { local } from "@flue/runtime/node"
@@ -23,9 +23,7 @@ export function Jared() {
         OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
         ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
         OPENAI_API_KEY: process.env.OPENAI_API_KEY,
-        ...(process.env.LORE_GATEWAY_URL
-          ? { LORE_GATEWAY_URL: process.env.LORE_GATEWAY_URL }
-          : {}),
+        ...(process.env.LORE_GATEWAY_URL ? { LORE_GATEWAY_URL: process.env.LORE_GATEWAY_URL } : {}),
       },
     }),
   )

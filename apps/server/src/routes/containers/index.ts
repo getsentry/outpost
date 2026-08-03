@@ -19,6 +19,7 @@ import * as dbSchema from "@/db/schema"
 import { applyGitHubAuth, FLUE_AGENT_MOUNT, FLUE_PORT, OPENCODE_PORT } from "@/lib/containers/dispatch"
 import { fetchFlueHistory, flueHistoryToSessionData } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
+import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
 import { saveSession, summarizeSession } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
 import { isAuthenticated } from "@/middlewares"
@@ -53,10 +54,9 @@ async function collectContainerData(
   entityKey?: string,
 ): Promise<string | null> {
   // Prefer Flue ping + history (Phase 1 in-container).
-  const fluePing = await sandbox.exec(
-    `curl -sf --max-time 5 http://localhost:${FLUE_PORT}/api/ping 2>/dev/null`,
-    { cwd: "/workspace" },
-  )
+  const fluePing = await sandbox.exec(`curl -sf --max-time 5 http://localhost:${FLUE_PORT}/api/ping 2>/dev/null`, {
+    cwd: "/workspace",
+  })
   if (fluePing.success) {
     const [logResult, histResult] = await Promise.all([
       sandbox.exec("tail -100 /tmp/flue.log 2>/dev/null || true", { cwd: "/workspace" }),
@@ -69,9 +69,11 @@ async function collectContainerData(
     try {
       const hist = JSON.parse(histResult.stdout) as Record<string, unknown>
       const sid =
-        (await sandbox.exec("cat /tmp/dispatch-session-id 2>/dev/null || echo default", {
-          cwd: "/workspace",
-        })).stdout?.trim() || "default"
+        (
+          await sandbox.exec("cat /tmp/dispatch-session-id 2>/dev/null || echo default", {
+            cwd: "/workspace",
+          })
+        ).stdout?.trim() || "default"
       const key = entityKey ?? sid
       // Normalize into the OpenCode-like blob the dashboard renders.
       return flueHistoryToSessionData(key, hist, { logs: logResult.stdout || "" })
@@ -136,8 +138,14 @@ function parseSessionData(raw: string): Record<string, unknown> {
 }
 
 const router = new Hono<BaseEnv>()
-  // --- Unauthenticated: container posts session data here ---
+  // --- Session ingest from containers: requires internal token ---
   .post("/sessions", async (c) => {
+    const { requestHasFlueInternalToken, FLUE_INTERNAL_HEADER } = await import("@/middlewares/flue-auth")
+    const header = c.req.header(FLUE_INTERNAL_HEADER) ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "")
+    if (!requestHasFlueInternalToken(header, c.env)) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+
     const db = c.get("db")
     const body = (await c.req.json()) as {
       entityKey: string
@@ -257,7 +265,7 @@ const router = new Hono<BaseEnv>()
   })
 
   // Single session detail — returns parsed, structured data.
-  // Auto-syncs from the container when data is stale (>30s since last update).
+  // Auto-syncs from the container / Flue DO when data is stale (>15s).
   .get("/sessions/detail", async (c) => {
     const db = c.get("db")
     const entityKey = c.req.query("entityKey")
@@ -291,7 +299,7 @@ const router = new Hono<BaseEnv>()
               }
               return
             }
-            const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
+            const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
             const freshData = await collectContainerData(sandbox, entityKey)
             if (freshData) await saveSession(db, entityKey, freshData)
           } catch {
@@ -336,9 +344,7 @@ const router = new Hono<BaseEnv>()
           flueLogs: "(phase 2 — history from Durable Object)",
           opencodeLogs: "(n/a)",
           sessionStatus: history
-            ? JSON.stringify(
-                JSON.parse(flueHistoryToSessionData(entityKey, history)).sessionStatus ?? {},
-              )
+            ? JSON.stringify(JSON.parse(flueHistoryToSessionData(entityKey, history)).sessionStatus ?? {})
             : "{}",
           sessions: history
             ? JSON.stringify(JSON.parse(flueHistoryToSessionData(entityKey, history)).sessions ?? [])
@@ -349,7 +355,7 @@ const router = new Hono<BaseEnv>()
         })
       }
 
-      const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
+      const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
 
       const [processCheck, keepaliveCheck] = await Promise.all([
         sandbox.exec("ps aux 2>/dev/null | grep -v '\\[' | grep -v 'PID' | tail -30", { cwd: "/workspace" }),
@@ -426,7 +432,7 @@ const router = new Hono<BaseEnv>()
       const octokit = app.getInstallationOctokit(event.installationId)
       const auth = (await octokit.auth({ type: "installation" })) as { token: string }
 
-      const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
+      const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
       await applyGitHubAuth(sandbox, { repo: event.repo, installationToken: auth.token })
 
       return c.json({ ok: true, entityKey, repo: event.repo })
@@ -440,7 +446,7 @@ const router = new Hono<BaseEnv>()
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
     const body = (await c.req.json()) as { command: string; cwd?: string }
     if (!body.command) return c.json({ error: "command required" }, 400)
-    const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
+    const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
     try {
       const result = await sandbox.exec(body.command, { cwd: body.cwd ?? "/workspace" })
       return c.json({ ok: true, stdout: result.stdout, stderr: result.stderr, success: result.success })
@@ -453,7 +459,7 @@ const router = new Hono<BaseEnv>()
   .post("/:entityKey/destroy", async (c) => {
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
     const db = c.get("db")
-    const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
+    const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
     try {
       await sandbox.destroy()
     } catch {

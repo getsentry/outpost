@@ -1,6 +1,6 @@
 # Phase 1: Flue Node server + Lore gateway inside the Cloudflare Sandbox.
-# Retained for rollback / local validation. Production uses the thin Dockerfile
-# (Phase 2) with FLUE_NATIVE=1.
+# This is the PRODUCTION DEFAULT while Phase 2 is validated
+# (wrangler: FLUE_NATIVE=0 + image Dockerfile.phase1).
 #
 # linux/amd64 only (Cloudflare Containers requirement).
 
@@ -37,7 +37,10 @@ COPY flue/ /opt/flue/
 # /workspace/repo (Worker git-clones into that path).
 RUN pnpm build
 
-RUN curl -fsSL https://withlore.ai/install | bash || true
+# Lore is optional at image-build time: install failures are recorded and the
+# runtime health probe in ensureSandboxReady decides whether to route traffic.
+RUN curl -fsSL https://withlore.ai/install | bash \
+ || echo "WARNING: lore install failed — Phase 1 will run without Lore gateway" >&2
 
 COPY .agents/skills/ /root/.agents/skills/
 COPY AGENTS.md /root/AGENTS.md

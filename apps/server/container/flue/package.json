@@ -9,6 +9,7 @@
     "start": "node dist/server.mjs"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "0.83.0",
     "@flue/runtime": "2.0.1",
     "@flue/sdk": "2.0.1",
     "hono": "^4.12.23",

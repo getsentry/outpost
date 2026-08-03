@@ -268,7 +268,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
 
   // Save initial session immediately so the container appears in the UI
   try {
-    await saveInitialSession(db, containerKey, `pending-sentry-${issueId.slice(0, 8)}`)
+    await saveInitialSession(db, containerKey)
   } catch {
     /* best effort — may conflict with existing row */
   }
@@ -284,27 +284,44 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
 
         // Determine the GitHub repo from the Sentry project
         // TODO: Use Sentry code mappings API to resolve project → repo automatically
-        // For now, use the project slug as a hint and require the agent to figure it out
         const repo = projectSlug ? `getsentry/${projectSlug}` : ""
 
         const { toAgentInstanceId } = await import("@/lib/containers/ids")
+        const { createGitHubApp } = await import("@/lib/github/app")
+        const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
         const sandboxId = toAgentInstanceId(containerKey)
         const sandbox = getSandbox(envBindings.Sandbox, sandboxId, {
           normalizeId: true,
           sleepAfter: "2h",
         })
 
+        // Mint a GitHub App installation token for the guessed repo so git/gh work.
+        let installationToken = ""
+        let botLogin = "jared-outpost[bot]"
+        try {
+          const app = createGitHubApp({
+            appId: envBindings.GITHUB_APP_ID,
+            privateKey: envBindings.GITHUB_APP_PRIVATE_KEY,
+            webhookSecret: envBindings.GITHUB_APP_WEBHOOK_SECRET,
+          })
+          botLogin = await app.getBotLogin()
+          if (repo.includes("/")) {
+            const [owner, name] = repo.split("/")
+            installationToken = (await app.getRepoInstallationToken(owner, name)) ?? ""
+          }
+        } catch (err) {
+          logger.warn({ error: formatError(err), repo }, "sentry: failed to mint GitHub installation token")
+        }
+
         logger.info(
           { issue_id: issueId, container_key: containerKey, sandbox_id: sandboxId },
           "sentry.dispatch.sandbox_ready.start",
         )
         const flueNative = envBindings.FLUE_NATIVE === "1" || envBindings.FLUE_NATIVE === "true"
-        // TODO: Get GitHub installation token for the resolved repo
-        // For now, use the GitHub App to get a token for the getsentry org
         await ensureSandboxReady(sandbox, {
           repo: repo || null,
-          botLogin: "jared-outpost[bot]",
-          installationToken: "", // TODO: mint from GitHub App
+          botLogin,
+          installationToken,
           openrouterApiKey: envBindings.OPENROUTER_API_KEY,
           anthropicApiKey: envBindings.ANTHROPIC_API_KEY,
           openaiApiKey: envBindings.OPENAI_API_KEY,
@@ -313,6 +330,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           appUrl: envBindings.APP_URL,
           thinSandbox: flueNative,
           loreGatewayUrl: envBindings.LORE_GATEWAY_URL,
+          flueInternalToken: resolveFlueInternalToken(envBindings) ?? undefined,
         })
         logger.info(
           { issue_id: issueId, container_key: containerKey, sandbox_id: sandboxId },

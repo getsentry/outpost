@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { toAgentInstanceId } from "../ids"
+import { jaredConversationUrl } from "../flue-dispatch"
 import {
   deriveFlueBusyStatus,
   flueHistoryToSessionData,
   normalizeFlueMessage,
   normalizeFlueSessionBlob,
 } from "../flue-session-adapt"
-import { jaredConversationUrl } from "../flue-dispatch"
+import { toAgentInstanceId } from "../ids"
 
 describe("toAgentInstanceId", () => {
   it("matches Flue conversation ids used for sandbox prep and agent attachment", () => {
@@ -170,10 +170,7 @@ describe("normalizeFlueSessionBlob", () => {
 describe("deriveFlueBusyStatus", () => {
   it("returns true for streaming text parts", () => {
     expect(
-      deriveFlueBusyStatus(
-        [{ role: "assistant", parts: [{ type: "text", text: "hi", state: "streaming" }] }],
-        [],
-      ),
+      deriveFlueBusyStatus([{ role: "assistant", parts: [{ type: "text", text: "hi", state: "streaming" }] }], []),
     ).toBe(true)
   })
 

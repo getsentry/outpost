@@ -3,11 +3,13 @@
  *
  * Flue's generated Worker entry (`virtual:flue/worker`) imports this default
  * export as the fetch handler. Agent routes are mounted BEFORE rate limiting
- * so in-process / SDK dispatch is not blocked by unidentified callers.
+ * so in-process / SDK dispatch is not blocked by unidentified callers — but
+ * they ARE gated by requireUserOrInternalToken (dashboard session or shared
+ * Worker/container token).
  */
 
-import { createLogger, formatError } from "@jared/utils"
 import { createAgentRouter } from "@flue/runtime/routing"
+import { createLogger, formatError } from "@jared/utils"
 import * as Sentry from "@sentry/cloudflare"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
@@ -17,9 +19,13 @@ import { logger } from "hono/logger"
 import { requestId } from "hono/request-id"
 import { secureHeaders } from "hono/secure-headers"
 import { Jared } from "./agents/jared.ts"
-import { auth, base, rateLimit } from "./middlewares"
+import { registerLoreOpenRouterProvider } from "./lib/lore/provider.ts"
+import { auth, base, rateLimit, requireUserOrInternalToken } from "./middlewares"
 import router from "./routes"
 import type { BaseEnvBindings } from "./types/env/base"
+
+// Route OpenRouter model traffic through Lore when LORE_GATEWAY_URL is set.
+registerLoreOpenRouterProvider()
 
 const app = new Hono<BaseEnvBindings>()
   .use(
@@ -48,8 +54,9 @@ const app = new Hono<BaseEnvBindings>()
     base(),
     auth(),
   )
-  // Flue agent surface — before rateLimit so Worker-internal dispatch and
-  // dashboard history pulls are not rejected for lacking a rate-limit key.
+  // Flue agent surface — auth required (user session or internal token).
+  // Mounted before rateLimit so authenticated internal history pulls work.
+  .use("/agents/jared/*", requireUserOrInternalToken)
   .route("/agents/jared", createAgentRouter(Jared))
   .use(rateLimit())
   .route("/", router)

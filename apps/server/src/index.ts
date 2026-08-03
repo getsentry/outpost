@@ -4,6 +4,6 @@
  * `src/app.ts` and re-exports `src/cloudflare.ts`.
  */
 
-export { default, type AppType } from "./app.ts"
 export { ContainerProxy } from "@cloudflare/sandbox"
+export { type AppType, default } from "./app.ts"
 export { Sandbox } from "./lib/containers/sandbox.ts"

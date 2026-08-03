@@ -220,7 +220,9 @@ function ChatMessage({ message }: { message: SessionMessage }) {
                       : rawStatus
               const args =
                 stateObj?.input ??
-                (part.type === "tool-invocation" || part.type === "dynamic-tool" ? (part.input ?? part.args) : undefined)
+                (part.type === "tool-invocation" || part.type === "dynamic-tool"
+                  ? (part.input ?? part.args)
+                  : undefined)
               const result =
                 stateObj?.output ??
                 (part.type === "dynamic-tool"

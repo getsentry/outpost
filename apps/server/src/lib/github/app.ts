@@ -125,6 +125,28 @@ export function createGitHubApp(config: GitHubAppConfig) {
       botLoginCache.set(config.appId, login)
       return login
     },
+
+    /**
+     * Look up the installation for `owner/repo` and mint an installation token.
+     * Returns null when the app is not installed on that repo.
+     */
+    async getRepoInstallationToken(owner: string, repo: string): Promise<string | null> {
+      const appOctokit = new Octokit({
+        authStrategy: createAppAuth,
+        auth: {
+          appId: config.appId,
+          privateKey,
+        },
+      })
+      try {
+        const { data: installation } = await appOctokit.apps.getRepoInstallation({ owner, repo })
+        const octokit = this.getInstallationOctokit(installation.id)
+        const auth = (await octokit.auth({ type: "installation" })) as { token: string }
+        return auth.token
+      } catch {
+        return null
+      }
+    },
   }
 }
 

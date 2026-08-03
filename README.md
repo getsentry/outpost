@@ -13,21 +13,33 @@ When the agent creates a PR that references the issue (e.g. "Fixes #123"), subse
 
 ## Architecture
 
+**Default today (Phase 1):** in-container Flue + Lore (`FLUE_NATIVE=0` + `Dockerfile.phase1`).
+
+```
+GitHub Webhook → Cloudflare Worker (Hono)
+                      ├─ Cloudflare Sandbox container
+                      │     ├─ Flue Node (Jared + explore/implement/ship)
+                      │     └─ Lore gateway (optional; health-probed)
+                      └─ D1 (webhook events + dashboard session mirror)
+```
+
+**Phase 2 target** (`FLUE_NATIVE=1` + thin `Dockerfile` — flip both together):
+
 ```
 GitHub Webhook → Cloudflare Worker (Hono + Flue)
                       ├─ Flue Jared Durable Object  (agent brain + session + cron)
                       │        └─ Cloudflare Sandbox container (git / gh / node)
                       ├─ D1 (webhook events + dashboard session mirror)
-                      └─ Lore gateway (standalone) ← model traffic
+                      └─ Lore gateway (standalone) ← model traffic via setProvider
 ```
 
-- **Worker**: Hono app on Cloudflare Workers — webhooks, dashboard, Flue agent routes
-- **Flue agent**: Durable Object with tiered subagents (`explore`, `implement`, `ship`), skills, and native schedules
-- **Container**: Thin Cloudflare Sandbox — Linux workspace only (no harness process)
-- **Lore**: Standalone LLM memory gateway — see [docs/LORE_GATEWAY.md](docs/LORE_GATEWAY.md)
+- **Worker**: Hono app on Cloudflare Workers — webhooks, dashboard, auth-gated Flue agent routes
+- **Flue agent**: Tiered subagents (`explore`, `implement`, `ship`); DO schedules only in Phase 2
+- **Container**: Phase 1 = Flue+Lore; Phase 2 = thin Linux sandbox
+- **Lore**: See [docs/LORE_GATEWAY.md](docs/LORE_GATEWAY.md)
 - **Dashboard**: React SPA with session sidebar, chat-style message viewer, and container management
 
-`FLUE_NATIVE=0` (default in `wrangler.jsonc`) keeps Phase 1 in-container Flue until Phase 2 is validated. Set `FLUE_NATIVE=1` and use the thin `Dockerfile` for DO-native.
+`FLUE_NATIVE` and `containers[].image` must stay paired (`0`↔`Dockerfile.phase1`, `1`↔`Dockerfile`).
 
 ## Project structure
 

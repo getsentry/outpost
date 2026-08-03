@@ -141,10 +141,7 @@ export function normalizeFlueMessage(raw: unknown, index: number): AnyRecord | n
     (typeof meta?.model === "string" && meta.model) ||
     (typeof m.model === "string" && m.model) ||
     undefined
-  const agent =
-    (typeof meta?.agent === "string" && meta.agent) ||
-    (typeof m.agent === "string" && m.agent) ||
-    undefined
+  const agent = (typeof meta?.agent === "string" && meta.agent) || (typeof m.agent === "string" && m.agent) || undefined
 
   return {
     info: {
@@ -172,12 +169,7 @@ function normalizeFluePart(raw: unknown): AnyRecord {
   if (part.type === "dynamic-tool") {
     const toolName = typeof part.toolName === "string" ? part.toolName : "unknown"
     const flueState = typeof part.state === "string" ? part.state : "input-available"
-    const status =
-      flueState === "output-available"
-        ? "completed"
-        : flueState === "output-error"
-          ? "error"
-          : "running"
+    const status = flueState === "output-available" ? "completed" : flueState === "output-error" ? "error" : "running"
     return {
       type: "tool",
       tool: toolName,

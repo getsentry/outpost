@@ -14,11 +14,7 @@ import { deleteExpiredWebhookEvents } from "./lib/events/retention.ts"
 export { Sandbox } from "./lib/containers/sandbox.ts"
 
 export default {
-  async scheduled(
-    controller: ScheduledController,
-    env: { DB: D1Database },
-    _ctx: ExecutionContext,
-  ): Promise<void> {
+  async scheduled(controller: ScheduledController, env: { DB: D1Database }, _ctx: ExecutionContext): Promise<void> {
     const deleted = await deleteExpiredWebhookEvents(env.DB, controller.scheduledTime)
     console.info("webhook_events.retention.completed", {
       cron: controller.cron,

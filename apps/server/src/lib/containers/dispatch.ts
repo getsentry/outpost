@@ -14,9 +14,9 @@
 import type { getSandbox } from "@cloudflare/sandbox"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
-import { saveSession } from "./sessions"
-
+import { FLUE_INTERNAL_HEADER, resolveFlueInternalToken } from "@/middlewares/flue-auth"
 import { toAgentInstanceId } from "./ids"
+import { saveSession } from "./sessions"
 
 /** Flue HTTP port inside the container (Phase 1). */
 export const FLUE_PORT = 4096
@@ -53,6 +53,8 @@ export type SandboxSetupOpts = {
   thinSandbox?: boolean
   /** Optional standalone Lore gateway URL (Phase 2). Defaults to in-container Lore. */
   loreGatewayUrl?: string
+  /** Shared secret for session ingest + Worker agent history pulls. */
+  flueInternalToken?: string
 }
 
 /** Shell-escape a value for safe single-quoted interpolation in bash. */
@@ -109,7 +111,7 @@ export async function ensureSandboxReady(
   let alreadyRunning = false
   try {
     const [procCheck, readyCheck] = await Promise.all([
-      sandbox.exec("pgrep -f 'dist/server.mjs|flue' > /dev/null 2>&1", { cwd: "/workspace" }),
+      sandbox.exec("pgrep -f 'node dist/server.mjs' > /dev/null 2>&1", { cwd: "/workspace" }),
       sandbox.exec(
         `curl -sf --max-time 5 http://localhost:${FLUE_PORT}/api/ping >/dev/null 2>&1 || curl -sf --max-time 5 http://localhost:${FLUE_PORT}/health >/dev/null 2>&1`,
         { cwd: "/workspace" },
@@ -121,6 +123,13 @@ export async function ensureSandboxReady(
   }
   if (alreadyRunning) {
     await applyGitHubAuth(sandbox, opts)
+    // Warm path: refresh env + ensure the session reporter is still alive.
+    await writeEnvFile(sandbox, opts)
+    await ensureSessionReporterRunning(sandbox, {
+      entityKey: opts.entityKey,
+      appUrl: opts.appUrl,
+      flueInternalToken: opts.flueInternalToken,
+    })
     return
   }
 
@@ -135,16 +144,19 @@ export async function ensureSandboxReady(
   await applyGitHubAuth(sandbox, opts)
   await ensureWorkspaceSkills(sandbox)
 
-  // Start Lore gateway (Phase 1 in-container). Flue model traffic can route through it.
+  // Start Lore gateway (Phase 1 in-container). Only route model traffic through
+  // it when the process is actually healthy — otherwise leave provider defaults.
   const loreCmd =
     `bash -c '[ -f /tmp/flue-env.sh ] && . /tmp/flue-env.sh; ` +
-    `command -v lore >/dev/null 2>&1 && lore run --port 3207 >> /tmp/lore.log 2>&1 || true'`
+    "if command -v lore >/dev/null 2>&1; then lore run --port 3207 >> /tmp/lore.log 2>&1; " +
+    `else echo "lore binary missing" >> /tmp/lore.log; fi'`
   await sandbox.startProcess(loreCmd, { cwd: "/workspace/repo" })
+  await maybeEnableLoreBaseUrls(sandbox)
 
   // Start Flue Node server (non-blocking — dispatch script polls for readiness).
   const startCmd =
     `bash -c '[ -f /tmp/flue-env.sh ] && . /tmp/flue-env.sh; ` +
-    `export PORT=${FLUE_PORT}; export LORE_GATEWAY_URL="\${LORE_GATEWAY_URL:-http://127.0.0.1:3207}"; ` +
+    `export PORT=${FLUE_PORT}; ` +
     `cd /opt/flue && node dist/server.mjs >> /tmp/flue.log 2>&1'`
   await sandbox.startProcess(startCmd, { cwd: "/workspace/repo" })
 
@@ -162,23 +174,21 @@ export async function ensureSandboxReady(
   await sandbox.writeFile("/tmp/keepalive.sh", keepaliveScript)
   await sandbox.startProcess("bash /tmp/keepalive.sh", { cwd: "/workspace" })
 
-  await startSessionReporter(sandbox, { entityKey: opts.entityKey, appUrl: opts.appUrl })
+  await startSessionReporter(sandbox, {
+    entityKey: opts.entityKey,
+    appUrl: opts.appUrl,
+    flueInternalToken: opts.flueInternalToken,
+  })
 }
 
-async function ensureRepoCloned(
-  sandbox: ReturnType<typeof getSandbox>,
-  opts: SandboxSetupOpts,
-): Promise<void> {
+async function ensureRepoCloned(sandbox: ReturnType<typeof getSandbox>, opts: SandboxSetupOpts): Promise<void> {
   if (!opts.repo) return
 
   const checkRepo = await sandbox.exec("test -d /workspace/repo/.git", { cwd: "/workspace" })
   if (!checkRepo.success) {
     // Clone target must be empty — baked image files (if any) live under
     // /root/.agents, never under /workspace/repo. Clear any stray contents.
-    await sandbox.exec(
-      "rm -rf /workspace/repo && mkdir -p /workspace/repo /workspace",
-      { cwd: "/workspace" },
-    )
+    await sandbox.exec("rm -rf /workspace/repo && mkdir -p /workspace/repo /workspace", { cwd: "/workspace" })
     const cloneUrl = opts.installationToken
       ? `https://x-access-token:${opts.installationToken}@github.com/${opts.repo}.git`
       : `https://github.com/${opts.repo}.git`
@@ -204,19 +214,62 @@ async function ensureRepoCloned(
 
 async function writeEnvFile(sandbox: ReturnType<typeof getSandbox>, opts: SandboxSetupOpts): Promise<void> {
   const envLines: string[] = []
-  if (opts.openrouterApiKey) envLines.push(`export OPENROUTER_API_KEY="${opts.openrouterApiKey}"`)
-  if (opts.anthropicApiKey) envLines.push(`export ANTHROPIC_API_KEY="${opts.anthropicApiKey}"`)
-  if (opts.openaiApiKey) envLines.push(`export OPENAI_API_KEY="${opts.openaiApiKey}"`)
-  if (opts.sentryDsn) envLines.push(`export SENTRY_DSN="${opts.sentryDsn}"`)
+  const push = (key: string, value: string) => {
+    envLines.push(`export ${key}=${shellQuote(value)}`)
+  }
+
+  if (opts.openrouterApiKey) push("OPENROUTER_API_KEY", opts.openrouterApiKey)
+  if (opts.anthropicApiKey) push("ANTHROPIC_API_KEY", opts.anthropicApiKey)
+  if (opts.openaiApiKey) push("OPENAI_API_KEY", opts.openaiApiKey)
+  if (opts.sentryDsn) push("SENTRY_DSN", opts.sentryDsn)
+
+  // Always record the intended Lore URL, but do NOT force OPENAI/ANTHROPIC base
+  // URLs here — maybeEnableLoreBaseUrls() adds those only after a health probe.
   const loreUrl = opts.loreGatewayUrl ?? "http://127.0.0.1:3207"
-  envLines.push(`export LORE_GATEWAY_URL="${loreUrl}"`)
-  // When Lore is available, point OpenAI-compatible / Anthropic base URLs at it.
-  // Harness-specific wiring may also read LORE_GATEWAY_URL directly.
-  envLines.push(`export OPENAI_BASE_URL="${loreUrl}/v1"`)
-  envLines.push(`export ANTHROPIC_BASE_URL="${loreUrl}"`)
-  envLines.push('export FLUE_LOG_LEVEL="debug"')
+  push("LORE_GATEWAY_URL", loreUrl)
+
+  if (opts.flueInternalToken) {
+    push("FLUE_INTERNAL_TOKEN", opts.flueInternalToken)
+  }
+
+  push("FLUE_LOG_LEVEL", "debug")
+
+  // Phase 2 / external Lore: if the URL is not loopback, enable base URLs now
+  // (standalone gateway is assumed reachable from the DO / container).
+  if (opts.loreGatewayUrl && !/127\.0\.0\.1|localhost/.test(opts.loreGatewayUrl)) {
+    push("OPENAI_BASE_URL", `${loreUrl.replace(/\/$/, "")}/v1`)
+    push("ANTHROPIC_BASE_URL", loreUrl.replace(/\/$/, ""))
+  }
 
   await sandbox.writeFile("/tmp/flue-env.sh", `${envLines.join("\n")}\n`)
+}
+
+/**
+ * Probe in-container Lore and only then point provider base URLs at it.
+ * Avoids hard-failing model calls when `lore` failed to install/start.
+ */
+async function maybeEnableLoreBaseUrls(sandbox: ReturnType<typeof getSandbox>): Promise<void> {
+  // Give Lore a brief window to bind its port.
+  for (let i = 0; i < 10; i++) {
+    const probe = await sandbox.exec("curl -sf --max-time 2 http://127.0.0.1:3207/health >/dev/null 2>&1", {
+      cwd: "/workspace",
+    })
+    if (probe.success) {
+      await sandbox.exec(
+        "touch /tmp/flue-env.sh; " +
+          "grep -v '^export OPENAI_BASE_URL=' /tmp/flue-env.sh | grep -v '^export ANTHROPIC_BASE_URL=' > /tmp/flue-env.sh.tmp; " +
+          "mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh; " +
+          `echo "export OPENAI_BASE_URL=${shellQuote("http://127.0.0.1:3207/v1")}" >> /tmp/flue-env.sh; ` +
+          `echo "export ANTHROPIC_BASE_URL=${shellQuote("http://127.0.0.1:3207")}" >> /tmp/flue-env.sh`,
+        { cwd: "/workspace" },
+      )
+      return
+    }
+    await sandbox.exec("sleep 1", { cwd: "/workspace" })
+  }
+  await sandbox.exec('echo "lore health probe failed — leaving provider base URLs unset" >> /tmp/lore.log', {
+    cwd: "/workspace",
+  })
 }
 
 /**
@@ -235,18 +288,28 @@ async function ensureWorkspaceSkills(sandbox: ReturnType<typeof getSandbox>): Pr
   )
 }
 
+async function ensureSessionReporterRunning(
+  sandbox: ReturnType<typeof getSandbox>,
+  opts: { entityKey: string; appUrl?: string; flueInternalToken?: string },
+): Promise<void> {
+  const check = await sandbox.exec("pgrep -f 'session-reporter.sh' > /dev/null 2>&1", { cwd: "/workspace" })
+  if (check.success) return
+  await startSessionReporter(sandbox, opts)
+}
+
 /**
  * Background reporter: polls Flue conversation history and POSTs to
  * POST /api/containers/sessions so the dashboard stays populated.
  */
 async function startSessionReporter(
   sandbox: ReturnType<typeof getSandbox>,
-  opts: { entityKey: string; appUrl?: string },
+  opts: { entityKey: string; appUrl?: string; flueInternalToken?: string },
 ): Promise<void> {
   if (!opts.appUrl) return
 
   const ingestUrl = `${opts.appUrl.replace(/\/$/, "")}/api/containers/sessions`
   const conversationId = toAgentInstanceId(opts.entityKey)
+  const ingestToken = opts.flueInternalToken ?? ""
 
   const reporterScript = [
     "#!/bin/bash",
@@ -256,6 +319,7 @@ async function startSessionReporter(
     `CONV=${shellQuote(conversationId)}`,
     `ENTITY_KEY=${shellQuote(opts.entityKey)}`,
     `INGEST=${shellQuote(ingestUrl)}`,
+    `INGEST_TOKEN=${shellQuote(ingestToken)}`,
     "STARTED=$(date +%s)",
     "MAX=7200",
     "",
@@ -270,22 +334,22 @@ async function startSessionReporter(
     `    SESSION_DATA=$(jq -nc --argjson hist "$HIST" --arg logs "$LOGS" --arg sid "$CONV" '{`,
     `      sessions: [{id: $sid, title: $sid, agent: "jared"}],`,
     `      sessionStatus: {($sid): {type: "busy"}},`,
-    `      messages: {($sid): (`,
+    "      messages: {($sid): (",
     `        if $hist | type == "object" then`,
-    `          ($hist.messages // $hist.records // $hist.items // [])`,
+    "          ($hist.messages // $hist.records // $hist.items // [])",
     `        elif $hist | type == "array" then $hist`,
-    `        else [] end`,
-    `      )},`,
+    "        else [] end",
+    "      )},",
     `      settlements: (if $hist | type == "object" then ($hist.settlements // []) else [] end),`,
     `      flueHistory: (if $hist | type == "object" then $hist else {messages: $hist, settlements: []} end),`,
-    `      logs: $logs,`,
-    `      flue: true`,
+    "      logs: $logs,",
+    "      flue: true",
     `    }' 2>/dev/null)`,
     '    if [ -n "$SESSION_DATA" ]; then',
-    `      BODY=$(jq -nc --arg ek "$ENTITY_KEY" --argjson sd "$SESSION_DATA" '{entityKey: $ek, sessionData: ($sd | tostring)}' 2>/dev/null)`,
-    "      # Prefer nested JSON string for sessionData (existing ingest contract).",
     `      BODY=$(jq -nc --arg ek "$ENTITY_KEY" --arg sd "$SESSION_DATA" '{entityKey: $ek, sessionData: $sd}' 2>/dev/null)`,
-    `      [ -n "$BODY" ] && curl -sf --max-time 15 -X POST -H 'Content-Type: application/json' -d "$BODY" "$INGEST" >/dev/null 2>&1 || true`,
+    '      HDR=(-H "Content-Type: application/json")',
+    `      [ -n "$INGEST_TOKEN" ] && HDR+=(-H "${FLUE_INTERNAL_HEADER}: $INGEST_TOKEN")`,
+    `      [ -n "$BODY" ] && curl -sf --max-time 15 -X POST "\${HDR[@]}" -d "$BODY" "$INGEST" >/dev/null 2>&1 || true`,
     "    fi",
     "  fi",
     "  sleep 12",
@@ -302,6 +366,7 @@ async function startSessionReporter(
  *
  * Writes the prompt + a container-side script that polls until Flue is ready,
  * then POSTs `{ kind: "user", body }` to /agents/jared/:conversationId.
+ * Failures are written to /tmp/flue-dispatch.err so they are visible in debug.
  */
 export async function dispatchPrompt(
   sandbox: ReturnType<typeof getSandbox>,
@@ -314,6 +379,9 @@ export async function dispatchPrompt(
   const promptFile = `/tmp/prompt-${eventId}.json`
   await sandbox.writeFile(promptFile, promptPayload)
 
+  const errFile = `/tmp/flue-dispatch-${eventId}.err`
+  const okFile = `/tmp/flue-dispatch-${eventId}.ok`
+
   const dispatchScript = [
     "#!/bin/bash",
     "set -u",
@@ -321,18 +389,35 @@ export async function dispatchPrompt(
     `MOUNT="${FLUE_AGENT_MOUNT}"`,
     `CONV=${shellQuote(conversationId)}`,
     `PROMPT_FILE="${promptFile}"`,
+    `ERR_FILE="${errFile}"`,
+    `OK_FILE="${okFile}"`,
+    'rm -f "$ERR_FILE" "$OK_FILE"',
     "",
     "# Wait for Flue to be ready (up to 180s).",
+    "READY=0",
     "for i in $(seq 1 180); do",
-    '  curl -sf --max-time 2 "$FLUE/api/ping" >/dev/null 2>&1 && break',
-    '  curl -sf --max-time 2 "$FLUE/health" >/dev/null 2>&1 && break',
+    '  if curl -sf --max-time 2 "$FLUE/api/ping" >/dev/null 2>&1 || curl -sf --max-time 2 "$FLUE/health" >/dev/null 2>&1; then',
+    "    READY=1",
+    "    break",
+    "  fi",
     "  sleep 1",
     "done",
+    "",
+    'if [ "$READY" -ne 1 ]; then',
+    '  echo "flue not ready after 180s" > "$ERR_FILE"',
+    "  exit 1",
+    "fi",
     "",
     'echo "$CONV" > /tmp/dispatch-session-id',
     "",
     "# Admit the prompt (202). Flue processes asynchronously.",
-    'curl -sf -X POST -H "Content-Type: application/json" -d @"$PROMPT_FILE" "$FLUE$MOUNT/$CONV"',
+    'HTTP_CODE=$(curl -s -o /tmp/flue-dispatch-body.txt -w "%{http_code}" -X POST \\',
+    '  -H "Content-Type: application/json" -d @"$PROMPT_FILE" "$FLUE$MOUNT/$CONV" || echo "000")',
+    'if [ "$HTTP_CODE" != "202" ] && [ "$HTTP_CODE" != "200" ]; then',
+    '  echo "admit failed http=$HTTP_CODE body=$(cat /tmp/flue-dispatch-body.txt 2>/dev/null)" > "$ERR_FILE"',
+    "  exit 1",
+    "fi",
+    'echo "ok http=$HTTP_CODE" > "$OK_FILE"',
   ].join("\n")
 
   const scriptFile = `/tmp/dispatch-${eventId}.sh`
@@ -344,11 +429,7 @@ export async function dispatchPrompt(
  * Save an initial session record to D1 so the container appears immediately.
  * Uses the canonical Flue conversation id so later history syncs merge cleanly.
  */
-export async function saveInitialSession(
-  db: DrizzleD1Database<typeof dbSchema>,
-  containerKey: string,
-  _sessionId?: string,
-): Promise<void> {
+export async function saveInitialSession(db: DrizzleD1Database<typeof dbSchema>, containerKey: string): Promise<void> {
   const sessionId = toAgentInstanceId(containerKey)
   const initialData = JSON.stringify({
     sessionStatus: { [sessionId]: { type: "busy" } },
@@ -359,3 +440,6 @@ export async function saveInitialSession(
   })
   await saveSession(db, containerKey, initialData)
 }
+
+/** Re-export for callers that already import from dispatch. */
+export { resolveFlueInternalToken }

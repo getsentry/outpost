@@ -1,13 +1,12 @@
 // Phase 2: dispatch prompts to the Jared Flue Durable Object.
 //
 // Prefer in-process `dispatch()` (no public HTTP hairpin, no rate-limit key).
-// HTTP via @flue/sdk remains available for external callers / dashboard history.
-//
-// Jared is imported lazily so Node/vitest modules that only need helpers
-// (jaredConversationUrl, flueHistoryToSessionData) do not load cloudflare:workers.
+// HTTP via @flue/sdk remains available for dashboard history, authenticated
+// with the shared internal token.
 
 import { createFlueClient } from "@flue/sdk"
 import type { Logger } from "@jared/utils"
+import { resolveFlueInternalToken } from "@/middlewares/flue-auth"
 import type { BaseEnvBindings } from "@/types/env/base"
 import { AGENT } from "./dispatch"
 import { toAgentInstanceId } from "./ids"
@@ -67,21 +66,30 @@ export async function dispatchToFlueAgent(
 
 /**
  * Pull a materialized conversation history from the Flue agent for the dashboard.
+ * Requires APP_URL and authenticates with the internal token against the locked-down
+ * `/agents/jared` mount.
  */
-export async function fetchFlueHistory(
-  env: Env,
-  entityKey: string,
-): Promise<Record<string, unknown> | null> {
+export async function fetchFlueHistory(env: Env, entityKey: string): Promise<Record<string, unknown> | null> {
   const appUrl = env.APP_URL
-  if (!appUrl) return null
+  if (!appUrl) {
+    console.warn("fetchFlueHistory: APP_URL unset — cannot sync Phase 2 history")
+    return null
+  }
+
+  const token = resolveFlueInternalToken(env)
+  if (!token) {
+    console.warn("fetchFlueHistory: no FLUE_INTERNAL_TOKEN/BETTER_AUTH_SECRET — cannot auth history pull")
+    return null
+  }
 
   const conversationUrl = jaredConversationUrl(appUrl, entityKey)
-  const client = createFlueClient({ url: conversationUrl })
+  const client = createFlueClient({ url: conversationUrl, token })
 
   try {
     const history = await client.history()
     return history as unknown as Record<string, unknown>
-  } catch {
+  } catch (err) {
+    console.warn("fetchFlueHistory failed", err)
     return null
   }
 }

@@ -129,9 +129,7 @@ export function mergeSessionData(oldRaw: string, newRaw: string): string {
   let statusOut = mergedStatus
   let messagesOut = mergedMsgs
   if (newData.flue) {
-    const realIds = new Set(
-      newSessions.map((s) => (typeof s.id === "string" ? s.id : "")).filter(Boolean),
-    )
+    const realIds = new Set(newSessions.map((s) => (typeof s.id === "string" ? s.id : "")).filter(Boolean))
     if (realIds.size > 0) {
       sessionsOut = mergedSessions.filter((s) => {
         const id = typeof s.id === "string" ? s.id : ""

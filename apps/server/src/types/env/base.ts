@@ -33,10 +33,17 @@ export type BaseEnvBindings = {
     /**
      * Phase 2 flag: when "1"/"true", agent brain runs as a Flue Durable Object
      * and the container is a thin sandbox (no in-container Flue/Lore process).
+     * Must stay paired with containers[].image (Dockerfile.phase1 when 0,
+     * Dockerfile when 1).
      */
     FLUE_NATIVE?: string
     /** Standalone Lore gateway base URL (Phase 2). */
     LORE_GATEWAY_URL?: string
+    /**
+     * Shared secret for Worker↔container session ingest and Worker-internal
+     * Flue history pulls. Falls back to BETTER_AUTH_SECRET when unset.
+     */
+    FLUE_INTERNAL_TOKEN?: string
     /** Flue-generated Jared agent DO binding (Phase 2). */
     FLUE_JARED_AGENT?: DurableObjectNamespace
   }

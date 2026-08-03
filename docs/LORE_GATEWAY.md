@@ -41,17 +41,25 @@ wrangler secret put LORE_GATEWAY_URL
 # value: https://lore.example.com
 ```
 
-`ensureSandboxReady` / Flue model config should point:
+When `LORE_GATEWAY_URL` is set, `registerLoreOpenRouterProvider()` (called from
+`app.ts`) re-registers the Flue `openrouter` provider so every
+`openrouter/...` model call uses `${LORE_GATEWAY_URL}/v1` instead of
+`api.openrouter.ai`. `OPENROUTER_API_KEY` is still required — Lore forwards it
+upstream.
 
-- `LORE_GATEWAY_URL` → gateway base
-- `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` → gateway (OpenAI-compatible `/v1`)
+Also ensure Phase 2 uses the thin container image:
+
+```jsonc
+"vars": { "FLUE_NATIVE": "1" },
+"containers": [{ "image": "./container/Dockerfile", ... }]
+```
 
 `.lore.md` continues to be committed in each target repository; Lore imports /
 exports it as part of the team-memory workflow.
 
 ## Phase 1 vs Phase 2
 
-| Phase | Where Lore runs |
-| --- | --- |
-| 1 (in-container) | `lore run` started beside Flue inside the Sandbox (`Dockerfile.phase1`) |
-| 2 (native DO) | This standalone service; container image has no Lore process |
+| Phase | Where Lore runs | How models reach it |
+| --- | --- | --- |
+| 1 (`FLUE_NATIVE=0`, default) | `lore run` beside Flue in the Sandbox (`Dockerfile.phase1`) | After a health probe, sets `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL`; Flue Node also reads `LORE_GATEWAY_URL` |
+| 2 (`FLUE_NATIVE=1`) | This standalone service | Worker `setProvider(openrouter → Lore /v1)` when `LORE_GATEWAY_URL` is set |

@@ -61,7 +61,8 @@
     }
   ],
   "triggers": {
-    // Daily at 03:17 UTC: delete webhook_events older than 24 hours.
+    // Daily at 03:17 UTC: delete webhook_events older than 24 hours
+    // (worst-case age ~48h with a once-daily schedule).
     // Agent follow-ups remain per-conversation via DO scheduleFollowUp().
     "crons": ["17 3 * * *"]
   },

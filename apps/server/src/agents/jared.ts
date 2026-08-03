@@ -1,9 +1,9 @@
-'use agent'
+"use agent"
 
 import { env } from "cloudflare:workers"
+import { getSandbox } from "@cloudflare/sandbox"
 import { type AgentProps, dispatch, useModel, useSandbox, useSubagent } from "@flue/runtime"
 import { cloudflareSandbox, extend } from "@flue/runtime/cloudflare"
-import { getSandbox } from "@cloudflare/sandbox"
 import * as Sentry from "@sentry/cloudflare"
 import { exploreSubagent } from "./explore.ts"
 import { implementSubagent, workerSubagent } from "./implement.ts"

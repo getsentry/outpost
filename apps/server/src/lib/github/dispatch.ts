@@ -75,7 +75,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
   }
 
   try {
-    await saveInitialSession(db, containerKey, `pending-${eventId.slice(0, 8)}`)
+    await saveInitialSession(db, containerKey)
   } catch {
     /* best effort — may conflict with an existing row */
   }
@@ -87,6 +87,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     const sandbox = getSandbox(env.Sandbox, sandboxId, { normalizeId: true, sleepAfter: "2h" })
 
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.start")
+    const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
     await ensureSandboxReady(sandbox, {
       repo: evt.repo,
       botLogin,
@@ -99,6 +100,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       appUrl: env.APP_URL,
       thinSandbox: flueNative,
       loreGatewayUrl: env.LORE_GATEWAY_URL,
+      flueInternalToken: resolveFlueInternalToken(env) ?? undefined,
     })
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.done")
 
