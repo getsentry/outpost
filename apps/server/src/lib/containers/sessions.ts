@@ -1,11 +1,12 @@
 // Shared session persistence logic.
 // Used by both the HTTP endpoint (POST /api/containers/sessions)
-// and the outbound interception handler (jared.internal).
+// and background sync paths (detail stale sync / Phase 1 reporter).
 
 import { eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
 import { agentSessions } from "@/db/schema"
+import { normalizeFlueSessionBlob } from "./flue-session-adapt"
 
 type AnyRecord = Record<string, unknown>
 
@@ -41,7 +42,13 @@ export function mergeSessionData(oldRaw: string, newRaw: string): string {
   const oldMsgs = (oldData.messages ?? {}) as Record<string, Msg[]>
   const newMsgs = (newData.messages ?? {}) as Record<string, Msg[]>
 
-  const idOf = (m: Msg): string | undefined => (m.info as Msg | undefined)?.id as string | undefined
+  // Prefer OpenCode `info.id`; fall back to top-level Flue `id` so raw Flue
+  // payloads still dedupe across reporter syncs.
+  const idOf = (m: Msg): string | undefined => {
+    const fromInfo = (m.info as Msg | undefined)?.id
+    if (typeof fromInfo === "string" && fromInfo) return fromInfo
+    return typeof m.id === "string" && m.id ? (m.id as string) : undefined
+  }
   const partCount = (m: Msg): number => (Array.isArray(m.parts) ? (m.parts as unknown[]).length : 0)
 
   const mergedMsgs: Record<string, Msg[]> = {}
@@ -115,11 +122,35 @@ export function mergeSessionData(oldRaw: string, newRaw: string): string {
     mergedStatus[id] = newStatus[id]
   }
 
+  // When a Flue sync arrives with the real conversation id, drop leftover
+  // `pending-*` placeholder sessions from saveInitialSession so the list does
+  // not show sessionCount: 2 / conflicting busy dots.
+  let sessionsOut = mergedSessions
+  let statusOut = mergedStatus
+  let messagesOut = mergedMsgs
+  if (newData.flue) {
+    const realIds = new Set(
+      newSessions.map((s) => (typeof s.id === "string" ? s.id : "")).filter(Boolean),
+    )
+    if (realIds.size > 0) {
+      sessionsOut = mergedSessions.filter((s) => {
+        const id = typeof s.id === "string" ? s.id : ""
+        return !id.startsWith("pending-") || realIds.has(id)
+      })
+      statusOut = Object.fromEntries(
+        Object.entries(mergedStatus).filter(([id]) => !id.startsWith("pending-") || realIds.has(id)),
+      )
+      messagesOut = Object.fromEntries(
+        Object.entries(mergedMsgs).filter(([id]) => !id.startsWith("pending-") || realIds.has(id)),
+      )
+    }
+  }
+
   return JSON.stringify({
     ...newData,
-    sessions: mergedSessions,
-    sessionStatus: mergedStatus,
-    messages: mergedMsgs,
+    sessions: sessionsOut,
+    sessionStatus: statusOut,
+    messages: messagesOut,
   })
 }
 
@@ -131,12 +162,16 @@ export async function saveSession(
   entityKey: string,
   sessionData: string,
 ): Promise<void> {
+  // Normalize Flue-shaped blobs (raw reporter / history) into the OpenCode-like
+  // `{ info, parts }` contract the dashboard renders before merging into D1.
+  const normalized = normalizeFlueSessionBlob(entityKey, sessionData)
+
   // Read existing session data so we can merge rather than overwrite.
   const existing = await db.query.agentSessions.findFirst({
     where: eq(agentSessions.entityKey, entityKey),
   })
 
-  const mergedData = existing?.sessionData ? mergeSessionData(existing.sessionData, sessionData) : sessionData
+  const mergedData = existing?.sessionData ? mergeSessionData(existing.sessionData, normalized) : normalized
 
   const now = new Date()
   await db

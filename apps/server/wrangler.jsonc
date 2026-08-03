@@ -22,7 +22,9 @@
   "containers": [
     {
       "class_name": "Sandbox",
-      "image": "./container/Dockerfile",
+      // Phase 1 default (FLUE_NATIVE=0): in-container Flue + Lore.
+      // Flip image to "./container/Dockerfile" when setting FLUE_NATIVE=1.
+      "image": "./container/Dockerfile.phase1",
       "max_instances": 10,
       "instance_type": "standard-3",
       "ssh": {

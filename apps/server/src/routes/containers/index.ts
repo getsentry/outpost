@@ -48,7 +48,10 @@ function unwrapArray(raw: string): unknown[] {
  *
  * Phase 2 prefers fetchFlueHistory() against the Durable Object conversation URL.
  */
-async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Promise<string | null> {
+async function collectContainerData(
+  sandbox: ReturnType<typeof getSandbox>,
+  entityKey?: string,
+): Promise<string | null> {
   // Prefer Flue ping + history (Phase 1 in-container).
   const fluePing = await sandbox.exec(
     `curl -sf --max-time 5 http://localhost:${FLUE_PORT}/api/ping 2>/dev/null`,
@@ -65,21 +68,13 @@ async function collectContainerData(sandbox: ReturnType<typeof getSandbox>): Pro
     if (!histResult.stdout) return null
     try {
       const hist = JSON.parse(histResult.stdout) as Record<string, unknown>
-      const sid = (await sandbox.exec("cat /tmp/dispatch-session-id 2>/dev/null || echo default", {
-        cwd: "/workspace",
-      })).stdout?.trim() || "default"
-      const messages =
-        (Array.isArray(hist.messages) && hist.messages) ||
-        (Array.isArray(hist.records) && hist.records) ||
-        (Array.isArray(hist.items) && hist.items) ||
-        []
-      return JSON.stringify({
-        sessions: [{ id: sid, title: sid, agent: "jared" }],
-        sessionStatus: { [sid]: { type: "busy" } },
-        messages: { [sid]: messages },
-        logs: logResult.stdout || "",
-        flue: true,
-      })
+      const sid =
+        (await sandbox.exec("cat /tmp/dispatch-session-id 2>/dev/null || echo default", {
+          cwd: "/workspace",
+        })).stdout?.trim() || "default"
+      const key = entityKey ?? sid
+      // Normalize into the OpenCode-like blob the dashboard renders.
+      return flueHistoryToSessionData(key, hist, { logs: logResult.stdout || "" })
     } catch {
       return null
     }
@@ -184,6 +179,31 @@ const router = new Hono<BaseEnv>()
 
     const total = countResult[0]?.count ?? 0
 
+    // Phase 2: list view has no session-reporter push — kick a background Flue
+    // history pull for stale rows on this page so status/message counts catch up
+    // without requiring the user to open detail first.
+    const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
+    if (flueNative) {
+      const staleKeys = sessions
+        .filter((s) => Date.now() - new Date(s.updatedAt).getTime() > 15_000)
+        .map((s) => s.entityKey)
+        .slice(0, 5)
+      if (staleKeys.length > 0) {
+        c.executionCtx.waitUntil(
+          (async () => {
+            for (const entityKey of staleKeys) {
+              try {
+                const history = await fetchFlueHistory(c.env, entityKey)
+                if (history) await saveSession(db, entityKey, flueHistoryToSessionData(entityKey, history))
+              } catch {
+                /* best effort */
+              }
+            }
+          })(),
+        )
+      }
+    }
+
     const data = sessions.map((s) => {
       const parsed = parseSessionData(s.sessionData)
       const sessionList = (parsed.sessions ?? []) as Array<Record<string, unknown>>
@@ -272,7 +292,7 @@ const router = new Hono<BaseEnv>()
               return
             }
             const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
-            const freshData = await collectContainerData(sandbox)
+            const freshData = await collectContainerData(sandbox, entityKey)
             if (freshData) await saveSession(db, entityKey, freshData)
           } catch {
             // Container / agent might be dead/busy — leave the existing snapshot.
@@ -294,20 +314,50 @@ const router = new Hono<BaseEnv>()
     })
   })
 
-  // Live container inspection — collects data from container and saves to D1
+  // Live container / agent inspection — collects data and saves to D1
   .get("/:entityKey/debug", async (c) => {
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
-    const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
+    const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
+    const db = c.get("db")
 
     try {
+      if (flueNative) {
+        const history = await fetchFlueHistory(c.env, entityKey)
+        if (history) {
+          try {
+            await saveSession(db, entityKey, flueHistoryToSessionData(entityKey, history))
+          } catch {
+            /* best effort */
+          }
+        }
+        return c.json({
+          entityKey,
+          harness: "flue-native",
+          flueLogs: "(phase 2 — history from Durable Object)",
+          opencodeLogs: "(n/a)",
+          sessionStatus: history
+            ? JSON.stringify(
+                JSON.parse(flueHistoryToSessionData(entityKey, history)).sessionStatus ?? {},
+              )
+            : "{}",
+          sessions: history
+            ? JSON.stringify(JSON.parse(flueHistoryToSessionData(entityKey, history)).sessions ?? [])
+            : "[]",
+          processes: "(phase 2 thin sandbox — use container exec for process list)",
+          keepalive: "n/a",
+          historyPresent: !!history,
+        })
+      }
+
+      const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), { normalizeId: true })
+
       const [processCheck, keepaliveCheck] = await Promise.all([
         sandbox.exec("ps aux 2>/dev/null | grep -v '\\[' | grep -v 'PID' | tail -30", { cwd: "/workspace" }),
         sandbox.exec("pgrep -f 'keepalive.sh' > /dev/null 2>&1 && echo running || echo stopped", { cwd: "/workspace" }),
       ])
 
       // Collect session data and save to D1
-      const freshData = await collectContainerData(sandbox)
-      const db = c.get("db")
+      const freshData = await collectContainerData(sandbox, entityKey)
       if (freshData) {
         try {
           await saveSession(db, entityKey, freshData)

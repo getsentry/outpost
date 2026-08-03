@@ -276,6 +276,8 @@ async function startSessionReporter(
     `        elif $hist | type == "array" then $hist`,
     `        else [] end`,
     `      )},`,
+    `      settlements: (if $hist | type == "object" then ($hist.settlements // []) else [] end),`,
+    `      flueHistory: (if $hist | type == "object" then $hist else {messages: $hist, settlements: []} end),`,
     `      logs: $logs,`,
     `      flue: true`,
     `    }' 2>/dev/null)`,
@@ -340,12 +342,14 @@ export async function dispatchPrompt(
 
 /**
  * Save an initial session record to D1 so the container appears immediately.
+ * Uses the canonical Flue conversation id so later history syncs merge cleanly.
  */
 export async function saveInitialSession(
   db: DrizzleD1Database<typeof dbSchema>,
   containerKey: string,
-  sessionId: string,
+  _sessionId?: string,
 ): Promise<void> {
+  const sessionId = toAgentInstanceId(containerKey)
   const initialData = JSON.stringify({
     sessionStatus: { [sessionId]: { type: "busy" } },
     sessions: [{ id: sessionId, title: containerKey, agent: AGENT }],

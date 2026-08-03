@@ -12,6 +12,14 @@ import type { BaseEnvBindings } from "@/types/env/base"
 import { AGENT } from "./dispatch"
 import { toAgentInstanceId } from "./ids"
 
+/** Re-export adapt helpers used by routes / tests. */
+export {
+  deriveFlueBusyStatus,
+  flueHistoryToSessionData,
+  normalizeFlueMessage,
+  normalizeFlueSessionBlob,
+} from "./flue-session-adapt"
+
 type Env = BaseEnvBindings["Bindings"]
 
 /** Build the absolute conversation URL for a Jared agent instance. */
@@ -75,68 +83,5 @@ export async function fetchFlueHistory(
     return history as unknown as Record<string, unknown>
   } catch {
     return null
-  }
-}
-
-/**
- * Normalize Flue history into the dashboard session blob shape.
- * Maps Flue `{ role, parts }` messages into the OpenCode-like
- * `{ info: { role }, parts }` shape the UI already renders.
- */
-export function flueHistoryToSessionData(
-  entityKey: string,
-  history: Record<string, unknown> | null,
-): string {
-  const sid = toAgentInstanceId(entityKey)
-  const rawMessages =
-    history && Array.isArray(history.messages)
-      ? history.messages
-      : history && Array.isArray(history.records)
-        ? history.records
-        : history && Array.isArray(history.items)
-          ? history.items
-          : []
-
-  const messages = rawMessages.map((m, index) => normalizeFlueMessage(m, index))
-
-  return JSON.stringify({
-    sessions: [{ id: sid, title: entityKey, agent: AGENT }],
-    sessionStatus: { [sid]: { type: "idle" } },
-    messages: { [sid]: messages },
-    logs: "",
-    flue: true,
-    flueHistory: history,
-  })
-}
-
-/** Adapt a Flue conversation message into the dashboard's SessionMessage shape. */
-function normalizeFlueMessage(raw: unknown, index: number): Record<string, unknown> {
-  if (!raw || typeof raw !== "object") {
-    return { info: { id: `flue-${index}`, role: "unknown" }, parts: [] }
-  }
-  const m = raw as Record<string, unknown>
-
-  // Already OpenCode-shaped
-  if (m.info && typeof m.info === "object") return m
-
-  const role = typeof m.role === "string" ? m.role : "unknown"
-  const id = typeof m.id === "string" ? m.id : `flue-${index}`
-  const parts = Array.isArray(m.parts)
-    ? m.parts
-    : typeof m.body === "string"
-      ? [{ type: "text", text: m.body }]
-      : typeof m.text === "string"
-        ? [{ type: "text", text: m.text }]
-        : []
-
-  return {
-    info: {
-      id,
-      role,
-      agent: typeof m.agent === "string" ? m.agent : undefined,
-      modelID: typeof m.model === "string" ? m.model : undefined,
-      createdAt: typeof m.createdAt === "string" || typeof m.createdAt === "number" ? m.createdAt : undefined,
-    },
-    parts,
   }
 }

@@ -47,6 +47,11 @@ export type MessagePart = {
   toolName?: string
   args?: Record<string, unknown>
   result?: unknown
+  // Flue `dynamic-tool` shape (normalized server-side; kept for back-compat).
+  input?: unknown
+  output?: unknown
+  errorText?: string
+  toolCallId?: string
 }
 
 export type SessionMessage = {
