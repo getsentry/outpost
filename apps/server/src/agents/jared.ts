@@ -6,8 +6,10 @@ import { cloudflareSandbox, extend } from "@flue/runtime/cloudflare"
 import { getSandbox } from "@cloudflare/sandbox"
 import * as Sentry from "@sentry/cloudflare"
 import { exploreSubagent } from "./explore.ts"
+import { implementSubagent, workerSubagent } from "./implement.ts"
 import { JARED_INSTRUCTIONS } from "./instructions.ts"
-import { workerSubagent } from "./worker.ts"
+import { Models } from "./models.ts"
+import { shipSubagent } from "./ship.ts"
 
 interface Env {
   Sandbox: DurableObjectNamespace
@@ -15,19 +17,26 @@ interface Env {
 }
 
 /**
- * Jared — primary GitHub coding agent.
+ * Jared — primary GitHub coding agent (Opus 4.8).
  *
- * Runs as a Flue Durable Object on Cloudflare. Filesystem/shell work happens
- * in an attached Cloudflare Sandbox container (git, gh, node, ripgrep).
- * Conversation state lives in DO SQLite — no curl-scraping required.
+ * Owns triage, planning, and go/no-go review. Delegates:
+ *   explore   → Sonnet 4.6 (read-only survey)
+ *   implement → Opus 4.6  (apply plan + tests)
+ *   ship      → xAI Grok  (commit / push / draft PR)
+ *
+ * Runs as a Flue Durable Object. Filesystem/shell work happens in an attached
+ * Cloudflare Sandbox container. Conversation state lives in DO SQLite.
  */
 export function Jared({ id }: AgentProps) {
-  useModel("openrouter/anthropic/claude-opus-4.8")
+  useModel(Models.triage)
 
   const { Sandbox } = env as unknown as Env
   useSandbox(cloudflareSandbox(getSandbox(Sandbox, id), { cwd: "/workspace/repo" }))
 
   useSubagent(exploreSubagent)
+  useSubagent(implementSubagent)
+  useSubagent(shipSubagent)
+  // Migration alias so older prompts that still say `worker` resolve.
   useSubagent(workerSubagent)
 
   return JARED_INSTRUCTIONS

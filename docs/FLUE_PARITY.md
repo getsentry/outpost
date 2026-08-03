@@ -17,8 +17,8 @@ Findings from validating Flue against Outpost's OpenCode-based harness requireme
 
 | Requirement | OpenCode today | Flue | Verdict |
 | --- | --- | --- | --- |
-| Primary agent + model tiering | `jared.md` frontmatter `model:` | `useModel('openrouter/anthropic/...')` | Pass |
-| Subagents (`explore`, `worker`) | `mode: subagent` + `task` tool | `useSubagent({ name, model, agent })` | Pass |
+| Primary agent + model tiering | `jared.md` frontmatter `model:` | `useModel(Models.triage)` + per-role `defineSubagent` | Pass |
+| Subagents (`explore`, `implement`, `ship`) | `mode: subagent` + `task` tool | `useSubagent` with Opus 4.6 / Sonnet / xAI Grok | Pass |
 | Skills as markdown | `~/.config/opencode/skills/*/SKILL.md` | Workspace `.agents/skills/*/SKILL.md` discovered at sandbox init | Pass |
 | Multi-repo git / `gh` / PRs | Full Linux in Cloudflare Sandbox | `useSandbox(cloudflareSandbox(getSandbox(...)))` or Node `local()` | Pass (needs container sandbox, not virtual) |
 | HTTP prompt admission | `POST /session/:id/prompt_async` | `POST /agents/jared/:id` with `{ kind: "user", body }` → 202 | Pass |
@@ -27,6 +27,21 @@ Findings from validating Flue against Outpost's OpenCode-based harness requireme
 | Lore | Comment in Dockerfile; not installed | Native `@loreai/pi` + gateway proxy; route model base URL through Lore | Pass (in container); Phase 2 needs standalone Lore service |
 | Observability | Manual D1 scrape + dashboard | Native Sentry / OpenTelemetry adapters + Workers traces | Pass |
 | Cloudflare fit | Worker orchestrates container that runs `opencode serve` | Agent brain = Durable Object; container = plain Linux sandbox | Pass — **this is the compute win** |
+
+## Model roster (cost / quality tiers)
+
+Defined in [`apps/server/src/agents/models.ts`](../apps/server/src/agents/models.ts):
+
+| Role | Agent | Model | Owns |
+| --- | --- | --- | --- |
+| Triage / plan / go-no-go | `jared` (primary) | `openrouter/anthropic/claude-opus-4.8` | Routing, root-cause, precise plan, final review |
+| Explore | `explore` subagent | `openrouter/anthropic/claude-sonnet-4.6` | Read-only codebase brief |
+| Implement | `implement` subagent | `openrouter/anthropic/claude-opus-4.6` | Apply plan as edits, run tests |
+| Ship | `ship` subagent | `openrouter/x-ai/grok-code-fast-1` | Commit, push, open/update draft PR |
+
+Pipeline: **triage (4.8) → explore (Sonnet) → plan (4.8) → implement (4.6) → review (4.8) → ship (Grok)**.
+
+`worker` remains as a deprecated alias of `implement` for older prompts.
 
 ## Topology recommendation
 

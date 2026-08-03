@@ -1,8 +1,10 @@
 import { defineSubagent } from "@flue/runtime"
+import { Models } from "./models.ts"
 
 function ExploreAgent() {
-  return `You are a fast, read-only codebase explorer working on behalf of a primary
-agent. You investigate and report — you never modify files.
+  return `You are a fast, read-only codebase explorer working on behalf of Jared
+(the primary triage/planning agent). You investigate and report — you never
+modify files.
 
 Given a focused question, gather the answer efficiently and return a **concise
 brief**, not a narrative. Favor exact details the caller can act on: file
@@ -23,10 +25,11 @@ Rules:
 - Don't make design decisions or recommend scope — just report what exists.`
 }
 
+/** Sonnet — cheap read-only survey. */
 export const exploreSubagent = defineSubagent({
   name: "explore",
   description:
-    "Read-only codebase explorer. Surveys conventions, finds code paths, summarizes diffs. Cannot edit files.",
+    "Read-only codebase explorer (Sonnet). Surveys conventions, finds code paths, summarizes diffs. Cannot edit files. Use before planning when you need a brief of the relevant area.",
   agent: ExploreAgent,
-  model: "openrouter/anthropic/claude-sonnet-4.6",
+  model: Models.explore,
 })

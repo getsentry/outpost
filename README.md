@@ -22,7 +22,7 @@ GitHub Webhook → Cloudflare Worker (Hono + Flue)
 ```
 
 - **Worker**: Hono app on Cloudflare Workers — webhooks, dashboard, Flue agent routes
-- **Flue agent**: Durable Object with subagents (`explore`, `worker`), skills, and native schedules
+- **Flue agent**: Durable Object with tiered subagents (`explore`, `implement`, `ship`), skills, and native schedules
 - **Container**: Thin Cloudflare Sandbox — Linux workspace only (no harness process)
 - **Lore**: Standalone LLM memory gateway — see [docs/LORE_GATEWAY.md](docs/LORE_GATEWAY.md)
 - **Dashboard**: React SPA with session sidebar, chat-style message viewer, and container management
@@ -35,7 +35,7 @@ GitHub Webhook → Cloudflare Worker (Hono + Flue)
 apps/
   server/                   # Cloudflare Worker + React dashboard
     src/
-      agents/               # Flue 'use agent' modules (jared + subagents)
+      agents/               # Flue agents: jared (4.8) + explore/implement/ship
       cloudflare.ts         # Sandbox export + cron scheduled handler
       app.ts                # Hono + Flue createAgentRouter mount
       routes/               # webhooks, containers, events, …
