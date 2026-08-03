@@ -13,8 +13,13 @@ type OutboundEnv = {
 }
 
 /**
- * Sandbox with zero-trust GitHub egress: Authorization is injected by the
- * outbound Worker proxy so the LLM/shell never sees the raw token.
+ * Sandbox with optional GitHub egress injection via outbound Workers.
+ *
+ * NOTE: outbound handlers only inject a token when `GITHUB_TOKEN` / `GH_TOKEN`
+ * is present on the Worker env. Today Outpost mints installation tokens per
+ * event and applies them inside the container via `applyGitHubAuth` — so these
+ * handlers are a no-op unless that Worker-level secret is also configured.
+ * Keep them for the zero-trust path when we move token injection out of the sandbox.
  */
 export class JaredSandbox extends CloudflareSandbox {
   static outboundByHost = {
