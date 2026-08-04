@@ -9,8 +9,15 @@
 
 import { timingSafeEqualString } from "@/middlewares/flue-auth"
 
-/** Match the Phase 1 reporter / keepalive budget (~2h). */
-export const SESSION_INGEST_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
+/** Phase 1 reporter / keepalive budget (~2h). Keep in sync with MAX=7200 in dispatch.ts. */
+export const SESSION_REPORTER_MAX_MS = 2 * 60 * 60 * 1000
+
+/**
+ * Token TTL must outlive the reporter: the token is minted once at start and
+ * never refreshed, so a TTL equal to the 2h budget can expire on the final
+ * ingest right as the reporter exits. Grace covers clock skew + last POST.
+ */
+export const SESSION_INGEST_TOKEN_TTL_MS = SESSION_REPORTER_MAX_MS + 15 * 60 * 1000
 
 async function hmacSha256Hex(secret: string, message: string): Promise<string> {
   const enc = new TextEncoder()

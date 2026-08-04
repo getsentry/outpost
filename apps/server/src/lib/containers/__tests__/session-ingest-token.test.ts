@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { mintSessionIngestToken, SESSION_INGEST_TOKEN_TTL_MS, verifySessionIngestToken } from "../session-ingest-token"
+import {
+  mintSessionIngestToken,
+  SESSION_INGEST_TOKEN_TTL_MS,
+  SESSION_REPORTER_MAX_MS,
+  verifySessionIngestToken,
+} from "../session-ingest-token"
 
 describe("session ingest tokens", () => {
   const secret = "test-secret"
@@ -19,6 +24,15 @@ describe("session ingest tokens", () => {
     const token = await mintSessionIngestToken(secret, "acme/app#42", now)
     const later = now + SESSION_INGEST_TOKEN_TTL_MS + 1000
     expect(await verifySessionIngestToken(secret, token, "acme/app#42", later)).toBe(false)
+  })
+
+  it("still verifies at the end of the reporter budget", async () => {
+    // Token is minted once at reporter start; must remain valid through MAX=7200s.
+    const now = Date.UTC(2026, 7, 4, 12, 0, 0)
+    const token = await mintSessionIngestToken(secret, "acme/app#42", now)
+    const atReporterExit = now + SESSION_REPORTER_MAX_MS
+    expect(SESSION_INGEST_TOKEN_TTL_MS).toBeGreaterThan(SESSION_REPORTER_MAX_MS)
+    expect(await verifySessionIngestToken(secret, token, "acme/app#42", atReporterExit)).toBe(true)
   })
 
   it("rejects a tampered mac", async () => {

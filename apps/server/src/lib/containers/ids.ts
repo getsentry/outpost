@@ -8,11 +8,14 @@
 
 /** Sanitize an entity key into a stable Flue conversation / Sandbox id. */
 export function toAgentInstanceId(entityKey: string): string {
+  // Strip leading/trailing dashes *after* truncating so a dash at the 63rd
+  // character cannot leave a trailing `-` in the final id.
   const id = entityKey
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 63)
+    .replace(/^-+|-+$/g, "")
   if (!id) return "unknown"
   // Avoid reserved sandbox names.
   const reserved = new Set(["www", "api", "admin", "root", "system", "cloudflare", "workers"])
