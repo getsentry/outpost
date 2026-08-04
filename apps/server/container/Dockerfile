@@ -42,13 +42,13 @@ RUN npm install -g n \
  && corepack prepare pnpm@latest --activate \
  && node --version && pnpm --version
 
-# Empty clone target — Worker populates this via git clone.
-RUN mkdir -p /workspace/repo \
- && rm -rf /workspace/repo/* /workspace/repo/.[!.]* 2>/dev/null || true
+# Empty parent for the Worker-managed clone target. Do not create
+# /workspace/repo itself — `mv repo-tmp /workspace/repo` nests if dest exists.
+RUN mkdir -p /workspace
 
 # Skills live outside the clone target so git clone never fails on a nonempty dir.
 COPY .agents/skills/ /root/.agents/skills/
 COPY AGENTS.md /root/AGENTS.md
 
-WORKDIR /workspace/repo
+WORKDIR /workspace
 # No harness process — the Worker attaches this sandbox via cloudflareSandbox().

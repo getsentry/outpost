@@ -187,9 +187,10 @@ async function ensureRepoCloned(sandbox: ReturnType<typeof getSandbox>, opts: Sa
 
   const checkRepo = await sandbox.exec("test -d /workspace/repo/.git", { cwd: "/workspace" })
   if (!checkRepo.success) {
-    // Clone target must be empty — baked image files (if any) live under
-    // /root/.agents, never under /workspace/repo. Clear any stray contents.
-    await sandbox.exec("rm -rf /workspace/repo && mkdir -p /workspace/repo /workspace", { cwd: "/workspace" })
+    // Clone target must not exist as a directory — `mv src dest` nests into
+    // dest when dest already exists. Clear any stray /workspace/repo, keep
+    // only the parent, then rename repo-tmp → repo atomically.
+    await sandbox.exec("rm -rf /workspace/repo /workspace/repo-tmp && mkdir -p /workspace", { cwd: "/workspace" })
     const cloneUrl = opts.installationToken
       ? `https://x-access-token:${opts.installationToken}@github.com/${opts.repo}.git`
       : `https://github.com/${opts.repo}.git`

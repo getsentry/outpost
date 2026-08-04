@@ -27,7 +27,9 @@ RUN npm install -g n \
  && corepack enable \
  && corepack prepare pnpm@latest --activate
 
-RUN mkdir -p /workspace/repo /opt/flue /root/.agents
+# Do NOT pre-create /workspace/repo — the Worker clones into a temp dir and
+# `mv`s it to /workspace/repo; an existing empty dest would nest the clone.
+RUN mkdir -p /workspace /opt/flue /root/.agents
 
 COPY flue/package.json /opt/flue/package.json
 WORKDIR /opt/flue
@@ -52,4 +54,4 @@ ENV PORT=4096
 ENV FLUE_PORT=4096
 ENV LORE_GATEWAY_URL=http://127.0.0.1:3207
 EXPOSE 4096
-WORKDIR /workspace/repo
+WORKDIR /workspace
