@@ -100,7 +100,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       appUrl: env.APP_URL,
       thinSandbox: flueNative,
       loreGatewayUrl: env.LORE_GATEWAY_URL,
-      flueInternalToken: resolveFlueInternalToken(env) ?? undefined,
+      flueInternalToken: (await resolveFlueInternalToken(env)) ?? undefined,
     })
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.done")
 

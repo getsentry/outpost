@@ -76,7 +76,7 @@ export async function fetchFlueHistory(env: Env, entityKey: string): Promise<Rec
     return null
   }
 
-  const token = resolveFlueInternalToken(env)
+  const token = await resolveFlueInternalToken(env)
   if (!token) {
     console.warn("fetchFlueHistory: no FLUE_INTERNAL_TOKEN/BETTER_AUTH_SECRET — cannot auth history pull")
     return null

@@ -41,7 +41,9 @@ export type BaseEnvBindings = {
     LORE_GATEWAY_URL?: string
     /**
      * Shared secret for Worker↔container session ingest and Worker-internal
-     * Flue history pulls. Falls back to BETTER_AUTH_SECRET when unset.
+     * Flue history pulls. Prefer setting this explicitly. When unset, a
+     * purpose-bound HMAC of BETTER_AUTH_SECRET is derived — the raw session
+     * signing secret is never written into agent sandboxes.
      */
     FLUE_INTERNAL_TOKEN?: string
     /** Flue-generated Jared agent DO binding (Phase 2). */

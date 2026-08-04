@@ -142,7 +142,7 @@ const router = new Hono<BaseEnv>()
   .post("/sessions", async (c) => {
     const { requestHasFlueInternalToken, FLUE_INTERNAL_HEADER } = await import("@/middlewares/flue-auth")
     const header = c.req.header(FLUE_INTERNAL_HEADER) ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "")
-    if (!requestHasFlueInternalToken(header, c.env)) {
+    if (!(await requestHasFlueInternalToken(header, c.env))) {
       return c.json({ error: "Unauthorized" }, 401)
     }
 

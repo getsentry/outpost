@@ -330,7 +330,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           appUrl: envBindings.APP_URL,
           thinSandbox: flueNative,
           loreGatewayUrl: envBindings.LORE_GATEWAY_URL,
-          flueInternalToken: resolveFlueInternalToken(envBindings) ?? undefined,
+          flueInternalToken: (await resolveFlueInternalToken(envBindings)) ?? undefined,
         })
         logger.info(
           { issue_id: issueId, container_key: containerKey, sandbox_id: sandboxId },

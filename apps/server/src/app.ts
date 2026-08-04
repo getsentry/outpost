@@ -2,10 +2,9 @@
  * Flue + Outpost route map.
  *
  * Flue's generated Worker entry (`virtual:flue/worker`) imports this default
- * export as the fetch handler. Agent routes are mounted BEFORE rate limiting
- * so in-process / SDK dispatch is not blocked by unidentified callers — but
- * they ARE gated by requireUserOrInternalToken (dashboard session or shared
- * Worker/container token).
+ * export as the fetch handler. Agent HTTP routes require auth (user session or
+ * internal token) AND are rate-limited — paid LLM / sandbox work must not be
+ * reachable anonymously or without a rate limit key.
  */
 
 import { createAgentRouter } from "@flue/runtime/routing"
@@ -53,12 +52,13 @@ const app = new Hono<BaseEnvBindings>()
     contextStorage(),
     base(),
     auth(),
+    // Global rate limit — includes /agents/jared (paid LLM + sandbox).
+    // In-process dispatch(Jared) never hits this HTTP surface.
+    rateLimit(),
   )
-  // Flue agent surface — auth required (user session or internal token).
-  // Mounted before rateLimit so authenticated internal history pulls work.
+  // Flue agent HTTP surface — auth required (dashboard session or internal token).
   .use("/agents/jared/*", requireUserOrInternalToken)
   .route("/agents/jared", createAgentRouter(Jared))
-  .use(rateLimit())
   .route("/", router)
   .onError((err, c) => {
     const log = createLogger({
