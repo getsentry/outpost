@@ -138,13 +138,10 @@ function parseSessionData(raw: string): Record<string, unknown> {
 }
 
 const router = new Hono<BaseEnv>()
-  // --- Session ingest from containers: requires internal token ---
+  // --- Session ingest from containers: requires a per-entity scoped token ---
   .post("/sessions", async (c) => {
-    const { requestHasFlueInternalToken, FLUE_INTERNAL_HEADER } = await import("@/middlewares/flue-auth")
-    const header = c.req.header(FLUE_INTERNAL_HEADER) ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "")
-    if (!(await requestHasFlueInternalToken(header, c.env))) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
+    const { FLUE_INTERNAL_HEADER, resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
+    const { verifySessionIngestToken } = await import("@/lib/containers/session-ingest-token")
 
     const db = c.get("db")
     const body = (await c.req.json()) as {
@@ -154,6 +151,12 @@ const router = new Hono<BaseEnv>()
 
     if (!body.entityKey || !body.sessionData) {
       return c.json({ error: "entityKey and sessionData required" }, 400)
+    }
+
+    const header = c.req.header(FLUE_INTERNAL_HEADER) ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "")
+    const secret = await resolveFlueInternalToken(c.env)
+    if (!secret || !header || !(await verifySessionIngestToken(secret, header, body.entityKey))) {
+      return c.json({ error: "Unauthorized" }, 401)
     }
 
     await saveSession(db, body.entityKey, body.sessionData)

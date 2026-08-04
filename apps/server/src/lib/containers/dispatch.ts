@@ -16,6 +16,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
 import { FLUE_INTERNAL_HEADER, resolveFlueInternalToken } from "@/middlewares/flue-auth"
 import { toAgentInstanceId } from "./ids"
+import { mintSessionIngestToken } from "./session-ingest-token"
 import { saveSession } from "./sessions"
 
 /** Flue HTTP port inside the container (Phase 1). */
@@ -53,7 +54,7 @@ export type SandboxSetupOpts = {
   thinSandbox?: boolean
   /** Optional standalone Lore gateway URL (Phase 2). Defaults to in-container Lore. */
   loreGatewayUrl?: string
-  /** Shared secret for session ingest + Worker agent history pulls. */
+  /** Shared secret used to mint per-entity session-ingest tokens (never written raw into the sandbox). */
   flueInternalToken?: string
 }
 
@@ -225,12 +226,10 @@ async function writeEnvFile(sandbox: ReturnType<typeof getSandbox>, opts: Sandbo
 
   // Always record the intended Lore URL, but do NOT force OPENAI/ANTHROPIC base
   // URLs here — maybeEnableLoreBaseUrls() adds those only after a health probe.
+  // Never write the shared FLUE_INTERNAL_TOKEN into the sandbox — mint a
+  // per-entity ingest token for the reporter instead.
   const loreUrl = opts.loreGatewayUrl ?? "http://127.0.0.1:3207"
   push("LORE_GATEWAY_URL", loreUrl)
-
-  if (opts.flueInternalToken) {
-    push("FLUE_INTERNAL_TOKEN", opts.flueInternalToken)
-  }
 
   push("FLUE_LOG_LEVEL", "debug")
 
@@ -300,16 +299,24 @@ async function ensureSessionReporterRunning(
 /**
  * Background reporter: polls Flue conversation history and POSTs to
  * POST /api/containers/sessions so the dashboard stays populated.
+ *
+ * Uses a short-lived, entity-scoped ingest token — never the shared
+ * FLUE_INTERNAL_TOKEN — so a compromised sandbox cannot forge other entities'
+ * session data or unlock /agents/jared.
  */
 async function startSessionReporter(
   sandbox: ReturnType<typeof getSandbox>,
   opts: { entityKey: string; appUrl?: string; flueInternalToken?: string },
 ): Promise<void> {
   if (!opts.appUrl) return
+  if (!opts.flueInternalToken) {
+    // Without a signing secret we cannot authenticate ingest — skip reporter.
+    return
+  }
 
   const ingestUrl = `${opts.appUrl.replace(/\/$/, "")}/api/containers/sessions`
   const conversationId = toAgentInstanceId(opts.entityKey)
-  const ingestToken = opts.flueInternalToken ?? ""
+  const ingestToken = await mintSessionIngestToken(opts.flueInternalToken, opts.entityKey)
 
   const reporterScript = [
     "#!/bin/bash",
