@@ -3,8 +3,13 @@
 # (wrangler: FLUE_NATIVE=0 + image Dockerfile.phase1).
 #
 # linux/amd64 only (Cloudflare Containers requirement).
+#
+# IMPORTANT: this tag MUST match the @cloudflare/sandbox SDK version the Worker
+# runs (see apps/server/package.json). The SDK client and the in-container
+# control server share a protocol; a mismatch makes every sandbox.exec() hang,
+# so dispatch stalls the moment it touches the container and nothing ever runs.
 
-FROM docker.io/cloudflare/sandbox:0.7.0
+FROM docker.io/cloudflare/sandbox:0.12.0
 
 RUN apt-get update \
  && install -d -m 0755 /etc/apt/keyrings \
