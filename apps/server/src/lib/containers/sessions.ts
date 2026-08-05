@@ -191,6 +191,32 @@ export async function saveSession(
 }
 
 /**
+ * Overall container status shown in the Containers list.
+ * Matches the dashboard: any busy child → busy; otherwise idle if we have
+ * status entries, else unknown (offline).
+ */
+export type OverallSessionStatus = "busy" | "idle" | "unknown"
+
+export function deriveOverallStatus(sessionData: string | AnyRecord): OverallSessionStatus {
+  let parsed: AnyRecord
+  if (typeof sessionData === "string") {
+    try {
+      parsed = JSON.parse(sessionData) as AnyRecord
+    } catch {
+      return "unknown"
+    }
+  } else {
+    parsed = sessionData
+  }
+
+  const statuses = parsed.sessionStatus as Record<string, Record<string, string>> | null | undefined
+  const statusValues = statuses ? Object.values(statuses) : []
+  if (statusValues.some((st) => st?.type === "busy")) return "busy"
+  if (statusValues.length > 0) return "idle"
+  return "unknown"
+}
+
+/**
  * Derive a session's summary metadata (agent, model, cost), falling back to the
  * data carried on its messages when the session object itself is incomplete.
  *
