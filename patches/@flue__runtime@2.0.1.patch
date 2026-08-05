@@ -1,0 +1,16 @@
+diff --git a/dist/cloudflare/index.mjs b/dist/cloudflare/index.mjs
+index 806871f3ff171d698b28a0606ec9d9a9241aa36d..5abd75107df0b902361b58e7c62f1d61f513ee80 100644
+--- a/dist/cloudflare/index.mjs
++++ b/dist/cloudflare/index.mjs
+@@ -115,9 +115,9 @@ function cfSandboxToSessionEnv(sandbox, cwd = "/workspace") {
+ 			};
+ 		},
+ 		async readdir(path) {
+-			const result = await guarded("readdir", sandbox.exec(`find ${shellQuote(path)} -mindepth 1 -maxdepth 1 -printf '%f\\0'`));
++			const result = await guarded("readdir", sandbox.exec(`find ${shellQuote(path)} -mindepth 1 -maxdepth 1 -printf '%f\\n'`));
+ 			if (!result.success) throw new Error(`readdir failed for ${path}: ${result.stderr}`);
+-			return result.stdout.split("\0").filter((s) => s.length > 0);
++			return result.stdout.split("\n").filter((s) => s.length > 0);
+ 		},
+ 		async exists(path) {
+ 			return (await guarded("exists", sandbox.exists(path))).exists;
