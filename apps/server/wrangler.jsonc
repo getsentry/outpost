@@ -89,6 +89,10 @@
   "vars": {
     // Keep Phase 1 (in-container Flue) as the safe default until Phase 2 is
     // validated in a real Cloudflare deploy. Flip to "1" for DO-native.
-    "FLUE_NATIVE": "0"
+    "FLUE_NATIVE": "0",
+    // Public base URL of this Worker. Required so the in-container session
+    // reporter can POST conversation history back (startSessionReporter early
+    // returns without it) and for auth/CORS/OAuth callbacks.
+    "APP_URL": "https://jared.getsentry.workers.dev"
   }
 }
