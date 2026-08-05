@@ -57,5 +57,8 @@ RUN mkdir -p /workspace
 COPY .agents/skills/ /root/.agents/skills/
 COPY AGENTS.md /root/AGENTS.md
 
-WORKDIR /workspace
+# Keep the base image's working dir so the sandbox control server (the base
+# ENTRYPOINT the Worker's SDK talks to on port 3000) resolves its bundled
+# executors. The Worker always passes an explicit cwd to exec()/startProcess().
+WORKDIR /container-server
 # No harness process — the Worker attaches this sandbox via cloudflareSandbox().

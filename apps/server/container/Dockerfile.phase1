@@ -58,8 +58,15 @@ COPY AGENTS.md /root/AGENTS.md
 RUN mkdir -p /opt/flue/.agents && cp -R /root/.agents/skills /opt/flue/.agents/skills \
  && cp /root/AGENTS.md /opt/flue/AGENTS.md
 
-ENV PORT=4096
+# Do NOT set ENV PORT here. The base image ENTRYPOINT (/container-server/sandbox)
+# is the sandbox control server the Worker's SDK talks to on port 3000; it reads
+# $PORT to choose its listen port, so setting PORT=4096 makes it bind the wrong
+# port and the SDK never sees the container become ready — every exec fails with
+# "Container is starting. Please retry in a moment." forever. Flue's port is set
+# by the bootstrap subshell (export PORT=$FLUE_PORT) at runtime instead.
 ENV FLUE_PORT=4096
 ENV LORE_GATEWAY_URL=http://127.0.0.1:3207
 EXPOSE 4096
-WORKDIR /workspace
+# Keep the base image's working dir so the control server resolves its bundled
+# executors. The Worker always passes an explicit cwd to exec()/startProcess().
+WORKDIR /container-server
