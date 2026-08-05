@@ -2,9 +2,10 @@
 
 import { env } from "cloudflare:workers"
 import { getSandbox } from "@cloudflare/sandbox"
-import { type AgentProps, dispatch, useDelivery, useModel, useSandbox, useSubagent } from "@flue/runtime"
+import { type AgentProps, dispatch, useAgentStart, useDelivery, useModel, useSandbox, useSubagent } from "@flue/runtime"
 import { cloudflareSandbox, extend } from "@flue/runtime/cloudflare"
 import * as Sentry from "@sentry/cloudflare"
+import { type DoPrepEnv, ensureDoSandboxPrepped } from "@/lib/containers/do-prep"
 import { exploreSubagent } from "./explore.ts"
 import { implementSubagent, workerSubagent } from "./implement.ts"
 import { JARED_INSTRUCTIONS } from "./instructions.ts"
@@ -30,7 +31,8 @@ interface Env {
  * the Worker clones the repo via getSandbox(Sandbox, id). Do not re-sanitize.
  */
 export function Jared({ id }: AgentProps) {
-  useModel(modelForDelivery(useDelivery()))
+  const delivery = useDelivery()
+  useModel(modelForDelivery(delivery))
 
   const { Sandbox } = env as unknown as Env
   // Match prep options in github/dispatch.ts (normalizeId + short idle teardown).
@@ -42,6 +44,19 @@ export function Jared({ id }: AgentProps) {
       cwd: "/workspace/repo",
     }),
   )
+
+  // Webhook turns are prepped by the Worker before dispatch, but DO-initiated
+  // turns (scheduled auto-merge/fix-ci follow-ups) and post-teardown resumes reach
+  // the DO with a possibly-empty container. Re-clone + re-auth before the model's
+  // first turn so git/gh work. `force` on non-user deliveries also refreshes the
+  // ~1h GitHub token for long-delayed follow-ups.
+  useAgentStart(async () => {
+    try {
+      await ensureDoSandboxPrepped(env as unknown as DoPrepEnv, id, delivery?.kind !== "user")
+    } catch (err) {
+      console.warn("jared: DO sandbox prep failed", err)
+    }
+  })
 
   useSubagent(exploreSubagent)
   useSubagent(implementSubagent)
