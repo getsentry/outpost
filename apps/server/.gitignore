@@ -31,3 +31,11 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+
+# Container workspace AGENTS.md is shipped in the image
+!apps/server/container/AGENTS.md
+!apps/server/container/flue/AGENTS.md
+
+# Flue generated vite/wrangler input
+.flue-vite.wrangler.jsonc
+.flue/

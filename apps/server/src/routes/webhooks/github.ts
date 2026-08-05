@@ -2,7 +2,7 @@
 //
 // Receives webhook events from GitHub, verifies the HMAC signature,
 // parses the payload, extracts entity information, stores the event
-// in D1, and dispatches it to the OpenCode sandbox.
+// in D1, and dispatches it to the Flue agent (Durable Object or in-container).
 
 import { formatError } from "@jared/utils"
 import { verify } from "@octokit/webhooks-methods"

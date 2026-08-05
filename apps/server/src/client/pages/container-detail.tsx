@@ -19,7 +19,7 @@ import {
 } from "@phosphor-icons/react"
 import { Fragment, useMemo, useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
-import type { SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
+import type { MessagePart, SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
 import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
 import { useDestroyContainer, useSessionDetail } from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
@@ -118,16 +118,16 @@ function ChatMessage({ message }: { message: SessionMessage }) {
   const isUser = role === "user"
 
   // OpenCode v1.17.0 emits part types: text, reasoning, tool, step-start, etc.
+  // Flue emits `dynamic-tool` (normalized server-side to `tool`, but keep a
+  // client-side fallback for any blob that skipped normalization).
   const textParts = parts.filter((p) => (p.type === "text" || p.type === "reasoning") && p.text)
-  const toolParts = parts.filter((p) => typeof p.type === "string" && p.type.startsWith("tool"))
+  const isToolPart = (p: MessagePart) =>
+    typeof p.type === "string" && (p.type.startsWith("tool") || p.type === "dynamic-tool")
+  const toolParts = parts.filter(isToolPart)
   // Internal stream markers OpenCode emits that aren't worth showing.
   const NOISE = new Set(["step-start", "step-finish", "snapshot", "patch"])
   const otherParts = parts.filter(
-    (p) =>
-      p.type !== "text" &&
-      p.type !== "reasoning" &&
-      !(typeof p.type === "string" && p.type.startsWith("tool")) &&
-      !NOISE.has(p.type),
+    (p) => p.type !== "text" && p.type !== "reasoning" && !isToolPart(p) && !NOISE.has(p.type),
   )
 
   // Concatenated visible text for the copy button (text + reasoning parts only).
@@ -204,12 +204,32 @@ function ChatMessage({ message }: { message: SessionMessage }) {
         {toolParts.length > 0 && (
           <div className="mt-2 space-y-1">
             {toolParts.map((part, i) => {
-              // v1.17.0: `state` is an object { status, input, output, ... }.
+              // OpenCode v1.17.0: `state` is an object { status, input, output, ... }.
               // Legacy: `state` is a string and args/result are top-level.
+              // Flue dynamic-tool (unnormalized): state is a string like
+              // "input-available" / "output-available" with top-level input/output.
               const stateObj = part.state && typeof part.state === "object" ? part.state : undefined
-              const status = typeof part.state === "string" ? part.state : stateObj?.status
-              const args = stateObj?.input ?? (part.type === "tool-invocation" ? part.args : undefined)
-              const result = stateObj?.output ?? (part.type !== "tool-invocation" ? part.result : undefined)
+              const rawStatus = typeof part.state === "string" ? part.state : stateObj?.status
+              const status =
+                rawStatus === "input-available" || rawStatus === "streaming"
+                  ? "running"
+                  : rawStatus === "output-available"
+                    ? "completed"
+                    : rawStatus === "output-error"
+                      ? "error"
+                      : rawStatus
+              const args =
+                stateObj?.input ??
+                (part.type === "tool-invocation" || part.type === "dynamic-tool"
+                  ? (part.input ?? part.args)
+                  : undefined)
+              const result =
+                stateObj?.output ??
+                (part.type === "dynamic-tool"
+                  ? (part.output ?? part.errorText)
+                  : part.type !== "tool-invocation"
+                    ? part.result
+                    : undefined)
               return (
                 <ToolCallBlock
                   key={i}
@@ -262,11 +282,15 @@ function ToolCallBlock({
   const statusColors: Record<string, string> = {
     completed: "text-green-600 dark:text-green-400",
     result: "text-green-600 dark:text-green-400",
+    "output-available": "text-green-600 dark:text-green-400",
     running: "text-blue-600 dark:text-blue-400",
     call: "text-blue-600 dark:text-blue-400",
+    "input-available": "text-blue-600 dark:text-blue-400",
+    streaming: "text-blue-600 dark:text-blue-400",
     pending: "text-yellow-600 dark:text-yellow-400",
     partial_call: "text-yellow-600 dark:text-yellow-400",
     error: "text-red-600 dark:text-red-400",
+    "output-error": "text-red-600 dark:text-red-400",
   }
 
   const hasArgs = !!args && Object.keys(args).length > 0

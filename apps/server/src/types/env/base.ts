@@ -28,8 +28,26 @@ export type BaseEnvBindings = {
     // Sentry internal integration (for assigning Sentry issues to the agent)
     SENTRY_INTEGRATION_CLIENT_SECRET?: string
     SENTRY_INTEGRATION_TOKEN?: string
-    // Cloudflare Sandbox (OpenCode) Durable Object binding
+    // Cloudflare Sandbox Durable Object binding (thin Linux sandbox for Flue)
     Sandbox: DurableObjectNamespace<Sandbox>
+    /**
+     * Phase 2 flag: when "1"/"true", agent brain runs as a Flue Durable Object
+     * and the container is a thin sandbox (no in-container Flue/Lore process).
+     * Must stay paired with containers[].image (Dockerfile.phase1 when 0,
+     * Dockerfile when 1).
+     */
+    FLUE_NATIVE?: string
+    /** Standalone Lore gateway base URL (Phase 2). */
+    LORE_GATEWAY_URL?: string
+    /**
+     * Shared secret for Worker↔container session ingest and Worker-internal
+     * Flue history pulls. Prefer setting this explicitly. When unset, a
+     * purpose-bound HMAC of BETTER_AUTH_SECRET is derived — the raw session
+     * signing secret is never written into agent sandboxes.
+     */
+    FLUE_INTERNAL_TOKEN?: string
+    /** Flue-generated Jared agent DO binding (Phase 2). */
+    FLUE_JARED_AGENT?: DurableObjectNamespace
   }
   Variables: {
     logger: Logger

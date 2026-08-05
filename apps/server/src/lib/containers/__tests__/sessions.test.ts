@@ -90,6 +90,45 @@ describe("mergeSessionData", () => {
     expect(merged.sessionStatus.ses_new.type).toBe("busy")
   })
 
+  it("merges messages by top-level Flue id when info.id is absent", () => {
+    const oldRaw = JSON.stringify({
+      sessions: [{ id: "ses_a" }],
+      sessionStatus: {},
+      messages: { ses_a: [{ id: "m1", role: "user", parts: [{}, {}] }] },
+    })
+    const newRaw = JSON.stringify({
+      sessions: [{ id: "ses_a" }],
+      sessionStatus: {},
+      messages: { ses_a: [{ id: "m1", role: "user", parts: [{}, {}, {}] }] },
+    })
+
+    const merged = parse(mergeSessionData(oldRaw, newRaw))
+
+    expect(merged.messages.ses_a).toHaveLength(1)
+    expect(merged.messages.ses_a[0].parts).toHaveLength(3)
+  })
+
+  it("drops pending-* placeholder sessions when a Flue sync arrives", () => {
+    const oldRaw = JSON.stringify({
+      sessions: [{ id: "pending-abc", title: "t" }],
+      sessionStatus: { "pending-abc": { type: "busy" } },
+      messages: {},
+      flue: true,
+    })
+    const newRaw = JSON.stringify({
+      sessions: [{ id: "owner-repo-1", title: "t", agent: "jared" }],
+      sessionStatus: { "owner-repo-1": { type: "idle" } },
+      messages: { "owner-repo-1": [{ info: { id: "m1" }, parts: [{}] }] },
+      flue: true,
+    })
+
+    const merged = parse(mergeSessionData(oldRaw, newRaw))
+
+    expect(merged.sessions.map((s) => s.id)).toEqual(["owner-repo-1"])
+    expect(merged.sessionStatus["pending-abc"]).toBeUndefined()
+    expect(merged.sessionStatus["owner-repo-1"]?.type).toBe("idle")
+  })
+
   it("returns the new blob unchanged when the old blob is unparseable", () => {
     const newRaw = JSON.stringify({ sessions: [{ id: "ses_a" }], sessionStatus: {}, messages: {} })
     expect(mergeSessionData("not json", newRaw)).toBe(newRaw)

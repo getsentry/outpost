@@ -1,3 +1,4 @@
+<!-- Migrated to Flue: see apps/server/src/agents/ and container/flue/ -->
 ---
 description: Unified GitHub agent. Receives raw webhook payloads, triages events, and executes work directly. Manages the full lifecycle from issue labeling through merged PR.
 mode: primary

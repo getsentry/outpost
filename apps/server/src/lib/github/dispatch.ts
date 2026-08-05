@@ -1,6 +1,9 @@
 // Shared logic to dispatch a (stored or freshly-received) GitHub webhook event
-// to the OpenCode agent. Used by both the webhook handler and the manual
-// "resend" endpoint so the two paths can never drift.
+// to the Flue agent. Used by both the webhook handler and the manual "resend"
+// endpoint so the two paths can never drift.
+//
+// Phase 1: ensureSandboxReady starts Flue in-container; dispatchPrompt admits via curl.
+// Phase 2: FLUE_NATIVE=1 → thin sandbox + dispatchToFlueAgent (DO HTTP/SDK).
 
 import { getSandbox } from "@cloudflare/sandbox"
 import { formatError, type Logger } from "@jared/utils"
@@ -9,6 +12,8 @@ import { eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
+import { dispatchToFlueAgent } from "@/lib/containers/flue-dispatch"
+import { toAgentInstanceId } from "@/lib/containers/ids"
 import { createGitHubApp } from "@/lib/github/app"
 import { formatEventPrompt } from "@/lib/github/prompt"
 import type { BaseEnvBindings } from "@/types/env/base"
@@ -30,6 +35,10 @@ export type GitHubEventDispatch = {
   payload: string
 }
 
+function isFlueNative(env: Env): boolean {
+  return env.FLUE_NATIVE === "1" || env.FLUE_NATIVE === "true"
+}
+
 /**
  * Mint a fresh installation token, ensure the sandbox is ready, format the event
  * prompt, and dispatch it to the agent — updating the event status as it goes.
@@ -39,6 +48,7 @@ export type GitHubEventDispatch = {
  */
 export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt: GitHubEventDispatch): Promise<void> {
   const { eventId, containerKey } = evt
+  const flueNative = isFlueNative(env)
 
   const app = createGitHubApp({
     appId: env.GITHUB_APP_ID,
@@ -46,7 +56,6 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
   })
 
-  // Mint an installation token (scoped to the repo's installation).
   let installationToken = ""
   if (evt.installationId) {
     try {
@@ -65,20 +74,20 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     logger.warn({ error: formatError(err) }, "bot login resolution failed")
   }
 
-  // Save an initial session immediately so the container appears in the UI
-  // before the (potentially slow) sandbox startup completes.
   try {
-    await saveInitialSession(db, containerKey, `pending-${eventId.slice(0, 8)}`)
+    await saveInitialSession(db, containerKey)
   } catch {
     /* best effort — may conflict with an existing row */
   }
 
   try {
-    logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.start")
+    logger.info({ entity_key: containerKey, event_id: eventId, flue_native: flueNative }, "dispatch.start")
 
-    const sandbox = getSandbox(env.Sandbox, containerKey, { normalizeId: true, sleepAfter: "2h" })
+    const sandboxId = toAgentInstanceId(containerKey)
+    const sandbox = getSandbox(env.Sandbox, sandboxId, { normalizeId: true, sleepAfter: "2h" })
 
-    logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.sandbox_ready.start")
+    logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.start")
+    const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
     await ensureSandboxReady(sandbox, {
       repo: evt.repo,
       botLogin,
@@ -89,8 +98,11 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       sentryDsn: env.SENTRY_DSN,
       entityKey: containerKey,
       appUrl: env.APP_URL,
+      thinSandbox: flueNative,
+      loreGatewayUrl: env.LORE_GATEWAY_URL,
+      flueInternalToken: (await resolveFlueInternalToken(env)) ?? undefined,
     })
-    logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.sandbox_ready.done")
+    logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.done")
 
     const prompt = formatEventPrompt({
       event: evt.event,
@@ -104,10 +116,15 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     })
 
     logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.start")
-    // Schedules the prompt via a container-side script (does not block on
-    // OpenCode startup). The agent processes it autonomously; the UI sync picks
-    // up the real session and messages.
-    await dispatchPrompt(sandbox, containerKey, prompt, eventId)
+
+    if (flueNative) {
+      // Phase 2: admit into the Flue Durable Object (agent attaches the sandbox itself).
+      await dispatchToFlueAgent(env, { entityKey: containerKey, prompt, logger })
+    } else {
+      // Phase 1: container-side Flue HTTP admit via background script.
+      await dispatchPrompt(sandbox, containerKey, prompt, eventId)
+    }
+
     logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.scheduled")
 
     await db

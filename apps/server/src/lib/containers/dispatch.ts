@@ -1,31 +1,41 @@
-// Shared container setup and prompt dispatch logic.
-// Used by both the GitHub and Sentry webhook handlers to start
-// containers and send prompts to the OpenCode agent.
+// Shared container setup and prompt dispatch for the Flue harness.
 //
-// IMPORTANT (waitUntil budget): the Worker's waitUntil context cannot be relied
-// on to stay alive through a cold container boot + OpenCode's ~30-40s startup.
-// So we do the MINIMUM fast work in waitUntil (clone, write files, start
-// background processes) and let a container-side script poll for OpenCode
-// readiness and send the prompt autonomously. This is robust for cold starts.
+// Phase 1: Flue Node server (+ Lore gateway) runs inside the Cloudflare Sandbox
+// container. The Worker still orchestrates via sandbox.exec/startProcess.
+//
+// Phase 2 (see dispatchToFlueAgent in ./flue-dispatch.ts): the agent brain
+// moves to a Flue Durable Object; this module only prepares the thin sandbox
+// (clone repo, refresh GH auth) and no longer starts a harness process.
+//
+// IMPORTANT (waitUntil budget): do the MINIMUM fast work in waitUntil (clone,
+// write files, start background processes) and let a container-side script
+// poll for Flue readiness and send the prompt autonomously.
 
 import type { getSandbox } from "@cloudflare/sandbox"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
+import { FLUE_INTERNAL_HEADER, resolveFlueInternalToken } from "@/middlewares/flue-auth"
+import { toAgentInstanceId } from "./ids"
+import { mintSessionIngestToken } from "./session-ingest-token"
 import { saveSession } from "./sessions"
 
-export const OPENCODE_PORT = 4096
+/** Flue HTTP port inside the container (Phase 1). */
+export const FLUE_PORT = 4096
 
-/** The agent that handles all dispatched prompts. */
+/** @deprecated Use FLUE_PORT — kept as an alias for any leftover OpenCode references. */
+export const OPENCODE_PORT = FLUE_PORT
+
+/** Primary agent identity (Flue mount path /agents/jared). */
 export const AGENT = "jared"
 
-/**
- * Set up the sandbox: clone repo, configure git, start OpenCode.
- * Idempotent — safe to call on every event.
- *
- * Does NOT block on OpenCode becoming ready (no waitForPort): OpenCode can take
- * 30-40s to serve requests, and blocking here would exhaust the waitUntil
- * budget. The dispatch script (see dispatchPrompt) polls for readiness instead.
- */
+/** Conversation URL prefix inside the container. */
+export const FLUE_AGENT_MOUNT = `/agents/${AGENT}`
+
+/** @deprecated Prefer {@link toAgentInstanceId}. */
+export function sanitizeConversationId(entityKey: string): string {
+  return toAgentInstanceId(entityKey)
+}
+
 export type SandboxSetupOpts = {
   repo: string | null
   botLogin: string
@@ -37,6 +47,15 @@ export type SandboxSetupOpts = {
   entityKey: string
   /** Public base URL of this Worker, so the in-container reporter can POST session data back. */
   appUrl?: string
+  /**
+   * When true (Phase 2), skip starting Flue/Lore inside the container — the
+   * agent brain lives in a Durable Object and the container is a thin sandbox.
+   */
+  thinSandbox?: boolean
+  /** Optional standalone Lore gateway URL (Phase 2). Defaults to in-container Lore. */
+  loreGatewayUrl?: string
+  /** Shared secret used to mint per-entity session-ingest tokens (never written raw into the sandbox). */
+  flueInternalToken?: string
 }
 
 /** Shell-escape a value for safe single-quoted interpolation in bash. */
@@ -48,13 +67,7 @@ function shellQuote(value: string): string {
  * (Re)apply GitHub credentials inside the container.
  *
  * GitHub App installation tokens expire after ~1h, so the agent gets blocked
- * from pushing on long or resumed runs. We re-apply a fresh token on every event
- * (both warm and cold sandbox paths) and on demand via the refresh endpoint:
- *   - point the repo remote at an authenticated URL,
- *   - re-run `gh auth login` so the `gh` CLI uses the new token,
- *   - rewrite GH_TOKEN in the env file consumed by future processes.
- *
- * Safe to call repeatedly; a no-op when no token is provided.
+ * from pushing on long or resumed runs. We re-apply a fresh token on every event.
  */
 export async function applyGitHubAuth(
   sandbox: ReturnType<typeof getSandbox>,
@@ -65,22 +78,19 @@ export async function applyGitHubAuth(
 
   if (opts.repo) {
     const remoteUrl = `https://x-access-token:${token}@github.com/${opts.repo}.git`
-    // Only touch the remote when the repo is already cloned; clone happens elsewhere.
     await sandbox.exec(
       `test -d /workspace/repo/.git && git remote set-url origin ${shellQuote(remoteUrl)} 2>/dev/null || true`,
       { cwd: "/workspace" },
     )
   }
 
-  // `gh auth login --with-token` is idempotent and replaces any prior token.
   await sandbox.exec(`echo ${shellQuote(token)} | gh auth login --with-token`, { cwd: "/workspace" })
 
-  // Rewrite GH_TOKEN in the env file so newly-started processes pick it up.
   await sandbox.exec(
-    "touch /tmp/opencode-env.sh; " +
-      `grep -v '^export GH_TOKEN=' /tmp/opencode-env.sh > /tmp/opencode-env.sh.tmp 2>/dev/null || true; ` +
-      "mv /tmp/opencode-env.sh.tmp /tmp/opencode-env.sh; " +
-      `echo "export GH_TOKEN=${shellQuote(token)}" >> /tmp/opencode-env.sh`,
+    "touch /tmp/flue-env.sh; " +
+      `grep -v '^export GH_TOKEN=' /tmp/flue-env.sh > /tmp/flue-env.sh.tmp 2>/dev/null || true; ` +
+      "mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh; " +
+      `echo "export GH_TOKEN=${shellQuote(token)}" >> /tmp/flue-env.sh`,
     { cwd: "/workspace" },
   )
 }
@@ -89,21 +99,22 @@ export async function ensureSandboxReady(
   sandbox: ReturnType<typeof getSandbox>,
   opts: SandboxSetupOpts,
 ): Promise<void> {
-  // Check if OpenCode is already running (fast path).
-  //
-  // CRITICAL: probe readiness against an endpoint that actually exists on
-  // OpenCode v1.17.0 (`/session`, the same one the dispatch script polls). The
-  // old check hit `/global/health`/`/api/health`, which 404 on v1.17.0, so the
-  // fast path NEVER triggered — meaning every follow-up event would pkill a
-  // running `opencode serve` and abort the agent's in-flight generation
-  // (assistant message left with empty parts). We only restart when OpenCode is
-  // genuinely absent or unresponsive.
+  // Phase 2 thin sandbox: only ensure repo + credentials, no harness process.
+  if (opts.thinSandbox) {
+    await ensureRepoCloned(sandbox, opts)
+    await writeEnvFile(sandbox, opts)
+    await applyGitHubAuth(sandbox, opts)
+    await ensureWorkspaceSkills(sandbox)
+    return
+  }
+
+  // Phase 1: check if Flue is already serving.
   let alreadyRunning = false
   try {
     const [procCheck, readyCheck] = await Promise.all([
-      sandbox.exec("pgrep -f 'opencode serve' > /dev/null 2>&1", { cwd: "/workspace" }),
+      sandbox.exec("pgrep -f 'node dist/server.mjs' > /dev/null 2>&1", { cwd: "/workspace" }),
       sandbox.exec(
-        `curl -sf --max-time 5 http://localhost:${OPENCODE_PORT}/session >/dev/null 2>&1 || curl -sf --max-time 5 http://localhost:${OPENCODE_PORT}/api/session >/dev/null 2>&1`,
+        `curl -sf --max-time 5 http://localhost:${FLUE_PORT}/api/ping >/dev/null 2>&1 || curl -sf --max-time 5 http://localhost:${FLUE_PORT}/health >/dev/null 2>&1`,
         { cwd: "/workspace" },
       ),
     ])
@@ -112,62 +123,49 @@ export async function ensureSandboxReady(
     // Treat as not running.
   }
   if (alreadyRunning) {
-    // OpenCode is already serving — don't restart it (that would abort an
-    // in-flight generation). But the installation token may have expired since
-    // the last event, so always re-apply fresh credentials before returning.
     await applyGitHubAuth(sandbox, opts)
+    // Warm path: refresh env + ensure the session reporter is still alive.
+    await writeEnvFile(sandbox, opts)
+    await ensureSessionReporterRunning(sandbox, {
+      entityKey: opts.entityKey,
+      appUrl: opts.appUrl,
+      flueInternalToken: opts.flueInternalToken,
+    })
     return
   }
 
-  // Kill any stale OpenCode processes (leftover from a previous run/deploy).
-  // Only reached when OpenCode is NOT serving, so this never aborts a live agent.
-  await sandbox.exec("pkill -f 'opencode serve' 2>/dev/null; sleep 1", { cwd: "/workspace" })
+  // Kill any stale harness processes (leftover from a previous run/deploy).
+  await sandbox.exec(
+    "pkill -f 'dist/server.mjs' 2>/dev/null; pkill -f 'lore run' 2>/dev/null; pkill -f 'opencode serve' 2>/dev/null; sleep 1",
+    { cwd: "/workspace" },
+  )
 
-  // Clone repo if needed
-  if (opts.repo) {
-    const checkRepo = await sandbox.exec("test -d /workspace/repo/.git", { cwd: "/workspace" })
-    if (!checkRepo.success) {
-      const cloneUrl = opts.installationToken
-        ? `https://x-access-token:${opts.installationToken}@github.com/${opts.repo}.git`
-        : `https://github.com/${opts.repo}.git`
-      const cloneResult = await sandbox.exec(`git clone --depth 50 ${cloneUrl} /workspace/repo`, { cwd: "/workspace" })
-      if (!cloneResult.success) throw new Error(`git clone failed: ${cloneResult.stderr}`)
-    }
-
-    if (opts.botLogin) {
-      const botEmail = `${opts.botLogin}@users.noreply.github.com`
-      await sandbox.exec(`git config user.name "${opts.botLogin}" && git config user.email "${botEmail}"`, {
-        cwd: "/workspace/repo",
-      })
-    }
-  }
-
-  // Write env file (everything except GH_TOKEN, which applyGitHubAuth manages so
-  // the same logic handles initial setup and later refreshes).
-  const envLines: string[] = []
-  if (opts.openrouterApiKey) envLines.push(`export OPENROUTER_API_KEY="${opts.openrouterApiKey}"`)
-  if (opts.anthropicApiKey) envLines.push(`export ANTHROPIC_API_KEY="${opts.anthropicApiKey}"`)
-  if (opts.openaiApiKey) envLines.push(`export OPENAI_API_KEY="${opts.openaiApiKey}"`)
-  if (opts.sentryDsn) envLines.push(`export SENTRY_DSN="${opts.sentryDsn}"`)
-  envLines.push('export OPENCODE_LOG_LEVEL="debug"')
-
-  await sandbox.writeFile("/tmp/opencode-env.sh", `${envLines.join("\n")}\n`)
-
-  // Apply GitHub credentials (sets the remote URL, gh auth, and GH_TOKEN).
+  await ensureRepoCloned(sandbox, opts)
+  await writeEnvFile(sandbox, opts)
   await applyGitHubAuth(sandbox, opts)
+  await ensureWorkspaceSkills(sandbox)
 
-  // Start OpenCode (non-blocking — do not waitForPort; the dispatch script polls).
-  const cwd = opts.repo ? "/workspace/repo" : "/workspace"
-  const startCmd = `bash -c '[ -f /tmp/opencode-env.sh ] && . /tmp/opencode-env.sh; opencode serve --port ${OPENCODE_PORT} --hostname 0.0.0.0 >> /tmp/opencode.log 2>&1'`
-  await sandbox.startProcess(startCmd, { cwd })
+  // Start Lore gateway (Phase 1 in-container). Only route model traffic through
+  // it when the process is actually healthy — otherwise leave provider defaults.
+  const loreCmd =
+    `bash -c '[ -f /tmp/flue-env.sh ] && . /tmp/flue-env.sh; ` +
+    "if command -v lore >/dev/null 2>&1; then lore run --port 3207 >> /tmp/lore.log 2>&1; " +
+    `else echo "lore binary missing" >> /tmp/lore.log; fi'`
+  await sandbox.startProcess(loreCmd, { cwd: "/workspace/repo" })
+  await maybeEnableLoreBaseUrls(sandbox)
 
-  // Start a keepalive process that keeps the sandbox alive while OpenCode works.
+  // Start Flue Node server (non-blocking — dispatch script polls for readiness).
+  const startCmd =
+    `bash -c '[ -f /tmp/flue-env.sh ] && . /tmp/flue-env.sh; ` +
+    `export PORT=${FLUE_PORT}; ` +
+    `cd /opt/flue && node dist/server.mjs >> /tmp/flue.log 2>&1'`
+  await sandbox.startProcess(startCmd, { cwd: "/workspace/repo" })
+
+  // Keepalive so the sandbox does not sleep while Flue works (max 2h).
   const keepaliveScript = [
     "#!/bin/bash",
-    `PORT=${OPENCODE_PORT}`,
     "STARTED=$(date +%s)",
     "MAX=7200",
-    "",
     "while true; do",
     "  sleep 30",
     "  NOW=$(date +%s)",
@@ -177,39 +175,159 @@ export async function ensureSandboxReady(
   await sandbox.writeFile("/tmp/keepalive.sh", keepaliveScript)
   await sandbox.startProcess("bash /tmp/keepalive.sh", { cwd: "/workspace" })
 
-  // Start the session reporter so messages/cost are pushed back to the server
-  // continuously — even if nobody opens the detail page and even after the
-  // container later sleeps (the last push is durable in D1).
-  await startSessionReporter(sandbox, { entityKey: opts.entityKey, appUrl: opts.appUrl })
+  await startSessionReporter(sandbox, {
+    entityKey: opts.entityKey,
+    appUrl: opts.appUrl,
+    flueInternalToken: opts.flueInternalToken,
+  })
+}
+
+async function ensureRepoCloned(sandbox: ReturnType<typeof getSandbox>, opts: SandboxSetupOpts): Promise<void> {
+  if (!opts.repo) return
+
+  const checkRepo = await sandbox.exec("test -d /workspace/repo/.git", { cwd: "/workspace" })
+  if (!checkRepo.success) {
+    // Clone target must not exist as a directory — `mv src dest` nests into
+    // dest when dest already exists. Clear any stray /workspace/repo, keep
+    // only the parent, then rename repo-tmp → repo atomically.
+    await sandbox.exec("rm -rf /workspace/repo /workspace/repo-tmp && mkdir -p /workspace", { cwd: "/workspace" })
+    const cloneUrl = opts.installationToken
+      ? `https://x-access-token:${opts.installationToken}@github.com/${opts.repo}.git`
+      : `https://github.com/${opts.repo}.git`
+    // Clone into a temp dir then move, so a partial failure never leaves a
+    // half-populated /workspace/repo that blocks the next attempt.
+    const cloneResult = await sandbox.exec(
+      `git clone --depth 50 ${cloneUrl} /workspace/repo-tmp && mv /workspace/repo-tmp /workspace/repo`,
+      { cwd: "/workspace" },
+    )
+    if (!cloneResult.success) {
+      await sandbox.exec("rm -rf /workspace/repo-tmp", { cwd: "/workspace" })
+      throw new Error(`git clone failed: ${cloneResult.stderr}`)
+    }
+  }
+
+  if (opts.botLogin) {
+    const botEmail = `${opts.botLogin}@users.noreply.github.com`
+    await sandbox.exec(`git config user.name "${opts.botLogin}" && git config user.email "${botEmail}"`, {
+      cwd: "/workspace/repo",
+    })
+  }
+}
+
+async function writeEnvFile(sandbox: ReturnType<typeof getSandbox>, opts: SandboxSetupOpts): Promise<void> {
+  const envLines: string[] = []
+  const push = (key: string, value: string) => {
+    envLines.push(`export ${key}=${shellQuote(value)}`)
+  }
+
+  if (opts.openrouterApiKey) push("OPENROUTER_API_KEY", opts.openrouterApiKey)
+  if (opts.anthropicApiKey) push("ANTHROPIC_API_KEY", opts.anthropicApiKey)
+  if (opts.openaiApiKey) push("OPENAI_API_KEY", opts.openaiApiKey)
+  if (opts.sentryDsn) push("SENTRY_DSN", opts.sentryDsn)
+
+  // Always record the intended Lore URL, but do NOT force OPENAI/ANTHROPIC base
+  // URLs here — maybeEnableLoreBaseUrls() adds those only after a health probe.
+  // Never write the shared FLUE_INTERNAL_TOKEN into the sandbox — mint a
+  // per-entity ingest token for the reporter instead.
+  const loreUrl = opts.loreGatewayUrl ?? "http://127.0.0.1:3207"
+  push("LORE_GATEWAY_URL", loreUrl)
+
+  push("FLUE_LOG_LEVEL", "debug")
+
+  // Phase 2 / external Lore: if the URL is not loopback, enable base URLs now
+  // (standalone gateway is assumed reachable from the DO / container).
+  if (opts.loreGatewayUrl && !/127\.0\.0\.1|localhost/.test(opts.loreGatewayUrl)) {
+    push("OPENAI_BASE_URL", `${loreUrl.replace(/\/$/, "")}/v1`)
+    push("ANTHROPIC_BASE_URL", loreUrl.replace(/\/$/, ""))
+  }
+
+  await sandbox.writeFile("/tmp/flue-env.sh", `${envLines.join("\n")}\n`)
 }
 
 /**
- * Start a background, in-container reporter that periodically pushes the live
- * OpenCode session data back to the server's unauthenticated ingest endpoint
- * (POST /api/containers/sessions). This is the durable, push-based replacement
- * for the UI-gated pull sync: it works without anyone viewing the container and
- * persists the final state before the container sleeps.
+ * Probe in-container Lore and only then point provider base URLs at it.
+ * Avoids hard-failing model calls when `lore` failed to install/start.
+ */
+async function maybeEnableLoreBaseUrls(sandbox: ReturnType<typeof getSandbox>): Promise<void> {
+  // Give Lore a brief window to bind its port.
+  for (let i = 0; i < 10; i++) {
+    const probe = await sandbox.exec("curl -sf --max-time 2 http://127.0.0.1:3207/health >/dev/null 2>&1", {
+      cwd: "/workspace",
+    })
+    if (probe.success) {
+      await sandbox.exec(
+        "touch /tmp/flue-env.sh; " +
+          "grep -v '^export OPENAI_BASE_URL=' /tmp/flue-env.sh | grep -v '^export ANTHROPIC_BASE_URL=' > /tmp/flue-env.sh.tmp; " +
+          "mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh; " +
+          `echo "export OPENAI_BASE_URL=${shellQuote("http://127.0.0.1:3207/v1")}" >> /tmp/flue-env.sh; ` +
+          `echo "export ANTHROPIC_BASE_URL=${shellQuote("http://127.0.0.1:3207")}" >> /tmp/flue-env.sh`,
+        { cwd: "/workspace" },
+      )
+      return
+    }
+    await sandbox.exec("sleep 1", { cwd: "/workspace" })
+  }
+  await sandbox.exec('echo "lore health probe failed — leaving provider base URLs unset" >> /tmp/lore.log', {
+    cwd: "/workspace",
+  })
+}
+
+/**
+ * Copy Flue workspace skills into the cloned repo AFTER clone.
+ * Source of truth is /root/.agents/skills (baked into the image outside the
+ * clone target) and optionally /opt/flue for Phase 1 images.
+ */
+async function ensureWorkspaceSkills(sandbox: ReturnType<typeof getSandbox>): Promise<void> {
+  await sandbox.exec(
+    "mkdir -p /workspace/repo/.agents && " +
+      "([ -d /root/.agents/skills ] && cp -R /root/.agents/skills /workspace/repo/.agents/ || true) && " +
+      "([ -f /root/AGENTS.md ] && cp /root/AGENTS.md /workspace/repo/AGENTS.md || true) && " +
+      "([ -d /opt/flue/.agents/skills ] && cp -R /opt/flue/.agents/skills /workspace/repo/.agents/ || true) && " +
+      "([ -f /opt/flue/AGENTS.md ] && cp /opt/flue/AGENTS.md /workspace/repo/AGENTS.md || true)",
+    { cwd: "/workspace" },
+  )
+}
+
+async function ensureSessionReporterRunning(
+  sandbox: ReturnType<typeof getSandbox>,
+  opts: { entityKey: string; appUrl?: string; flueInternalToken?: string },
+): Promise<void> {
+  const check = await sandbox.exec("pgrep -f 'session-reporter.sh' > /dev/null 2>&1", { cwd: "/workspace" })
+  if (check.success) return
+  await startSessionReporter(sandbox, opts)
+}
+
+/**
+ * Background reporter: polls Flue conversation history and POSTs to
+ * POST /api/containers/sessions so the dashboard stays populated.
  *
- * Idempotent — kills any previous reporter before starting a new one.
+ * Uses a short-lived, entity-scoped ingest token — never the shared
+ * FLUE_INTERNAL_TOKEN — so a compromised sandbox cannot forge other entities'
+ * session data or unlock /agents/jared.
  */
 async function startSessionReporter(
   sandbox: ReturnType<typeof getSandbox>,
-  opts: { entityKey: string; appUrl?: string },
+  opts: { entityKey: string; appUrl?: string; flueInternalToken?: string },
 ): Promise<void> {
-  if (!opts.appUrl) return // No public URL to report to — skip silently.
+  if (!opts.appUrl) return
+  if (!opts.flueInternalToken) {
+    // Without a signing secret we cannot authenticate ingest — skip reporter.
+    return
+  }
 
   const ingestUrl = `${opts.appUrl.replace(/\/$/, "")}/api/containers/sessions`
+  const conversationId = toAgentInstanceId(opts.entityKey)
+  const ingestToken = await mintSessionIngestToken(opts.flueInternalToken, opts.entityKey)
 
-  // The reporter mirrors collectContainerData(): list sessions, fetch each
-  // session's messages + status + logs, assemble the same { sessions,
-  // sessionStatus, messages, logs } blob, and POST it wrapped as
-  // { entityKey, sessionData }. saveSession() merges by message id server-side.
   const reporterScript = [
     "#!/bin/bash",
     "set -u",
-    `OC="http://localhost:${OPENCODE_PORT}"`,
+    `FLUE="http://localhost:${FLUE_PORT}"`,
+    `MOUNT="${FLUE_AGENT_MOUNT}"`,
+    `CONV=${shellQuote(conversationId)}`,
     `ENTITY_KEY=${shellQuote(opts.entityKey)}`,
     `INGEST=${shellQuote(ingestUrl)}`,
+    `INGEST_TOKEN=${shellQuote(ingestToken)}`,
     "STARTED=$(date +%s)",
     "MAX=7200",
     "",
@@ -217,23 +335,29 @@ async function startSessionReporter(
     "  NOW=$(date +%s)",
     "  [ $((NOW - STARTED)) -ge $MAX ] && break",
     "",
-    '  SESSIONS=$(curl -sf --max-time 8 "$OC/session" 2>/dev/null)',
-    '  if [ -n "$SESSIONS" ]; then',
-    '    STATUS=$(curl -sf --max-time 8 "$OC/session/status" 2>/dev/null || echo "{}")',
-    '    LOGS=$(tail -100 /tmp/opencode.log 2>/dev/null || echo "")',
-    "    # Build the messages map keyed by session id (capped at 25 sessions).",
-    `    IDS=$(printf '%s' "$SESSIONS" | jq -r 'if type=="array" then .[] else .data[] end | .id' 2>/dev/null | head -25)`,
-    '    MSG_OBJ="{}"',
-    "    for SID in $IDS; do",
-    '      MSGS=$(curl -sf --max-time 12 "$OC/session/$SID/message?limit=50" 2>/dev/null || echo "[]")',
-    `      MSG_OBJ=$(printf '%s' "$MSG_OBJ" | jq --arg sid "$SID" --argjson msgs "$(printf '%s' "$MSGS" | jq 'if type=="array" then . else (.data // []) end' 2>/dev/null || echo '[]')" '.[$sid] = $msgs' 2>/dev/null || printf '%s' "$MSG_OBJ")`,
-    "    done",
-    "    # Assemble the sessionData blob and the POST body.",
-    `    SESSIONS_ARR=$(printf '%s' "$SESSIONS" | jq 'if type=="array" then . else (.data // []) end' 2>/dev/null || echo '[]')`,
-    `    SESSION_DATA=$(jq -nc --argjson sessions "$SESSIONS_ARR" --argjson status "$STATUS" --argjson messages "$MSG_OBJ" --arg logs "$LOGS" '{sessions: $sessions, sessionStatus: $status, messages: $messages, logs: $logs}' 2>/dev/null)`,
+    '  HIST=$(curl -sf --max-time 8 "$FLUE$MOUNT/$CONV?view=history" 2>/dev/null)',
+    '  if [ -n "$HIST" ]; then',
+    '    LOGS=$(tail -100 /tmp/flue.log 2>/dev/null || echo "")',
+    "    # Normalize Flue history into the dashboard's {sessions, messages, sessionStatus, logs} blob.",
+    `    SESSION_DATA=$(jq -nc --argjson hist "$HIST" --arg logs "$LOGS" --arg sid "$CONV" '{`,
+    `      sessions: [{id: $sid, title: $sid, agent: "jared"}],`,
+    `      sessionStatus: {($sid): {type: "busy"}},`,
+    "      messages: {($sid): (",
+    `        if $hist | type == "object" then`,
+    "          ($hist.messages // $hist.records // $hist.items // [])",
+    `        elif $hist | type == "array" then $hist`,
+    "        else [] end",
+    "      )},",
+    `      settlements: (if $hist | type == "object" then ($hist.settlements // []) else [] end),`,
+    `      flueHistory: (if $hist | type == "object" then $hist else {messages: $hist, settlements: []} end),`,
+    "      logs: $logs,",
+    "      flue: true",
+    `    }' 2>/dev/null)`,
     '    if [ -n "$SESSION_DATA" ]; then',
     `      BODY=$(jq -nc --arg ek "$ENTITY_KEY" --arg sd "$SESSION_DATA" '{entityKey: $ek, sessionData: $sd}' 2>/dev/null)`,
-    `      [ -n "$BODY" ] && curl -sf --max-time 15 -X POST -H 'Content-Type: application/json' -d "$BODY" "$INGEST" >/dev/null 2>&1 || true`,
+    '      HDR=(-H "Content-Type: application/json")',
+    `      [ -n "$INGEST_TOKEN" ] && HDR+=(-H "${FLUE_INTERNAL_HEADER}: $INGEST_TOKEN")`,
+    `      [ -n "$BODY" ] && curl -sf --max-time 15 -X POST "\${HDR[@]}" -d "$BODY" "$INGEST" >/dev/null 2>&1 || true`,
     "    fi",
     "  fi",
     "  sleep 12",
@@ -241,27 +365,16 @@ async function startSessionReporter(
   ].join("\n")
 
   await sandbox.writeFile("/tmp/session-reporter.sh", reporterScript)
-  // Kill any prior reporter so only one runs at a time, then start fresh.
   await sandbox.exec("pkill -f 'session-reporter.sh' 2>/dev/null; sleep 1", { cwd: "/workspace" })
   await sandbox.startProcess("bash /tmp/session-reporter.sh", { cwd: "/workspace" })
 }
 
 /**
- * Dispatch a prompt to OpenCode inside the sandbox.
+ * Dispatch a prompt to Flue inside the sandbox (Phase 1).
  *
- * This does NOT wait for OpenCode or send the prompt synchronously (that would
- * block the Worker's waitUntil through OpenCode's slow startup). Instead it
- * writes the prompt payload + a small dispatch script to the container and
- * starts that script in the background. The script polls for OpenCode
- * readiness, finds/creates the root session, and sends the prompt with the
- * "${AGENT}" agent — all autonomously inside the container.
- *
- * Verified against OpenCode v1.17.0:
- *   - /session/:id/prompt_async  → 204, ACTUALLY processes (correct endpoint)
- *   - /api/session/:id/prompt    → fallback for v1.17.4+
- *   - Payload MUST be { agent, parts: [...] }; { prompt: { text } } is ignored.
- *   - A plain /session/:id/prompt (no /api/, no _async) does NOT exist on
- *     v1.17.0 — it hits a catch-all returning 200 without processing.
+ * Writes the prompt + a container-side script that polls until Flue is ready,
+ * then POSTs `{ kind: "user", body }` to /agents/jared/:conversationId.
+ * Failures are written to /tmp/flue-dispatch.err so they are visible in debug.
  */
 export async function dispatchPrompt(
   sandbox: ReturnType<typeof getSandbox>,
@@ -269,44 +382,50 @@ export async function dispatchPrompt(
   prompt: string,
   eventId: string,
 ): Promise<void> {
-  // Prompt payload — the "${AGENT}" agent handles every dispatched prompt.
-  const promptPayload = JSON.stringify({ agent: AGENT, parts: [{ type: "text", text: prompt }] })
+  const conversationId = toAgentInstanceId(containerKey)
+  const promptPayload = JSON.stringify({ kind: "user", body: prompt })
   const promptFile = `/tmp/prompt-${eventId}.json`
   await sandbox.writeFile(promptFile, promptPayload)
 
-  // Session title carries the entity key; escape any single quotes for bash.
-  const safeTitle = containerKey.replace(/'/g, "'\\''")
+  const errFile = `/tmp/flue-dispatch-${eventId}.err`
+  const okFile = `/tmp/flue-dispatch-${eventId}.ok`
 
-  // Container-side dispatch script: waits for OpenCode, finds/creates the root
-  // session, and sends the prompt. Runs in the background, decoupled from the
-  // Worker's waitUntil budget.
   const dispatchScript = [
     "#!/bin/bash",
     "set -u",
-    `OC="http://localhost:${OPENCODE_PORT}"`,
+    `FLUE="http://localhost:${FLUE_PORT}"`,
+    `MOUNT="${FLUE_AGENT_MOUNT}"`,
+    `CONV=${shellQuote(conversationId)}`,
     `PROMPT_FILE="${promptFile}"`,
-    `TITLE='${safeTitle}'`,
+    `ERR_FILE="${errFile}"`,
+    `OK_FILE="${okFile}"`,
+    'rm -f "$ERR_FILE" "$OK_FILE"',
     "",
-    "# Wait for OpenCode to be ready (up to 180s).",
+    "# Wait for Flue to be ready (up to 180s).",
+    "READY=0",
     "for i in $(seq 1 180); do",
-    '  curl -sf --max-time 2 "$OC/session" >/dev/null 2>&1 && break',
-    '  curl -sf --max-time 2 "$OC/api/session" >/dev/null 2>&1 && break',
+    '  if curl -sf --max-time 2 "$FLUE/api/ping" >/dev/null 2>&1 || curl -sf --max-time 2 "$FLUE/health" >/dev/null 2>&1; then',
+    "    READY=1",
+    "    break",
+    "  fi",
     "  sleep 1",
     "done",
     "",
-    "# Find the root session (no parentID) or create one.",
-    'LIST=$(curl -sf "$OC/session" 2>/dev/null || curl -sf "$OC/api/session" 2>/dev/null)',
-    `SID=$(printf '%s' "$LIST" | jq -r 'if type=="array" then ((map(select(.parentID==null)) + .)[0].id) else (.data[0].id) end' 2>/dev/null)`,
-    'if [ -z "$SID" ] || [ "$SID" = "null" ]; then',
-    `  CREATED=$(curl -sf -X POST -H 'Content-Type: application/json' -d "{\\"title\\":\\"$TITLE\\"}" "$OC/session" 2>/dev/null || curl -sf -X POST -H 'Content-Type: application/json' -d "{\\"title\\":\\"$TITLE\\"}" "$OC/api/session" 2>/dev/null)`,
-    `  SID=$(printf '%s' "$CREATED" | jq -r '.id // .data.id' 2>/dev/null)`,
+    'if [ "$READY" -ne 1 ]; then',
+    '  echo "flue not ready after 180s" > "$ERR_FILE"',
+    "  exit 1",
     "fi",
-    'echo "$SID" > /tmp/dispatch-session-id',
     "",
-    "# Send the prompt (agent is embedded in the payload). Try async (v1.17.0)",
-    "# first, then /api prompt (v1.17.4+).",
-    'curl -sf -X POST -H "Content-Type: application/json" -d @"$PROMPT_FILE" "$OC/session/$SID/prompt_async" 2>/dev/null \\',
-    '  || curl -sf -X POST -H "Content-Type: application/json" -d @"$PROMPT_FILE" "$OC/api/session/$SID/prompt" 2>/dev/null',
+    'echo "$CONV" > /tmp/dispatch-session-id',
+    "",
+    "# Admit the prompt (202). Flue processes asynchronously.",
+    'HTTP_CODE=$(curl -s -o /tmp/flue-dispatch-body.txt -w "%{http_code}" -X POST \\',
+    '  -H "Content-Type: application/json" -d @"$PROMPT_FILE" "$FLUE$MOUNT/$CONV" || echo "000")',
+    'if [ "$HTTP_CODE" != "202" ] && [ "$HTTP_CODE" != "200" ]; then',
+    '  echo "admit failed http=$HTTP_CODE body=$(cat /tmp/flue-dispatch-body.txt 2>/dev/null)" > "$ERR_FILE"',
+    "  exit 1",
+    "fi",
+    'echo "ok http=$HTTP_CODE" > "$OK_FILE"',
   ].join("\n")
 
   const scriptFile = `/tmp/dispatch-${eventId}.sh`
@@ -316,17 +435,19 @@ export async function dispatchPrompt(
 
 /**
  * Save an initial session record to D1 so the container appears immediately.
+ * Uses the canonical Flue conversation id so later history syncs merge cleanly.
  */
-export async function saveInitialSession(
-  db: DrizzleD1Database<typeof dbSchema>,
-  containerKey: string,
-  sessionId: string,
-): Promise<void> {
+export async function saveInitialSession(db: DrizzleD1Database<typeof dbSchema>, containerKey: string): Promise<void> {
+  const sessionId = toAgentInstanceId(containerKey)
   const initialData = JSON.stringify({
     sessionStatus: { [sessionId]: { type: "busy" } },
-    sessions: [{ id: sessionId, title: containerKey }],
+    sessions: [{ id: sessionId, title: containerKey, agent: AGENT }],
     logs: "",
     messages: {},
+    flue: true,
   })
   await saveSession(db, containerKey, initialData)
 }
+
+/** Re-export for callers that already import from dispatch. */
+export { resolveFlueInternalToken }

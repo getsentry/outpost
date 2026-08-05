@@ -1,25 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "jared",
-  "main": "src/index.ts",
-  "compatibility_date": "2025-12-01",
+  // Leave `main` unset so Flue's vite plugin can set it to `virtual:flue/worker`
+  // (generated entry that registers agents + exports FlueJaredAgent + Sandbox).
+  "compatibility_date": "2026-06-01",
   "compatibility_flags": ["nodejs_compat"],
   "version_metadata": {
     "binding": "CF_VERSION_METADATA"
   },
   "upload_source_maps": true,
-  // "kv_namespaces": [
-  //   {
-  //     "binding": "MY_KV_NAMESPACE",
-  //     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  //   }
-  // ],
-  // "r2_buckets": [
-  //   {
-  //     "binding": "MY_BUCKET",
-  //     "bucket_name": "my-bucket"
-  //   }
-  // ],
   "placement": {
     "mode": "smart"
   },
@@ -30,13 +19,12 @@
       "database_id": "d52c2301-5a23-4bb1-a15b-225725900001"
     }
   ],
-  // "ai": {
-  //   "binding": "AI"
-  // },
   "containers": [
     {
       "class_name": "Sandbox",
-      "image": "./container/Dockerfile",
+      // Phase 1 default (FLUE_NATIVE=0): in-container Flue + Lore.
+      // Flip image to "./container/Dockerfile" when setting FLUE_NATIVE=1.
+      "image": "./container/Dockerfile.phase1",
       "max_instances": 10,
       "instance_type": "standard-3",
       "ssh": {
@@ -66,11 +54,23 @@
     {
       "renamed_classes": [{ "from": "OpenCodeContainer", "to": "Sandbox" }],
       "tag": "v2"
+    },
+    {
+      "new_sqlite_classes": ["FlueJaredAgent"],
+      "tag": "v3-flue-jared"
     }
   ],
+  "triggers": {
+    // Daily at 03:17 UTC: delete webhook_events older than 24 hours
+    // (worst-case age ~48h with a once-daily schedule).
+    // Agent follow-ups remain per-conversation via DO scheduleFollowUp().
+    "crons": ["17 3 * * *"]
+  },
   "observability": {
-    "enabled": true
-    // "head_sampling_rate": 1
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
   },
   "ratelimits": [
     {
@@ -84,6 +84,11 @@
   ],
   "assets": {
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/health", "/openapi.json"]
+    "run_worker_first": ["/api/*", "/agents/*", "/health", "/openapi.json"]
+  },
+  "vars": {
+    // Keep Phase 1 (in-container Flue) as the safe default until Phase 2 is
+    // validated in a real Cloudflare deploy. Flip to "1" for DO-native.
+    "FLUE_NATIVE": "0"
   }
 }

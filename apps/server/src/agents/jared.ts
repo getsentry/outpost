@@ -1,0 +1,84 @@
+"use agent"
+
+import { env } from "cloudflare:workers"
+import { getSandbox } from "@cloudflare/sandbox"
+import { type AgentProps, dispatch, useModel, useSandbox, useSubagent } from "@flue/runtime"
+import { cloudflareSandbox, extend } from "@flue/runtime/cloudflare"
+import * as Sentry from "@sentry/cloudflare"
+import { exploreSubagent } from "./explore.ts"
+import { implementSubagent, workerSubagent } from "./implement.ts"
+import { JARED_INSTRUCTIONS } from "./instructions.ts"
+import { Models } from "./models.ts"
+import { shipSubagent } from "./ship.ts"
+
+interface Env {
+  Sandbox: DurableObjectNamespace
+  SENTRY_DSN?: string
+}
+
+/**
+ * Jared — primary GitHub coding agent (Opus 4.8).
+ *
+ * Owns triage, planning, and go/no-go review. Delegates:
+ *   explore   → Sonnet 4.6 (read-only survey)
+ *   implement → Opus 4.6  (apply plan + tests)
+ *   ship      → xAI Grok  (commit / push / draft PR)
+ *
+ * `id` is the Flue conversation id — the SAME sanitized entity key used when
+ * the Worker clones the repo via getSandbox(Sandbox, id). Do not re-sanitize.
+ */
+export function Jared({ id }: AgentProps) {
+  useModel(Models.triage)
+
+  const { Sandbox } = env as unknown as Env
+  // Match prep options in github/dispatch.ts: normalizeId + 2h sleepAfter.
+  useSandbox(
+    cloudflareSandbox(getSandbox(Sandbox, id, { normalizeId: true, sleepAfter: "2h" }), {
+      cwd: "/workspace/repo",
+    }),
+  )
+
+  useSubagent(exploreSubagent)
+  useSubagent(implementSubagent)
+  useSubagent(shipSubagent)
+  // Migration alias so older prompts that still say `worker` resolve.
+  useSubagent(workerSubagent)
+
+  return JARED_INSTRUCTIONS
+}
+
+Jared.agentName = "jared"
+
+/**
+ * Cloudflare Agents SDK extension:
+ * - schedule()/scheduleEvery() for quiet-period auto-merge and CI follow-ups
+ * - Sentry instrumentation of the generated Durable Object
+ */
+export const cloudflare = extend({
+  base: (Base) =>
+    class extends Base {
+      /** One-shot follow-up (e.g. auto-merge quiet period). */
+      async scheduleFollowUp(delaySeconds: number, prompt: string) {
+        await this.schedule(delaySeconds, "runFollowUp", { prompt })
+      }
+
+      async runFollowUp(payload: { prompt: string }) {
+        await dispatch(Jared, {
+          id: this.name,
+          message: {
+            kind: "signal",
+            type: "schedule",
+            body: payload.prompt,
+            attributes: { scheduledAt: new Date().toISOString() },
+          },
+        })
+      }
+    },
+  wrap: (Final) =>
+    Sentry.instrumentDurableObjectWithSentry(
+      (bindings: Env) => ({
+        dsn: bindings.SENTRY_DSN,
+      }),
+      Final,
+    ),
+})

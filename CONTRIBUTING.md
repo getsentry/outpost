@@ -27,10 +27,12 @@
 ## Project layout
 
 - `apps/server/` — the main Cloudflare Worker + React dashboard
-- `apps/server/container/` — the Docker image for agent containers
+- `apps/server/src/agents/` — Flue `'use agent'` modules (Jared + subagents)
+- `apps/server/container/` — thin Sandbox image (Phase 2) + Phase 1 Flue app
 - `apps/server/src/routes/` — API route handlers
 - `apps/server/src/client/` — React SPA (dashboard UI)
 - `apps/server/src/lib/` — shared business logic
+- `docs/` — Flue migration notes (`FLUE_PARITY.md`, `LORE_GATEWAY.md`)
 - `packages/` — shared packages (utils, validations)
 
 ## Code style
