@@ -10,8 +10,12 @@
 #
 # For the Phase 1 in-container Flue harness image, see Dockerfile.phase1.
 # linux/amd64 only (Cloudflare Containers requirement).
+#
+# IMPORTANT: this tag MUST match the @cloudflare/sandbox SDK version the Worker
+# runs (see apps/server/package.json). A client/server protocol mismatch makes
+# every sandbox.exec() hang.
 
-FROM docker.io/cloudflare/sandbox:0.7.0
+FROM docker.io/cloudflare/sandbox:0.12.0
 
 # --- System packages + GitHub CLI ---
 RUN apt-get update \
