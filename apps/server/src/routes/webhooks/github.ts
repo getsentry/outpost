@@ -117,7 +117,14 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
       hasLabel = Array.isArray(labels) && labels.some((l) => l.name === TRIGGER_LABEL)
     }
   }
-  const isSkipped = !(hasLabel || isBotEntity)
+  // Self-triggered events (the bot reacting to its own comments/reviews/pushes)
+  // are never actionable — the in-container router (jared.md skip condition #1)
+  // already discards them. Skip here too so we don't wake a container just to
+  // have it skip. Exception: CI events on the bot's own commits ARE actionable
+  // (fix-ci / mark-pr-ready), matching that same router exception.
+  const isSelfTriggered = !!botLogin && sender === botLogin && event !== "check_suite" && event !== "workflow_run"
+
+  const isSkipped = isSelfTriggered || !(hasLabel || isBotEntity)
 
   const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
   const eventId = crypto.randomUUID()
