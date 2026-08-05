@@ -80,12 +80,24 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     /* best effort — may conflict with an existing row */
   }
 
+  // Diagnostic progress markers persisted to D1 so we can see how far the
+  // background dispatch gets before any Worker eviction (Cloudflare kills the
+  // waitUntil task without running our catch). Read back from webhook_events.status.
+  const mark = async (status: string): Promise<void> => {
+    try {
+      await db.update(dbSchema.webhookEvents).set({ status }).where(eq(dbSchema.webhookEvents.id, eventId))
+    } catch {
+      /* best effort */
+    }
+  }
+
   try {
     logger.info({ entity_key: containerKey, event_id: eventId, flue_native: flueNative }, "dispatch.start")
 
     const sandboxId = toAgentInstanceId(containerKey)
     const sandbox = getSandbox(env.Sandbox, sandboxId, { normalizeId: true, sleepAfter: "2h" })
 
+    await mark("d:boot")
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.start")
     const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
     await ensureSandboxReady(sandbox, {
@@ -102,6 +114,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       loreGatewayUrl: env.LORE_GATEWAY_URL,
       flueInternalToken: (await resolveFlueInternalToken(env)) ?? undefined,
     })
+    await mark("d:setup_done")
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.done")
 
     const prompt = formatEventPrompt({
@@ -117,6 +130,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
 
     logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.start")
 
+    await mark("d:prompt")
     if (flueNative) {
       // Phase 2: admit into the Flue Durable Object (agent attaches the sandbox itself).
       await dispatchToFlueAgent(env, { entityKey: containerKey, prompt, logger })
@@ -137,7 +151,13 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     logger.error({ entity_key: containerKey, event_id: eventId, reason: formatError(err) }, "dispatch failed")
     Sentry.captureException(err)
     try {
-      await db.update(dbSchema.webhookEvents).set({ status: "failed" }).where(eq(dbSchema.webhookEvents.id, eventId))
+      // Persist a short error snippet into status so failures are visible in D1
+      // even if Sentry capture is not wired for this Worker.
+      const snippet = formatError(err).slice(0, 180).replace(/\s+/g, " ")
+      await db
+        .update(dbSchema.webhookEvents)
+        .set({ status: `failed:${snippet}` })
+        .where(eq(dbSchema.webhookEvents.id, eventId))
     } catch {
       /* best effort */
     }
