@@ -24,6 +24,7 @@ import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
 import { deriveOverallStatus, saveSession, summarizeSession } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
 import { isAuthenticated } from "@/middlewares"
+import { requireUserOrInternalToken } from "@/middlewares/flue-auth"
 import type { BaseEnv } from "@/types"
 
 /**
@@ -162,6 +163,54 @@ const router = new Hono<BaseEnv>()
 
     await saveSession(db, body.entityKey, body.sessionData)
     return c.json({ ok: true })
+  })
+
+  // --- Maintenance routes: allow a logged-in user OR the Worker-internal token ---
+  // These are placed before the blanket isAuthenticated() so operators/automation
+  // can recycle a wedged container and inspect it without a browser session.
+  //
+  // Recycle: force-destroy a container so the next dispatch spawns a fresh one
+  // (e.g. after a base-image bump — a deploy does not replace already-running
+  // container instances). Keeps the D1 row unless ?purge=1.
+  .post("/:entityKey/recycle", requireUserOrInternalToken, async (c) => {
+    const entityKey = decodeURIComponent(c.req.param("entityKey"))
+    const purge = c.req.query("purge") === "1"
+    const db = c.get("db")
+    let destroyed = true
+    try {
+      const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
+      await sandbox.destroy()
+    } catch {
+      destroyed = false
+    }
+    if (purge) {
+      try {
+        await db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey))
+      } catch {
+        /* best effort */
+      }
+    }
+    return c.json({ ok: true, entityKey, destroyed, purged: purge })
+  })
+
+  // Inspect: run a FIXED read-only diagnostic inside the container (process list
+  // + key log tails + flue ping) so we can see why a container is wedged without
+  // SSH. No arbitrary command input — keeps the internal-token surface minimal.
+  .get("/:entityKey/inspect", requireUserOrInternalToken, async (c) => {
+    const entityKey = decodeURIComponent(c.req.param("entityKey"))
+    const cmd =
+      "echo '== ps =='; ps aux 2>/dev/null | grep -v '\\[' | tail -30; " +
+      "echo '== flue.log =='; tail -40 /tmp/flue.log 2>/dev/null; " +
+      "echo '== bootstrap.log =='; tail -40 /tmp/flue-bootstrap.log 2>/dev/null; " +
+      "echo '== lore.log =='; tail -20 /tmp/lore.log 2>/dev/null; " +
+      "echo '== ping =='; curl -sf --max-time 5 http://localhost:4096/api/ping 2>&1 || echo 'flue ping failed'"
+    try {
+      const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
+      const result = await sandbox.exec(cmd, { cwd: "/workspace" })
+      return c.json({ ok: true, entityKey, success: result.success, stdout: result.stdout, stderr: result.stderr })
+    } catch (err) {
+      return c.json({ ok: false, entityKey, error: formatError(err) }, 500)
+    }
   })
 
   // --- All routes below require authentication ---
