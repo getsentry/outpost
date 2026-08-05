@@ -289,11 +289,9 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
         const { toAgentInstanceId } = await import("@/lib/containers/ids")
         const { createGitHubApp } = await import("@/lib/github/app")
         const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
+        const { SANDBOX_OPTS } = await import("@/lib/containers/sandbox-opts")
         const sandboxId = toAgentInstanceId(containerKey)
-        const sandbox = getSandbox(envBindings.Sandbox, sandboxId, {
-          normalizeId: true,
-          sleepAfter: "2h",
-        })
+        const sandbox = getSandbox(envBindings.Sandbox, sandboxId, SANDBOX_OPTS)
 
         // Mint a GitHub App installation token for the guessed repo so git/gh work.
         let installationToken = ""

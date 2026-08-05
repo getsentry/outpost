@@ -14,6 +14,7 @@ import * as dbSchema from "@/db/schema"
 import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
 import { dispatchToFlueAgent } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
+import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
 import { createGitHubApp } from "@/lib/github/app"
 import { classifyModelTier } from "@/lib/github/model-tier"
 import { formatEventPrompt } from "@/lib/github/prompt"
@@ -96,7 +97,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     logger.info({ entity_key: containerKey, event_id: eventId, flue_native: flueNative }, "dispatch.start")
 
     const sandboxId = toAgentInstanceId(containerKey)
-    const sandbox = getSandbox(env.Sandbox, sandboxId, { normalizeId: true, sleepAfter: "2h" })
+    const sandbox = getSandbox(env.Sandbox, sandboxId, SANDBOX_OPTS)
 
     await mark("d:boot")
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.start")

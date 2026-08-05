@@ -33,9 +33,12 @@ export function Jared({ id }: AgentProps) {
   useModel(modelForDelivery(useDelivery()))
 
   const { Sandbox } = env as unknown as Env
-  // Match prep options in github/dispatch.ts: normalizeId + 2h sleepAfter.
+  // Match prep options in github/dispatch.ts (normalizeId + short idle teardown).
+  // The container is disposable: it tears down ~10m after the last exec, and this
+  // conversation (the durable brain) persists in the DO, so the next event resumes
+  // context and re-clones the repo into a fresh sandbox.
   useSandbox(
-    cloudflareSandbox(getSandbox(Sandbox, id, { normalizeId: true, sleepAfter: "2h" }), {
+    cloudflareSandbox(getSandbox(Sandbox, id, { normalizeId: true, sleepAfter: "10m" }), {
       cwd: "/workspace/repo",
     }),
   )
