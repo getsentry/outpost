@@ -2,13 +2,13 @@
 
 import { env } from "cloudflare:workers"
 import { getSandbox } from "@cloudflare/sandbox"
-import { type AgentProps, dispatch, useModel, useSandbox, useSubagent } from "@flue/runtime"
+import { type AgentProps, dispatch, useDelivery, useModel, useSandbox, useSubagent } from "@flue/runtime"
 import { cloudflareSandbox, extend } from "@flue/runtime/cloudflare"
 import * as Sentry from "@sentry/cloudflare"
 import { exploreSubagent } from "./explore.ts"
 import { implementSubagent, workerSubagent } from "./implement.ts"
 import { JARED_INSTRUCTIONS } from "./instructions.ts"
-import { Models } from "./models.ts"
+import { modelForDelivery } from "./models.ts"
 import { shipSubagent } from "./ship.ts"
 
 interface Env {
@@ -17,18 +17,20 @@ interface Env {
 }
 
 /**
- * Jared — primary GitHub coding agent (Opus 4.8).
+ * Jared — primary GitHub coding agent.
  *
- * Owns triage, planning, and go/no-go review. Delegates:
- *   explore   → Sonnet 4.6 (read-only survey)
- *   implement → Opus 4.6  (apply plan + tests)
- *   ship      → xAI Grok  (commit / push / draft PR)
+ * Owns triage, planning, and go/no-go review. The primary model is chosen per
+ * event: heavy (Opus) for code-producing situations, a cheaper model (grok) for
+ * lightweight ones (comment replies, approvals). Delegates:
+ *   explore   → gpt-5-mini      (read-only survey)
+ *   implement → kimi-k2.7-code  (apply plan + tests)
+ *   ship      → xAI grok-build  (commit / push / draft PR)
  *
  * `id` is the Flue conversation id — the SAME sanitized entity key used when
  * the Worker clones the repo via getSandbox(Sandbox, id). Do not re-sanitize.
  */
 export function Jared({ id }: AgentProps) {
-  useModel(Models.triage)
+  useModel(modelForDelivery(useDelivery()))
 
   const { Sandbox } = env as unknown as Env
   // Match prep options in github/dispatch.ts: normalizeId + 2h sleepAfter.

@@ -79,19 +79,22 @@ then load the situation skill for the task at hand.
 2. **Then the situation skill**: \`resolve-issue\`, \`review-pr\`, \`fix-ci\`, or \`respond-to-comment\`
 3. **Utility skills** as needed: \`deslop\`, \`review\`, \`pr\`, \`mark-pr-ready\`, \`apply-fixes\`, \`auto-merge\`
 
-### Model tiering — spend Opus 4.8 on judgment only
+### Model tiering — spend the premium model on judgment only
 
-You run on **Claude Opus 4.8**. Three cheaper subagents are available via the
-\`task\` tool. Use them aggressively once triage and the plan are done.
+Your own model is chosen per event: a premium reasoning model (Opus) for
+situations that produce code, and a cheaper balanced model for lightweight ones
+(comment replies, approvals). You do not control this — just do the work well on
+whatever model you're on. Three cheaper subagents are available via the \`task\`
+tool. Use them aggressively once triage and the plan are done.
 
 | Stage | Who | Model | Owns |
 | --- | --- | --- | --- |
-| Triage / route / scope | **you** | Opus 4.8 | Skip conditions, skill choice, problem framing |
-| Survey | \`explore\` | Sonnet 4.6 | Read-only codebase brief |
-| Plan | **you** | Opus 4.8 | Root-cause, file-by-file implementation plan |
-| Implement | \`implement\` | Opus 4.6 | Apply the plan as edits, run tests/lint |
-| Review | **you** | Opus 4.8 | Go/no-go on the diff; retry or re-plan |
-| Ship | \`ship\` | xAI Grok | Commit, push, open/update draft PR from your facts |
+| Triage / route / scope | **you** | Opus / grok | Skip conditions, skill choice, problem framing |
+| Survey | \`explore\` | gpt-5-mini | Read-only codebase brief |
+| Plan | **you** | Opus / grok | Root-cause, file-by-file implementation plan |
+| Implement | \`implement\` | kimi-k2.7-code | Apply the plan as edits, run tests/lint |
+| Review | **you** | Opus / grok | Go/no-go on the diff; retry or re-plan |
+| Ship | \`ship\` | xAI grok-build | Commit, push, open/update draft PR from your facts |
 
 **You (Opus 4.8) own — never delegate these:**
 - Routing/triage, reading the issue, and deciding scope.
@@ -99,17 +102,17 @@ You run on **Claude Opus 4.8**. Three cheaper subagents are available via the
   \`implement\` does not need to invent design).
 - The retry/loop decision and the final correctness review (go/no-go).
 
-**Delegate to \`explore\` (Sonnet 4.6, read-only):**
+**Delegate to \`explore\` (cheap reader, read-only):**
 - Surveying repo conventions, coding style, test/lint setup, utilities.
 - Searching the codebase; reading large diffs and summarizing them.
 - Returns a concise brief; cannot edit files.
 
-**Delegate to \`implement\` (Opus 4.6, can edit + bash):**
+**Delegate to \`implement\` (dedicated coding model, can edit + bash):**
 - Applying a **precisely specified** plan as first-pass edits.
 - Running tests / lint / build and summarizing failures.
 - Narrow CI fixes when you specify the exact change.
 
-**Delegate to \`ship\` (xAI Grok, git/gh only):**
+**Delegate to \`ship\` (xAI grok-build, git/gh only):**
 - Staging, committing with the message you supply, pushing the branch.
 - Opening or updating a draft PR with the title/body you supply.
 - Reporting commit SHA + PR URL. No design or implementation work.

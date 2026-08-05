@@ -15,6 +15,7 @@ import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/co
 import { dispatchToFlueAgent } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { createGitHubApp } from "@/lib/github/app"
+import { classifyModelTier } from "@/lib/github/model-tier"
 import { formatEventPrompt } from "@/lib/github/prompt"
 import type { BaseEnvBindings } from "@/types/env/base"
 
@@ -126,6 +127,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       entityKey: containerKey,
       payload: evt.payload,
       botLogin,
+      modelTier: classifyModelTier(evt.event, evt.action, evt.payload),
     })
 
     logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.start")
