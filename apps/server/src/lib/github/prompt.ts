@@ -59,10 +59,19 @@ export function formatEventPrompt(opts: {
   entityKey: string
   payload: string
   botLogin: string
+  /**
+   * Primary model tier for this event. Emitted as a hidden marker the agent
+   * reads (see `modelForDelivery`) to pick its model. Omit to leave it heavy.
+   */
+  modelTier?: "light" | "heavy"
 }): string {
   const eventLabel = opts.action ? `${opts.event}.${opts.action}` : opts.event
 
-  return `New webhook event: ${eventLabel}
+  // Hidden, machine-readable hint for per-event model selection. An HTML comment
+  // keeps it invisible to humans reading the conversation and ignored by the agent.
+  const tierMarker = opts.modelTier ? `\n<!-- jared:model-tier=${opts.modelTier} -->` : ""
+
+  return `New webhook event: ${eventLabel}${tierMarker}
 
 Bot identity: ${opts.botLogin}
 Repository: ${opts.repo ?? "unknown"}

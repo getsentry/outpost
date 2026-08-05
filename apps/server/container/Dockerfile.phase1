@@ -49,7 +49,11 @@ RUN pnpm build
 
 # Lore is optional at image-build time: install failures are recorded and the
 # runtime health probe in ensureSandboxReady decides whether to route traffic.
+# The installer drops the binary in ~/.local/bin, which is NOT on PATH for the
+# sandbox's non-login `bash --norc` shells — so symlink it onto PATH, otherwise
+# the bootstrap's `command -v lore` check fails and Lore never starts.
 RUN curl -fsSL https://withlore.ai/install | bash \
+ && ln -sf "$HOME/.local/bin/lore" /usr/local/bin/lore \
  || echo "WARNING: lore install failed — Phase 1 will run without Lore gateway" >&2
 
 COPY .agents/skills/ /root/.agents/skills/

@@ -1,19 +1,22 @@
 "use agent"
 
-import { useModel, useSandbox, useSubagent } from "@flue/runtime"
+import { useDelivery, useModel, useSandbox, useSubagent } from "@flue/runtime"
 import { local } from "@flue/runtime/node"
 import { exploreSubagent } from "./explore.ts"
 import { implementSubagent, workerSubagent } from "./implement.ts"
 import { JARED_INSTRUCTIONS } from "./instructions.ts"
-import { Models } from "./models.ts"
+import { modelForDelivery } from "./models.ts"
 import { shipSubagent } from "./ship.ts"
 
 /**
- * Phase 1: Jared (Opus 4.8) inside the Cloudflare Sandbox via Flue Node + local().
+ * Phase 1: Jared inside the Cloudflare Sandbox via Flue Node + local().
  * Same tiered subagents as the Cloudflare Durable Object build.
+ *
+ * The primary model is chosen per event: heavy (Opus) for situations that
+ * produce code, a cheaper model for lightweight situations. Defaults to heavy.
  */
 export function Jared() {
-  useModel(Models.triage)
+  useModel(modelForDelivery(useDelivery()))
 
   useSandbox(
     local({

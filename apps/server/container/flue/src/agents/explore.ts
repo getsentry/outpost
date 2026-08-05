@@ -25,11 +25,11 @@ Rules:
 - Don't make design decisions or recommend scope — just report what exists.`
 }
 
-/** Sonnet — cheap read-only survey. */
+/** Cheap reader (gpt-5-mini) — read-only survey. */
 export const exploreSubagent = defineSubagent({
   name: "explore",
   description:
-    "Read-only codebase explorer (Sonnet). Surveys conventions, finds code paths, summarizes diffs. Cannot edit files. Use before planning when you need a brief of the relevant area.",
+    "Read-only codebase explorer (cheap reader). Surveys conventions, finds code paths, summarizes diffs. Cannot edit files. Use before planning when you need a brief of the relevant area.",
   agent: ExploreAgent,
   model: Models.explore,
 })

@@ -26,13 +26,13 @@ Rules:
 }
 
 /**
- * Opus 4.6 — solid coding capacity at lower cost than Opus 4.8.
- * Used only after Jared has produced a precise implementation plan.
+ * Dedicated coding model (kimi-k2.7-code) — strong code editing at a fraction
+ * of Opus cost. Used only after Jared has produced a precise implementation plan.
  */
 export const implementSubagent = defineSubagent({
   name: "implement",
   description:
-    "Implementation subagent (Opus 4.6). Applies a precisely specified plan as code edits, runs tests/lint, reports results. Does not redesign or ship. Call after triage/planning is done.",
+    "Implementation subagent (dedicated coding model). Applies a precisely specified plan as code edits, runs tests/lint, reports results. Does not redesign or ship. Call after triage/planning is done.",
   agent: ImplementAgent,
   model: Models.implement,
 })
@@ -44,7 +44,7 @@ export const implementSubagent = defineSubagent({
 export const workerSubagent = defineSubagent({
   name: "worker",
   description:
-    "Alias of `implement` (Opus 4.6). Prefer delegating to `implement`. Mechanical plan application and test runs only.",
+    "Alias of `implement`. Prefer delegating to `implement`. Mechanical plan application and test runs only.",
   agent: ImplementAgent,
   model: Models.implement,
 })
