@@ -11,6 +11,11 @@
 
 import { deleteExpiredWebhookEvents } from "./lib/events/retention.ts"
 
+// ContainerProxy is a WorkerEntrypoint the Sandbox DO reaches via
+// `ctx.exports.ContainerProxy` to build outbound-interception fetchers (see
+// JaredSandbox.outboundByHost). It MUST be a top-level Worker export or the
+// container fails to start with "ctx.exports.ContainerProxy is undefined".
+export { ContainerProxy } from "@cloudflare/sandbox"
 export { Sandbox } from "./lib/containers/sandbox.ts"
 
 export default {
