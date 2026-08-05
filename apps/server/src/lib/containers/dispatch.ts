@@ -134,52 +134,118 @@ export async function ensureSandboxReady(
     return
   }
 
-  // Kill any stale harness processes (leftover from a previous run/deploy).
-  await sandbox.exec(
-    "pkill -f 'dist/server.mjs' 2>/dev/null; pkill -f 'lore run' 2>/dev/null; pkill -f 'opencode serve' 2>/dev/null; sleep 1",
-    { cwd: "/workspace" },
-  )
-
-  await ensureRepoCloned(sandbox, opts)
+  // Cold start. CRITICAL: the Worker only writes files and kicks off ONE detached
+  // bootstrap script, then returns. All the slow work (container cold-start,
+  // `git clone`, Lore probe, starting Flue) happens container-side so the Worker
+  // `waitUntil` budget can never evict us mid-setup and leave Flue unstarted.
   await writeEnvFile(sandbox, opts)
-  await applyGitHubAuth(sandbox, opts)
-  await ensureWorkspaceSkills(sandbox)
+  await sandbox.writeFile("/tmp/flue-bootstrap.sh", buildPhase1BootstrapScript(opts))
+  await sandbox.startProcess("bash /tmp/flue-bootstrap.sh", { cwd: "/workspace" })
 
-  // Start Lore gateway (Phase 1 in-container). Only route model traffic through
-  // it when the process is actually healthy — otherwise leave provider defaults.
-  const loreCmd =
-    `bash -c '[ -f /tmp/flue-env.sh ] && . /tmp/flue-env.sh; ` +
-    "if command -v lore >/dev/null 2>&1; then lore run --port 3207 >> /tmp/lore.log 2>&1; " +
-    `else echo "lore binary missing" >> /tmp/lore.log; fi'`
-  await sandbox.startProcess(loreCmd, { cwd: "/workspace/repo" })
-  await maybeEnableLoreBaseUrls(sandbox)
-
-  // Start Flue Node server (non-blocking — dispatch script polls for readiness).
-  const startCmd =
-    `bash -c '[ -f /tmp/flue-env.sh ] && . /tmp/flue-env.sh; ` +
-    `export PORT=${FLUE_PORT}; ` +
-    `cd /opt/flue && node dist/server.mjs >> /tmp/flue.log 2>&1'`
-  await sandbox.startProcess(startCmd, { cwd: "/workspace/repo" })
-
-  // Keepalive so the sandbox does not sleep while Flue works (max 2h).
-  const keepaliveScript = [
-    "#!/bin/bash",
-    "STARTED=$(date +%s)",
-    "MAX=7200",
-    "while true; do",
-    "  sleep 30",
-    "  NOW=$(date +%s)",
-    "  [ $((NOW - STARTED)) -ge $MAX ] && break",
-    "done",
-  ].join("\n")
-  await sandbox.writeFile("/tmp/keepalive.sh", keepaliveScript)
-  await sandbox.startProcess("bash /tmp/keepalive.sh", { cwd: "/workspace" })
-
+  // The reporter mints its own entity-scoped token, so keep it Worker-side; it is
+  // fast (writeFile + startProcess) and safe to run before the bootstrap finishes
+  // — it simply polls until Flue answers.
   await startSessionReporter(sandbox, {
     entityKey: opts.entityKey,
     appUrl: opts.appUrl,
     flueInternalToken: opts.flueInternalToken,
   })
+}
+
+/**
+ * Build the Phase 1 cold-start bootstrap. Runs entirely inside the container as a
+ * single detached process so the Worker never blocks on `git clone`/cold-start.
+ *
+ * Steps: kill stale harnesses → clone repo → git identity + GH auth → copy
+ * skills → start Lore (and enable provider base URLs only if healthy) → start
+ * Flue → keepalive. The separate dispatch script (see dispatchPrompt) waits up
+ * to 180s for Flue readiness before admitting the prompt, so ordering here only
+ * needs to be internally consistent, not synchronized with the Worker.
+ */
+export function buildPhase1BootstrapScript(opts: SandboxSetupOpts): string {
+  const repo = opts.repo ?? ""
+  const token = opts.installationToken ?? ""
+  const cloneUrl = token ? `https://x-access-token:${token}@github.com/${repo}.git` : `https://github.com/${repo}.git`
+  const remoteUrl = cloneUrl
+  const botLogin = opts.botLogin ?? ""
+  const botEmail = botLogin ? `${botLogin}@users.noreply.github.com` : ""
+
+  return [
+    "#!/bin/bash",
+    "set -u",
+    `REPO=${shellQuote(repo)}`,
+    `TOKEN=${shellQuote(token)}`,
+    `CLONE_URL=${shellQuote(cloneUrl)}`,
+    `REMOTE_URL=${shellQuote(remoteUrl)}`,
+    `BOT_LOGIN=${shellQuote(botLogin)}`,
+    `BOT_EMAIL=${shellQuote(botEmail)}`,
+    `FLUE_PORT=${FLUE_PORT}`,
+    "",
+    "# Kill any stale harness processes (leftover from a previous run/deploy).",
+    "pkill -f 'dist/server.mjs' 2>/dev/null; pkill -f 'lore run' 2>/dev/null; pkill -f 'opencode serve' 2>/dev/null",
+    "sleep 1",
+    "",
+    "# Clone the repo (temp dir + atomic rename so a partial clone never blocks",
+    "# the next attempt). mv into a non-existent dest to avoid nesting.",
+    'if [ -n "$REPO" ] && [ ! -d /workspace/repo/.git ]; then',
+    "  rm -rf /workspace/repo /workspace/repo-tmp",
+    "  mkdir -p /workspace",
+    '  if git clone --depth 50 "$CLONE_URL" /workspace/repo-tmp; then',
+    "    mv /workspace/repo-tmp /workspace/repo",
+    "  else",
+    '    echo "git clone failed" >> /tmp/flue-bootstrap.log',
+    "    rm -rf /workspace/repo-tmp",
+    "  fi",
+    "fi",
+    "",
+    "# Git identity for the bot.",
+    'if [ -n "$BOT_LOGIN" ] && [ -d /workspace/repo/.git ]; then',
+    '  git -C /workspace/repo config user.name "$BOT_LOGIN"',
+    '  git -C /workspace/repo config user.email "$BOT_EMAIL"',
+    "fi",
+    "",
+    "# GitHub auth: gh CLI + authenticated remote + GH_TOKEN in the Flue env.",
+    'if [ -n "$TOKEN" ]; then',
+    '  echo "$TOKEN" | gh auth login --with-token 2>/dev/null || true',
+    '  [ -d /workspace/repo/.git ] && git -C /workspace/repo remote set-url origin "$REMOTE_URL" 2>/dev/null || true',
+    "  touch /tmp/flue-env.sh",
+    "  grep -v '^export GH_TOKEN=' /tmp/flue-env.sh > /tmp/flue-env.sh.tmp 2>/dev/null || true",
+    "  mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh 2>/dev/null || true",
+    "  echo \"export GH_TOKEN='$TOKEN'\" >> /tmp/flue-env.sh",
+    "fi",
+    "",
+    "# Copy workspace skills into the clone (source of truth lives outside it).",
+    "mkdir -p /workspace/repo/.agents",
+    "[ -d /root/.agents/skills ] && cp -R /root/.agents/skills /workspace/repo/.agents/ 2>/dev/null || true",
+    "[ -f /root/AGENTS.md ] && cp /root/AGENTS.md /workspace/repo/AGENTS.md 2>/dev/null || true",
+    "[ -d /opt/flue/.agents/skills ] && cp -R /opt/flue/.agents/skills /workspace/repo/.agents/ 2>/dev/null || true",
+    "[ -f /opt/flue/AGENTS.md ] && cp /opt/flue/AGENTS.md /workspace/repo/AGENTS.md 2>/dev/null || true",
+    "",
+    "# Start Lore gateway; only route provider traffic through it once healthy.",
+    "if command -v lore >/dev/null 2>&1; then",
+    "  ( [ -f /tmp/flue-env.sh ] && . /tmp/flue-env.sh; lore run --port 3207 >> /tmp/lore.log 2>&1 ) &",
+    "  for i in $(seq 1 10); do",
+    "    if curl -sf --max-time 2 http://127.0.0.1:3207/health >/dev/null 2>&1; then",
+    "      grep -v '^export OPENAI_BASE_URL=' /tmp/flue-env.sh | grep -v '^export ANTHROPIC_BASE_URL=' > /tmp/flue-env.sh.tmp 2>/dev/null || true",
+    "      mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh 2>/dev/null || true",
+    `      echo "export OPENAI_BASE_URL='http://127.0.0.1:3207/v1'" >> /tmp/flue-env.sh`,
+    `      echo "export ANTHROPIC_BASE_URL='http://127.0.0.1:3207'" >> /tmp/flue-env.sh`,
+    "      break",
+    "    fi",
+    "    sleep 1",
+    "  done",
+    "else",
+    '  echo "lore binary missing" >> /tmp/lore.log',
+    "fi",
+    "",
+    "# Start the Flue Node server (background; dispatch script polls readiness).",
+    "( [ -f /tmp/flue-env.sh ] && . /tmp/flue-env.sh; export PORT=$FLUE_PORT; cd /opt/flue && node dist/server.mjs >> /tmp/flue.log 2>&1 ) &",
+    "",
+    "# Keepalive so the sandbox does not sleep while Flue works (max 2h).",
+    "( STARTED=$(date +%s); MAX=7200; while true; do sleep 30; NOW=$(date +%s); [ $((NOW - STARTED)) -ge $MAX ] && break; done ) &",
+    "",
+    "exit 0",
+  ].join("\n")
 }
 
 async function ensureRepoCloned(sandbox: ReturnType<typeof getSandbox>, opts: SandboxSetupOpts): Promise<void> {
@@ -242,34 +308,6 @@ async function writeEnvFile(sandbox: ReturnType<typeof getSandbox>, opts: Sandbo
   }
 
   await sandbox.writeFile("/tmp/flue-env.sh", `${envLines.join("\n")}\n`)
-}
-
-/**
- * Probe in-container Lore and only then point provider base URLs at it.
- * Avoids hard-failing model calls when `lore` failed to install/start.
- */
-async function maybeEnableLoreBaseUrls(sandbox: ReturnType<typeof getSandbox>): Promise<void> {
-  // Give Lore a brief window to bind its port.
-  for (let i = 0; i < 10; i++) {
-    const probe = await sandbox.exec("curl -sf --max-time 2 http://127.0.0.1:3207/health >/dev/null 2>&1", {
-      cwd: "/workspace",
-    })
-    if (probe.success) {
-      await sandbox.exec(
-        "touch /tmp/flue-env.sh; " +
-          "grep -v '^export OPENAI_BASE_URL=' /tmp/flue-env.sh | grep -v '^export ANTHROPIC_BASE_URL=' > /tmp/flue-env.sh.tmp; " +
-          "mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh; " +
-          `echo "export OPENAI_BASE_URL=${shellQuote("http://127.0.0.1:3207/v1")}" >> /tmp/flue-env.sh; ` +
-          `echo "export ANTHROPIC_BASE_URL=${shellQuote("http://127.0.0.1:3207")}" >> /tmp/flue-env.sh`,
-        { cwd: "/workspace" },
-      )
-      return
-    }
-    await sandbox.exec("sleep 1", { cwd: "/workspace" })
-  }
-  await sandbox.exec('echo "lore health probe failed — leaving provider base URLs unset" >> /tmp/lore.log', {
-    cwd: "/workspace",
-  })
 }
 
 /**
