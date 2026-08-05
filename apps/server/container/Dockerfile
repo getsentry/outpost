@@ -34,12 +34,15 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # --- Node.js 22 + pnpm ---
+# Keep pnpm pinned to the repo's packageManager version. pnpm 11 makes ignored
+# dependency build scripts a hard install error, so `pnpm@latest` breaks the
+# image build whenever upstream ships a new major.
 ENV N_PREFIX=/usr/local
 RUN npm install -g n \
  && n 22 \
  && hash -r \
  && corepack enable \
- && corepack prepare pnpm@latest --activate \
+ && corepack prepare pnpm@10.15.0 --activate \
  && node --version && pnpm --version
 
 # Empty parent for the Worker-managed clone target. Do not create
