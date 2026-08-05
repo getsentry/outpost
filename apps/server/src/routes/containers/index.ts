@@ -209,7 +209,14 @@ const router = new Hono<BaseEnv>()
       const result = await sandbox.exec(cmd, { cwd: "/workspace" })
       return c.json({ ok: true, entityKey, success: result.success, stdout: result.stdout, stderr: result.stderr })
     } catch (err) {
-      return c.json({ ok: false, entityKey, error: formatError(err) }, 500)
+      // Surface the SDK's structured startup error (context.error holds the real
+      // reason, e.g. "container exited with unexpected exit code" vs "not
+      // listening") — the top-level message is a generic "Container is starting".
+      const detail =
+        err && typeof err === "object" && "toJSON" in err && typeof (err as { toJSON: unknown }).toJSON === "function"
+          ? (err as { toJSON: () => unknown }).toJSON()
+          : undefined
+      return c.json({ ok: false, entityKey, error: formatError(err), detail }, 500)
     }
   })
 
