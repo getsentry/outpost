@@ -160,10 +160,10 @@ export const api = {
     return res.json() as Promise<SessionDetailResponse>
   },
 
-  async clearSessions() {
-    const res = await fetch("/api/containers/sessions", { method: "DELETE" })
+  async clearSessions(mode: "all" | "idle" = "all") {
+    const res = await fetch(`/api/containers/sessions?mode=${mode}`, { method: "DELETE" })
     if (!res.ok) throw new Error(`Failed to clear sessions: ${res.status}`)
-    return res.json()
+    return res.json() as Promise<{ ok: true; mode: string; deleted: number; destroyed: number }>
   },
 
   async deleteSession(entityKey: string) {

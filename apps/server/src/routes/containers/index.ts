@@ -4,6 +4,7 @@
 //   POST /sessions         — unauthenticated, called from inside containers (Phase 1)
 //   GET  /sessions         — authenticated, paginated list of agent sessions
 //   GET  /sessions/detail  — authenticated, single session detail (syncs Flue DO or container)
+//   DELETE /sessions       — authenticated, destroy sandboxes + clear D1 (or idle-only)
 //   GET  /:entityKey/debug — authenticated, live container inspection + D1 sync
 //   POST /:entityKey/exec  — authenticated, execute command inside container
 //   POST /:entityKey/destroy — authenticated, force-destroy a container
@@ -20,7 +21,7 @@ import { applyGitHubAuth, FLUE_AGENT_MOUNT, FLUE_PORT, OPENCODE_PORT } from "@/l
 import { fetchFlueHistory, flueHistoryToSessionData } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
-import { saveSession, summarizeSession } from "@/lib/containers/sessions"
+import { deriveOverallStatus, saveSession, summarizeSession } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
 import { isAuthenticated } from "@/middlewares"
 import type { BaseEnv } from "@/types"
@@ -219,12 +220,9 @@ const router = new Hono<BaseEnv>()
       const parsed = parseSessionData(s.sessionData)
       const sessionList = (parsed.sessions ?? []) as Array<Record<string, unknown>>
       const messages = (parsed.messages ?? {}) as Record<string, unknown[]>
-      const statuses = parsed.sessionStatus as Record<string, Record<string, string>> | null
 
       const allMessages = Object.values(messages).flat() as Array<Record<string, unknown>>
       const totalMessages = allMessages.length
-      const statusValues = statuses ? Object.values(statuses) : []
-      const hasBusy = statusValues.some((st) => st.type === "busy")
 
       // Prefer the root session (no parentID) for the summary preview
       const rootSession = sessionList.find((sess) => !sess.parentID) ?? sessionList[0]
@@ -253,7 +251,7 @@ const router = new Hono<BaseEnv>()
         sessionCount: sessionList.length,
         messageCount: totalMessages,
         totalCost: totalCost > 0 ? totalCost : summary.cost,
-        status: hasBusy ? "busy" : statusValues.length > 0 ? "idle" : "unknown",
+        status: deriveOverallStatus(parsed),
         // Root session metadata as a preview
         title: (rootSession?.title as string) ?? null,
         agent: summary.agent,
@@ -392,11 +390,47 @@ const router = new Hono<BaseEnv>()
     }
   })
 
-  // Clear all agent sessions from D1
+  // Clear agent sessions.
+  //   ?mode=all  (default) — destroy every sandbox, then delete all D1 rows
+  //   ?mode=idle           — delete only Idle (status=idle) D1 rows; no destroy
   .delete("/sessions", async (c) => {
     const db = c.get("db")
-    const result = await db.delete(dbSchema.agentSessions).returning({ entityKey: dbSchema.agentSessions.entityKey })
-    return c.json({ ok: true, deleted: result.length })
+    const mode = c.req.query("mode") === "idle" ? "idle" : "all"
+
+    const rows = await db
+      .select({
+        entityKey: dbSchema.agentSessions.entityKey,
+        sessionData: dbSchema.agentSessions.sessionData,
+      })
+      .from(dbSchema.agentSessions)
+
+    if (mode === "idle") {
+      const idleKeys = rows.filter((row) => deriveOverallStatus(row.sessionData) === "idle").map((row) => row.entityKey)
+      if (idleKeys.length === 0) {
+        return c.json({ ok: true, mode, deleted: 0, destroyed: 0 })
+      }
+      await Promise.all(
+        idleKeys.map((entityKey) =>
+          db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
+        ),
+      )
+      return c.json({ ok: true, mode, deleted: idleKeys.length, destroyed: 0 })
+    }
+
+    // Destroy sandboxes first so a dead container can't re-report into D1.
+    const destroyResults = await Promise.allSettled(
+      rows.map(async (row) => {
+        const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(row.entityKey), SANDBOX_OPTS)
+        await sandbox.destroy()
+      }),
+    )
+    const destroyed = destroyResults.filter((r) => r.status === "fulfilled").length
+
+    if (rows.length > 0) {
+      await db.delete(dbSchema.agentSessions)
+    }
+
+    return c.json({ ok: true, mode, deleted: rows.length, destroyed })
   })
 
   // Delete a single agent session from D1

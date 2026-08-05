@@ -1,4 +1,5 @@
 import {
+  CaretDown,
   CaretLeft,
   CaretRight,
   ChatsCircle,
@@ -25,10 +26,17 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { ButtonGroup } from "@/components/ui/button-group"
 import { Card, CardContent } from "@/components/ui/card"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
@@ -61,11 +69,13 @@ function StatusIndicator({ status }: { status: string }) {
   )
 }
 
+type ClearMode = "all" | "idle"
+
 export default function SessionsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [searchInput, setSearchInput] = useState("")
-  const [clearDialogOpen, setClearDialogOpen] = useState(false)
+  const [clearMode, setClearMode] = useState<ClearMode | null>(null)
   const clearSessions = useClearSessions()
 
   const page = Number(searchParams.get("page")) || 1
@@ -99,6 +109,7 @@ export default function SessionsPage() {
   })
 
   const pagination = data?.pagination
+  const clearing = clearSessions.isPending
 
   return (
     <div className="space-y-4">
@@ -110,30 +121,64 @@ export default function SessionsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <AlertDialog open={clearDialogOpen} onOpenChange={setClearDialogOpen}>
-            <AlertDialogTrigger asChild>
-              <Button variant="outline" size="sm" disabled={clearSessions.isPending || !pagination?.total}>
-                <Trash className="mr-1.5 size-4" />
-                {clearSessions.isPending ? "Clearing..." : "Clear All"}
-              </Button>
-            </AlertDialogTrigger>
+          <ButtonGroup aria-label="Clear containers">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={clearing || !pagination?.total}
+              onClick={() => setClearMode("all")}
+            >
+              <Trash className="mr-1.5 size-4" />
+              {clearing && clearMode === "all" ? "Clearing..." : "Clear All"}
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="outline" size="sm" className="px-2" />}
+                disabled={clearing || !pagination?.total}
+                aria-label="More clear options"
+              >
+                <CaretDown className="size-3.5" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-48">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem onClick={() => setClearMode("idle")}>Clear idle entries</DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </ButtonGroup>
+          <AlertDialog open={clearMode !== null} onOpenChange={(open) => !open && setClearMode(null)}>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Clear all agent sessions?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  {clearMode === "idle" ? "Clear idle session entries?" : "Destroy all containers?"}
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will permanently delete all {pagination?.total ?? 0} agent session records from the database.
-                  Running containers will not be affected. This action cannot be undone.
+                  {clearMode === "idle" ? (
+                    <>
+                      This will permanently delete Idle session records from the database. Active and Offline entries
+                      are left alone, and no running containers will be destroyed. This action cannot be undone.
+                    </>
+                  ) : (
+                    <>
+                      This will destroy every running sandbox and permanently delete all {pagination?.total ?? 0} agent
+                      session records from the database. This action cannot be undone.
+                    </>
+                  )}
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => {
-                    clearSessions.mutate()
-                    setClearDialogOpen(false)
+                  disabled={clearing}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    if (!clearMode) return
+                    clearSessions.mutate(clearMode, {
+                      onSettled: () => setClearMode(null),
+                    })
                   }}
                 >
-                  Clear All Sessions
+                  {clearing ? "Clearing..." : clearMode === "idle" ? "Clear Idle Entries" : "Destroy All Containers"}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>

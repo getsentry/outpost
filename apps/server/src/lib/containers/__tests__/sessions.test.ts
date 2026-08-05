@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { mergeSessionData } from "../sessions"
+import { deriveOverallStatus, mergeSessionData } from "../sessions"
 
 type Parsed = {
   sessions: Array<Record<string, unknown>>
@@ -132,5 +132,29 @@ describe("mergeSessionData", () => {
   it("returns the new blob unchanged when the old blob is unparseable", () => {
     const newRaw = JSON.stringify({ sessions: [{ id: "ses_a" }], sessionStatus: {}, messages: {} })
     expect(mergeSessionData("not json", newRaw)).toBe(newRaw)
+  })
+})
+
+describe("deriveOverallStatus", () => {
+  it("returns busy when any child session is busy", () => {
+    expect(
+      deriveOverallStatus({
+        sessionStatus: { a: { type: "idle" }, b: { type: "busy" } },
+      }),
+    ).toBe("busy")
+  })
+
+  it("returns idle when statuses exist and none are busy", () => {
+    expect(
+      deriveOverallStatus({
+        sessionStatus: { a: { type: "idle" }, b: { type: "idle" } },
+      }),
+    ).toBe("idle")
+  })
+
+  it("returns unknown when there are no status entries", () => {
+    expect(deriveOverallStatus({ sessionStatus: {} })).toBe("unknown")
+    expect(deriveOverallStatus({})).toBe("unknown")
+    expect(deriveOverallStatus("not json")).toBe("unknown")
   })
 })

@@ -93,7 +93,7 @@ export function useSessionDetail(entityKey: string) {
 export function useClearSessions() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: () => api.clearSessions(),
+    mutationFn: (mode: "all" | "idle" = "all") => api.clearSessions(mode),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
     },
