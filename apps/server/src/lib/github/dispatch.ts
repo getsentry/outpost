@@ -110,6 +110,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       anthropicApiKey: env.ANTHROPIC_API_KEY,
       openaiApiKey: env.OPENAI_API_KEY,
       sentryDsn: env.SENTRY_DSN,
+      sentryAuthToken: env.SENTRY_AUTH_TOKEN,
       entityKey: containerKey,
       appUrl: env.APP_URL,
       thinSandbox: flueNative,

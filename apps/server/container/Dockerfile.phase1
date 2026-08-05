@@ -35,6 +35,14 @@ RUN npm install -g n \
  && corepack enable \
  && corepack prepare pnpm@10.15.0 --activate
 
+# --- Sentry CLI ---
+# Used for issue/trace debugging inside the sandbox. Auth is injected at runtime
+# via SENTRY_AUTH_TOKEN in /tmp/flue-env.sh (see writeEnvFile).
+RUN curl -fsSL https://cli.sentry.dev/install \
+    | SENTRY_INSTALL_DIR=/usr/local/bin \
+      bash -s -- --no-modify-path --no-completions \
+ && sentry --version
+
 # Do NOT pre-create /workspace/repo — the Worker clones into a temp dir and
 # `mv`s it to /workspace/repo; an existing empty dest would nest the clone.
 RUN mkdir -p /workspace /opt/flue /root/.agents
