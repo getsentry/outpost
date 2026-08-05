@@ -22,9 +22,10 @@
   "containers": [
     {
       "class_name": "Sandbox",
-      // Phase 1 default (FLUE_NATIVE=0): in-container Flue + Lore.
-      // Flip image to "./container/Dockerfile" when setting FLUE_NATIVE=1.
-      "image": "./container/Dockerfile.phase1",
+      // Phase 2 (FLUE_NATIVE=1): thin sandbox (git/gh only); the agent brain +
+      // conversation live in the FlueJaredAgent Durable Object. Flip image back to
+      // "./container/Dockerfile.phase1" if reverting FLUE_NATIVE to "0".
+      "image": "./container/Dockerfile",
       "max_instances": 10,
       "instance_type": "standard-3",
       "ssh": {
@@ -87,9 +88,13 @@
     "run_worker_first": ["/api/*", "/agents/*", "/health", "/openapi.json"]
   },
   "vars": {
-    // Keep Phase 1 (in-container Flue) as the safe default until Phase 2 is
-    // validated in a real Cloudflare deploy. Flip to "1" for DO-native.
-    "FLUE_NATIVE": "0",
+    // Phase 2 (DO-native): agent brain + conversation persist in the
+    // FlueJaredAgent Durable Object; the container is a disposable thin sandbox
+    // torn down ~10m after idle (see SANDBOX_SLEEP_AFTER). Instant rollback:
+    // set back to "0" and flip the container image to Dockerfile.phase1.
+    // Note: Lore runs in-container (Phase 1 only) — in Phase 2 model traffic goes
+    // direct to OpenRouter until a standalone Lore gateway (LORE_GATEWAY_URL) is set.
+    "FLUE_NATIVE": "1",
     // Public base URL of this Worker. Required so the in-container session
     // reporter can POST conversation history back (startSessionReporter early
     // returns without it) and for auth/CORS/OAuth callbacks.
