@@ -837,7 +837,11 @@ export default function ContainerDetailPage() {
         </div>
       </div>
 
-      {syncError && (
+      {/* Only alarm once the run is *derived* as sync-unavailable. A fresh working
+          run can hit a transient history hiccup (DO spin-up, post-deploy) that
+          resolves on the next poll — showing "live sync unavailable" then is
+          misleading, so we keep it quiet while the run is still working. */}
+      {overallStatus === "sync_unavailable" && (
         <div
           role="status"
           className="flex items-start gap-2 border-b border-border/60 bg-muted/40 px-4 py-2 text-xs text-muted-foreground"
@@ -847,10 +851,12 @@ export default function ContainerDetailPage() {
             <span className="font-medium text-foreground">Live sync unavailable.</span> Showing the last saved snapshot
             {observedAtIso ? ` (updated ${formatTimeAgo(observedAtIso)})` : ""}. Sandboxes scale to zero after idle —
             this does not mean the run is still active.
-            <details className="mt-1">
-              <summary className="cursor-pointer text-[10px] opacity-80">Technical details</summary>
-              <code className="mt-0.5 block break-all font-mono text-[10px] opacity-70">{syncError}</code>
-            </details>
+            {syncError && (
+              <details className="mt-1">
+                <summary className="cursor-pointer text-[10px] opacity-80">Technical details</summary>
+                <code className="mt-0.5 block break-all font-mono text-[10px] opacity-70">{syncError}</code>
+              </details>
+            )}
           </div>
           <Button variant="outline" size="xs" className="shrink-0" onClick={() => refetch()} disabled={isFetching}>
             <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
@@ -1014,18 +1020,24 @@ export default function ContainerDetailPage() {
                 <ChatText className="size-6 text-muted-foreground/40" />
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-foreground">
-                    {syncError || overallStatus === "sync_unavailable"
+                    {overallStatus === "sync_unavailable"
                       ? "No transcript in the saved snapshot"
-                      : effectiveSessionId
-                        ? "No messages in this session yet"
-                        : "Select a session to view messages"}
+                      : overallStatus === "working"
+                        ? "Waiting for the agent’s first message"
+                        : effectiveSessionId
+                          ? "No messages in this session yet"
+                          : "Select a session to view messages"}
                   </p>
                   <p className="max-w-md text-xs text-muted-foreground">
-                    {syncError || overallStatus === "sync_unavailable" ? (
+                    {overallStatus === "sync_unavailable" ? (
                       <>
                         Status: {statusLabel(overallStatus)}
                         {observedAtIso ? ` · last updated ${formatTimeAgo(observedAtIso)}` : ""}. Check recent events in
                         the sidebar, or send guidance below to start a new turn.
+                      </>
+                    ) : overallStatus === "working" ? (
+                      <>
+                        The agent is working. Its messages appear here as soon as they sync — this refreshes on its own.
                       </>
                     ) : overallStatus === "historical" ? (
                       <>This run is historical. The sandbox has likely scaled to zero.</>
@@ -1040,10 +1052,10 @@ export default function ContainerDetailPage() {
                     )}
                   </p>
                 </div>
-                {(syncError || overallStatus === "sync_unavailable") && (
+                {(overallStatus === "sync_unavailable" || overallStatus === "working") && (
                   <Button variant="outline" size="xs" onClick={() => refetch()} disabled={isFetching}>
                     <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
-                    Retry sync
+                    {overallStatus === "working" ? "Refresh" : "Retry sync"}
                   </Button>
                 )}
               </div>
