@@ -87,6 +87,10 @@ export type SessionDetailResponse = {
   logs: string
   /** Present when Phase 2 Flue history pull failed; D1 snapshot may be stale/empty. */
   syncError?: string | null
+  /** Present when a dashboard chat run's opening admit failed. */
+  chatError?: string | null
+  /** True once the opening chat prompt was admitted (follow-ups are safe). */
+  chatAdmitted?: boolean
 }
 
 export type EventStats = {
@@ -201,6 +205,25 @@ export const api = {
     const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/destroy`, { method: "POST" })
     if (!res.ok) throw new Error(`Failed to destroy container: ${res.status}`)
     return res.json()
+  },
+
+  async getChatRepos(): Promise<{ repos: string[] }> {
+    const res = await fetch("/api/containers/chat/repos")
+    if (!res.ok) throw new Error(`Failed to fetch repositories: ${res.status}`)
+    return res.json() as Promise<{ repos: string[] }>
+  },
+
+  async startChat(input: { repo: string; text: string }) {
+    const res = await fetch("/api/containers/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null
+      throw new Error(body?.error ?? `Failed to start chat: ${res.status}`)
+    }
+    return res.json() as Promise<{ ok: true; entityKey: string; repo: string }>
   },
 
   async sendPrompt(entityKey: string, text: string) {
