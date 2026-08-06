@@ -27,7 +27,10 @@ describe("webhook event retention", () => {
 
     const deleted = await deleteExpiredWebhookEvents({ prepare } as unknown as D1Database, now)
 
-    expect(prepare).toHaveBeenNthCalledWith(1, "DELETE FROM webhook_events WHERE status != 'skipped' AND created_at < ?")
+    expect(prepare).toHaveBeenNthCalledWith(
+      1,
+      "DELETE FROM webhook_events WHERE status != 'skipped' AND created_at < ?",
+    )
     expect(bind).toHaveBeenNthCalledWith(1, webhookEventCutoffSeconds(now, WEBHOOK_EVENT_RETENTION_MS))
     expect(prepare).toHaveBeenNthCalledWith(2, "DELETE FROM webhook_events WHERE status = 'skipped' AND created_at < ?")
     expect(bind).toHaveBeenNthCalledWith(2, webhookEventCutoffSeconds(now, SKIPPED_WEBHOOK_EVENT_RETENTION_MS))

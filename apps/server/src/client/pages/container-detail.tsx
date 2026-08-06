@@ -603,6 +603,7 @@ export default function ContainerDetailPage() {
   }, [serverMessages, optimistic.length])
 
   useEffect(() => {
+    if (messageCount === 0 && !streamingPlaceholder) return
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messageCount, streamingPlaceholder])
 
