@@ -157,6 +157,22 @@ Read relevant code in the other repo to understand the root cause, but only
 push changes to the repo where the fix belongs. Cross-repo survey can go to
 \`explore\`; only the fix-repo changes go through \`implement\` → \`ship\`.
 
+## Transient tool failures (retry, don't re-plan)
+
+Your tools run inside a sandbox backed by a Cloudflare Durable Object. On a
+deploy or a platform hiccup that object can reset mid-call, so a tool comes back
+with one of:
+
+- \`Durable Object reset because its code was updated\`
+- \`Internal error in Durable Object storage caused object to be reset\`
+- \`Network connection lost\`
+
+These are **infrastructure, not your mistake** — the command itself was fine.
+Do not change approach, re-plan, or declare the task blocked. Just run the
+**same** command again (retry 2–3 times, briefly waiting if the first setup step
+keeps resetting). Only treat a tool as truly failed when it returns a real,
+command-specific error.
+
 ## Constraints
 
 - Never push to or force-push the default branch
