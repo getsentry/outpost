@@ -123,22 +123,27 @@ function getJaredAgentRouter(): Promise<AgentRouter> {
   return jaredRouterPromise
 }
 
-type InProcessRead = { ok: true; history: Record<string, unknown> } | { ok: false; notFound: boolean; error: string }
+export type InProcessHistoryRead =
+  | { ok: true; history: Record<string, unknown>; offset: string | null }
+  | { ok: false; notFound: boolean; error: string }
 
 /**
  * Read materialized history straight from the agent's Durable Object, in-process.
  * The router registers `GET /:id`; addressing it here resolves the same DO that
  * `dispatch()` writes to (ambient binding), so it does not hit the public-URL
  * hairpin that returns a spurious 404.
+ *
+ * `offset` is the stream head (`Stream-Next-Offset`) — used to seed the live
+ * updates read that powers the SSE stream.
  */
-async function readFlueHistoryInProcess(env: Env, entityKey: string): Promise<InProcessRead> {
+export async function readFlueHistoryInProcess(env: Env, entityKey: string): Promise<InProcessHistoryRead> {
   const id = toAgentInstanceId(entityKey)
   try {
     const router = await getJaredAgentRouter()
     const res = await router.request(`/${encodeURIComponent(id)}?view=history`, undefined, env)
     if (res.ok) {
       const history = (await res.json()) as Record<string, unknown>
-      return { ok: true, history }
+      return { ok: true, history, offset: res.headers.get("Stream-Next-Offset") }
     }
     const notFound = res.status === 404
     return {
@@ -153,6 +158,50 @@ async function readFlueHistoryInProcess(env: Env, entityKey: string): Promise<In
     // caller fall back to the HTTP hairpin rather than fail the whole read.
     const message = err instanceof Error ? err.message : String(err)
     return { ok: false, notFound: false, error: `In-process history read failed: ${message}` }
+  }
+}
+
+export type InProcessUpdatesRead =
+  | { ok: true; hasNew: boolean; nextOffset: string }
+  | { ok: false; gone: boolean; error: string }
+
+/**
+ * Long-poll the agent's durable stream for new records past `offset`, in-process.
+ *
+ * Flue's `view=updates&live=long-poll` blocks until new data lands or its window
+ * closes, then returns `[checkpoint, ...items]` — length > 1 means new records
+ * arrived. The read is offset-based and non-consuming, so aborting the wait (our
+ * heartbeat cut, or the client disconnecting) never drops data: the next read
+ * from the same offset still sees it.
+ */
+export async function readFlueUpdatesInProcess(
+  env: Env,
+  entityKey: string,
+  offset: string,
+  signal?: AbortSignal,
+): Promise<InProcessUpdatesRead> {
+  const id = toAgentInstanceId(entityKey)
+  try {
+    const router = await getJaredAgentRouter()
+    const res = await router.request(
+      `/${encodeURIComponent(id)}?view=updates&offset=${encodeURIComponent(offset)}&live=long-poll`,
+      { signal },
+      env,
+    )
+    // 499: the wait was aborted (heartbeat cut or client gone) — no data consumed.
+    if (res.status === 499) return { ok: true, hasNew: false, nextOffset: offset }
+    if (!res.ok) {
+      // Offset gone / bad request / recycled DO → caller should reseed from history.
+      const gone = res.status === 400 || res.status === 404 || res.status === 409 || res.status === 410
+      return { ok: false, gone, error: `updates read failed (${res.status})` }
+    }
+    const nextOffset = res.headers.get("Stream-Next-Offset") ?? offset
+    const items = (await res.json()) as unknown[]
+    return { ok: true, hasNew: Array.isArray(items) && items.length > 1, nextOffset }
+  } catch (err) {
+    // An aborted fetch can surface as an exception — treat as a clean heartbeat cut.
+    if (signal?.aborted) return { ok: true, hasNew: false, nextOffset: offset }
+    return { ok: false, gone: false, error: err instanceof Error ? err.message : String(err) }
   }
 }
 

@@ -20,6 +20,7 @@ import { formatError, type Logger } from "@jared/utils"
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import { Hono } from "hono"
+import { streamSSE } from "hono/streaming"
 import * as dbSchema from "@/db/schema"
 import {
   CHAT_STARTING_WINDOW_MS,
@@ -43,6 +44,8 @@ import {
   fetchFlueHistory,
   fetchFlueHistoryResult,
   flueHistoryToSessionData,
+  readFlueHistoryInProcess,
+  readFlueUpdatesInProcess,
 } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
@@ -174,6 +177,52 @@ function parseSessionData(raw: string): Record<string, unknown> {
   } catch {
     return {}
   }
+}
+
+/**
+ * Shape the `/sessions/detail` response body from a parsed session blob. Shared
+ * by the polling detail endpoint and the SSE stream so both emit an identical
+ * payload the client can drop straight into the query cache.
+ */
+function formatSessionDetailPayload(
+  session: { entityKey: string; createdAt: Date | string },
+  parsed: Record<string, unknown>,
+  updatedAt: Date | string,
+  syncError: string | null,
+) {
+  const statusObservedAt = typeof updatedAt === "string" ? updatedAt : new Date(updatedAt).toISOString()
+  const chatError = typeof parsed.chatError === "string" && parsed.chatError ? parsed.chatError : null
+  return {
+    entityKey: session.entityKey,
+    createdAt: session.createdAt,
+    updatedAt,
+    statusObservedAt,
+    sandboxHint: SANDBOX_RUNTIME_NOTE,
+    status: deriveDisplayStatus(parsed, updatedAt, { syncError }),
+    sessions: parsed.sessions ?? [],
+    sessionStatus: parsed.sessionStatus ?? {},
+    messages: parsed.messages ?? {},
+    logs: parsed.logs ?? "",
+    syncError,
+    chatError,
+    chatAdmitted: parsed.chatAdmitted === true,
+  }
+}
+
+/** Resolve after `ms`, or immediately when `signal` aborts. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve()
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer)
+        resolve()
+      },
+      { once: true },
+    )
+  })
 }
 
 /**
@@ -625,24 +674,109 @@ const router = new Hono<BaseEnv>()
       }
     }
 
-    const statusObservedAt = typeof updatedAt === "string" ? updatedAt : new Date(updatedAt).toISOString()
-    const chatError = typeof parsed.chatError === "string" && parsed.chatError ? parsed.chatError : null
-    const chatAdmitted = parsed.chatAdmitted === true
+    return c.json(formatSessionDetailPayload(session, parsed, updatedAt, syncError))
+  })
 
-    return c.json({
-      entityKey: session.entityKey,
-      createdAt: session.createdAt,
-      updatedAt,
-      statusObservedAt,
-      sandboxHint: SANDBOX_RUNTIME_NOTE,
-      status: deriveDisplayStatus(parsed, updatedAt, { syncError }),
-      sessions: parsed.sessions ?? [],
-      sessionStatus: parsed.sessionStatus ?? {},
-      messages: parsed.messages ?? {},
-      logs: parsed.logs ?? "",
-      syncError,
-      chatError,
-      chatAdmitted,
+  // Live agent transcript over SSE. Pushes the same payload as /sessions/detail
+  // on every durable stream change, so the dashboard stops polling while a run
+  // is active. Reads happen in-process (same DO as dispatch), never the hairpin.
+  .get("/sessions/stream", async (c) => {
+    const db = c.get("db")
+    const entityKey = c.req.query("entityKey")
+    if (!entityKey) return c.json({ error: "entityKey query parameter required" }, 400)
+
+    const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
+    // Non-Flue sessions have no durable stream to follow; the client polls instead.
+    if (!flueNative) return c.json({ error: "streaming requires FLUE_NATIVE" }, 400)
+
+    // Cap one connection's lifetime under Worker/edge limits; the browser's
+    // EventSource transparently reconnects and we resend a fresh snapshot.
+    const MAX_STREAM_MS = 4 * 60_000
+    // Cut the long-poll wait this often so idle connections keep emitting.
+    const HEARTBEAT_MS = 15_000
+
+    return streamSSE(c, async (stream) => {
+      const clientAbort = c.req.raw.signal
+      const startedAt = Date.now()
+
+      // Emit the current merged detail payload; return the stream head offset.
+      const pushSnapshot = async (): Promise<{ offset: string | null; ok: boolean }> => {
+        const session = await db.query.agentSessions.findFirst({
+          where: eq(dbSchema.agentSessions.entityKey, entityKey),
+        })
+        if (!session) {
+          await stream.writeSSE({ event: "gone", data: "session not found" })
+          return { offset: null, ok: false }
+        }
+
+        let parsed = parseSessionData(session.sessionData)
+        let updatedAt: Date | string = session.updatedAt
+        let syncError: string | null = null
+        let offset: string | null = null
+
+        const hist = await readFlueHistoryInProcess(c.env, entityKey)
+        if (hist.ok) {
+          const blob = flueHistoryToSessionData(entityKey, hist.history)
+          const mergedRaw = session.sessionData ? mergeSessionData(session.sessionData, blob) : blob
+          try {
+            await saveSession(db, entityKey, blob)
+          } catch {
+            /* best-effort persist */
+          }
+          parsed = parseSessionData(mergedRaw)
+          updatedAt = new Date()
+          offset = hist.offset
+        } else if (!hist.notFound) {
+          // Genuine absence keeps the D1 placeholder; only surface real errors.
+          syncError = hist.error
+        }
+
+        await stream.writeSSE({
+          event: "snapshot",
+          data: JSON.stringify(formatSessionDetailPayload(session, parsed, updatedAt, syncError)),
+        })
+        return { offset, ok: true }
+      }
+
+      let seed = await pushSnapshot()
+      let offset = seed.offset
+
+      while (seed.ok && !clientAbort.aborted && Date.now() - startedAt < MAX_STREAM_MS) {
+        if (!offset) {
+          // No durable stream yet (history unavailable or not materialized). Back
+          // off, then re-snapshot so a run that starts mid-connection lights up.
+          await sleep(5_000, clientAbort)
+          seed = await pushSnapshot()
+          offset = seed.offset
+          continue
+        }
+
+        // Heartbeat-bounded long-poll: abort the wait at HEARTBEAT_MS so idle
+        // connections keep emitting and proxies don't drop them.
+        const iterCtl = new AbortController()
+        const onClientAbort = () => iterCtl.abort()
+        clientAbort.addEventListener("abort", onClientAbort, { once: true })
+        const hb = setTimeout(() => iterCtl.abort(), HEARTBEAT_MS)
+
+        const upd = await readFlueUpdatesInProcess(c.env, entityKey, offset, iterCtl.signal)
+
+        clearTimeout(hb)
+        clientAbort.removeEventListener("abort", onClientAbort)
+        if (clientAbort.aborted) break
+
+        if (upd.ok && upd.hasNew) {
+          const next = await pushSnapshot()
+          offset = next.offset ?? upd.nextOffset
+        } else if (upd.ok) {
+          offset = upd.nextOffset
+          await stream.writeSSE({ event: "ping", data: String(Date.now()) })
+        } else {
+          // Offset gone (DO recycled) or a transient error — reseed from history.
+          if (!upd.gone) await sleep(2_000, clientAbort)
+          seed = await pushSnapshot()
+          offset = seed.offset
+        }
+      }
     })
   })
 
