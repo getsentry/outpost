@@ -86,7 +86,23 @@ export function useSessionDetail(entityKey: string) {
     queryKey: ["sessionDetail", entityKey],
     queryFn: () => api.getSessionDetail(entityKey),
     enabled: !!entityKey,
-    refetchInterval: 10_000,
+    // Faster poll while the agent is busy so tool calls / streaming text appear promptly.
+    refetchInterval: (query) => {
+      const status = query.state.data?.sessionStatus
+      const busy = status && Object.values(status).some((s) => s?.type === "busy")
+      return busy ? 2_000 : 10_000
+    },
+  })
+}
+
+export function useSendPrompt(entityKey: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (text: string) => api.sendPrompt(entityKey, text),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sessionDetail", entityKey] })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
   })
 }
 

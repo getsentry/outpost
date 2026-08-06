@@ -15,8 +15,8 @@ function StatsCards() {
 
   if (isLoading) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
           <Card key={i}>
             <CardHeader>
               <Skeleton className="h-4 w-24" />
@@ -34,10 +34,13 @@ function StatsCards() {
     return <div className="py-4 text-center text-sm text-destructive">Failed to load stats</div>
   }
 
+  const total = stats?.total ?? 0
+  const stuck = stats?.stuck ?? 0
   const cards = [
-    { label: "Total Events", value: stats?.total ?? 0, icon: Lightning },
+    { label: "Total Events", value: total, icon: Lightning },
     { label: "Pending", value: stats?.pending ?? 0, icon: CircleDashed },
     { label: "Dispatched", value: stats?.dispatched ?? 0, icon: Hourglass },
+    { label: "Stuck", value: stuck, icon: Clock },
     { label: "Completed", value: stats?.completed ?? 0, icon: CheckCircle },
   ]
 
@@ -46,7 +49,7 @@ function StatsCards() {
       <div className="flex items-center justify-end">
         <LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {cards.map((card) => (
           <Card key={card.label}>
             <CardHeader>

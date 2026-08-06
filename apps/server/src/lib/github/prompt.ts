@@ -1,9 +1,43 @@
-// Formats a webhook event as a markdown prompt for the OpenCode agent.
+// Formats a webhook event as a curated markdown prompt for the Jared agent.
 //
-// The output matches the structure expected by the jared agent:
-// event type header, bot identity, repo context, and the full payload.
+// Emits identity + extracted fields (issue/PR/comment/CI/review) instead of the
+// full GitHub JSON payload, which bloated Flue conversation context on every turn.
 
 const REVIEW_EVENTS = new Set(["pull_request_review", "pull_request_review_comment", "pull_request_review_thread"])
+
+const BODY_MAX = 4000
+
+function parsePayload(payload: string): Record<string, unknown> {
+  try {
+    return JSON.parse(payload) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined
+}
+
+function truncate(text: string, max = BODY_MAX): string {
+  if (text.length <= max) return text
+  return `${text.slice(0, max)}\n…(truncated ${text.length - max} chars)`
+}
+
+function labelNames(labels: unknown): string[] {
+  if (!Array.isArray(labels)) return []
+  return labels
+    .map((l) => (asRecord(l)?.name as string | undefined) ?? (typeof l === "string" ? l : undefined))
+    .filter((n): n is string => typeof n === "string" && n.length > 0)
+}
 
 /**
  * Build a review-specific guidance block for PR review events. Surfaces the IDs
@@ -11,20 +45,13 @@ const REVIEW_EVENTS = new Set(["pull_request_review", "pull_request_review_comme
  * top-level comment), and spells out the expected workflow. Returns "" for
  * non-review events.
  */
-function reviewGuidance(event: string, payload: string): string {
+function reviewGuidance(event: string, data: Record<string, unknown>): string {
   if (!REVIEW_EVENTS.has(event)) return ""
 
-  let data: Record<string, unknown> = {}
-  try {
-    data = JSON.parse(payload) as Record<string, unknown>
-  } catch {
-    /* fall back to guidance without ids */
-  }
-
-  const pr = (data.pull_request as Record<string, unknown> | undefined) ?? undefined
-  const comment = (data.comment as Record<string, unknown> | undefined) ?? undefined
-  const review = (data.review as Record<string, unknown> | undefined) ?? undefined
-  const thread = (data.thread as Record<string, unknown> | undefined) ?? undefined
+  const pr = asRecord(data.pull_request)
+  const comment = asRecord(data.comment)
+  const review = asRecord(data.review)
+  const thread = asRecord(data.thread)
 
   const ids: string[] = []
   if (typeof pr?.number === "number") ids.push(`- PR number: ${pr.number}`)
@@ -50,6 +77,119 @@ Workflow:
 See the \`respond-to-comment\` skill for the exact commands.`
 }
 
+/** Extract curated context lines from a GitHub webhook payload. */
+export function extractEventContext(event: string, payload: string): string {
+  const data = parsePayload(payload)
+  if (Object.keys(data).length === 0) {
+    return payload.trim()
+      ? "(payload unparseable — use Delivery id to look up the event in the dashboard)"
+      : "(empty payload)"
+  }
+
+  const lines: string[] = []
+  const issue = asRecord(data.issue)
+  const pr = asRecord(data.pull_request)
+  const comment = asRecord(data.comment)
+  const review = asRecord(data.review)
+  const checkSuite = asRecord(data.check_suite)
+  const workflowRun = asRecord(data.workflow_run)
+  const label = asRecord(data.label)
+
+  const entity = pr ?? issue
+  if (entity) {
+    const kind = pr ? "PR" : "Issue"
+    const number = asNumber(entity.number)
+    const title = asString(entity.title)
+    const state = asString(entity.state)
+    const htmlUrl = asString(entity.html_url)
+    const author = asString(asRecord(entity.user)?.login)
+    const draft = typeof entity.draft === "boolean" ? entity.draft : undefined
+    const labels = labelNames(entity.labels)
+
+    if (number != null) lines.push(`${kind} #${number}${title ? `: ${title}` : ""}`)
+    if (state) lines.push(`State: ${state}${draft ? " (draft)" : ""}`)
+    if (author) lines.push(`Author: ${author}`)
+    if (htmlUrl) lines.push(`URL: ${htmlUrl}`)
+    if (labels.length) lines.push(`Labels: ${labels.join(", ")}`)
+
+    const body = asString(entity.body)
+    if (body) {
+      lines.push("", `${kind} body:`, truncate(body))
+    }
+  }
+
+  if (label && event === "issues" /* labeled */) {
+    const name = asString(label.name)
+    if (name) lines.push(`Label applied: ${name}`)
+  }
+
+  if (comment) {
+    const commentAuthor = asString(asRecord(comment.user)?.login)
+    const commentBody = asString(comment.body)
+    const commentUrl = asString(comment.html_url)
+    const path = asString(comment.path)
+    lines.push("", "Comment:")
+    if (commentAuthor) lines.push(`- Author: ${commentAuthor}`)
+    if (path) lines.push(`- File: ${path}`)
+    if (commentUrl) lines.push(`- URL: ${commentUrl}`)
+    if (typeof comment.id === "number") lines.push(`- Id: ${comment.id}`)
+    if (commentBody) {
+      lines.push("", truncate(commentBody))
+    }
+  }
+
+  if (review) {
+    const reviewAuthor = asString(asRecord(review.user)?.login)
+    const reviewState = asString(review.state)
+    const reviewBody = asString(review.body)
+    lines.push("", "Review:")
+    if (reviewAuthor) lines.push(`- Author: ${reviewAuthor}`)
+    if (reviewState) lines.push(`- State: ${reviewState}`)
+    if (typeof review.id === "number") lines.push(`- Id: ${review.id}`)
+    if (reviewBody) {
+      lines.push("", truncate(reviewBody))
+    }
+  }
+
+  if (checkSuite || (event === "check_suite" && asRecord(data))) {
+    const cs = checkSuite ?? asRecord(data)
+    if (cs) {
+      lines.push("", "Check suite:")
+      const conclusion = asString(cs.conclusion)
+      const status = asString(cs.status)
+      const headSha = asString(cs.head_sha)
+      const headBranch = asString(cs.head_branch)
+      if (status) lines.push(`- Status: ${status}`)
+      if (conclusion) lines.push(`- Conclusion: ${conclusion}`)
+      if (headBranch) lines.push(`- Branch: ${headBranch}`)
+      if (headSha) lines.push(`- SHA: ${headSha}`)
+    }
+  }
+
+  if (workflowRun) {
+    lines.push("", "Workflow run:")
+    const name = asString(workflowRun.name)
+    const conclusion = asString(workflowRun.conclusion)
+    const status = asString(workflowRun.status)
+    const headSha = asString(workflowRun.head_sha)
+    const htmlUrl = asString(workflowRun.html_url)
+    if (name) lines.push(`- Name: ${name}`)
+    if (status) lines.push(`- Status: ${status}`)
+    if (conclusion) lines.push(`- Conclusion: ${conclusion}`)
+    if (headSha) lines.push(`- SHA: ${headSha}`)
+    if (htmlUrl) lines.push(`- URL: ${htmlUrl}`)
+  }
+
+  // Fallback: if we extracted nothing useful, include a short key summary.
+  if (lines.length === 0) {
+    const keys = Object.keys(data).slice(0, 12).join(", ")
+    lines.push(`(no curated fields for ${event}; top-level keys: ${keys})`)
+    lines.push("Look up the full payload via Delivery id in the dashboard if needed.")
+  }
+
+  return lines.join("\n")
+}
+
 export function formatEventPrompt(opts: {
   event: string
   action: string | null
@@ -66,10 +206,13 @@ export function formatEventPrompt(opts: {
   modelTier?: "light" | "heavy"
 }): string {
   const eventLabel = opts.action ? `${opts.event}.${opts.action}` : opts.event
+  const data = parsePayload(opts.payload)
 
   // Hidden, machine-readable hint for per-event model selection. An HTML comment
   // keeps it invisible to humans reading the conversation and ignored by the agent.
   const tierMarker = opts.modelTier ? `\n<!-- jared:model-tier=${opts.modelTier} -->` : ""
+
+  const context = extractEventContext(opts.event, opts.payload)
 
   return `New webhook event: ${eventLabel}${tierMarker}
 
@@ -78,9 +221,8 @@ Repository: ${opts.repo ?? "unknown"}
 Entity: ${opts.entityKey}
 Sender: ${opts.sender ?? "unknown"}
 Delivery: ${opts.deliveryId}
-${reviewGuidance(opts.event, opts.payload)}
-Payload:
-\`\`\`json
-${opts.payload}
-\`\`\``
+${reviewGuidance(opts.event, data)}
+## Event context
+
+${context}`
 }

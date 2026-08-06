@@ -22,7 +22,8 @@ const router = new Hono<AuthEnv>()
         pending: sql<number>`sum(case when ${webhookEvents.status} = 'pending' then 1 else 0 end)`,
         dispatched: sql<number>`sum(case when ${webhookEvents.status} = 'dispatched' then 1 else 0 end)`,
         completed: sql<number>`sum(case when ${webhookEvents.status} = 'completed' then 1 else 0 end)`,
-        failed: sql<number>`sum(case when ${webhookEvents.status} = 'failed' then 1 else 0 end)`,
+        failed: sql<number>`sum(case when ${webhookEvents.status} like 'failed%' then 1 else 0 end)`,
+        stuck: sql<number>`sum(case when ${webhookEvents.status} like 'd:%' then 1 else 0 end)`,
         skipped: sql<number>`sum(case when ${webhookEvents.status} = 'skipped' then 1 else 0 end)`,
         latest: sql<string>`max(${webhookEvents.createdAt})`,
       })
@@ -58,10 +59,18 @@ const router = new Hono<AuthEnv>()
     const status = c.req.query("status")
     const event = c.req.query("event")
     const repo = c.req.query("repo")
+    const entityKey = c.req.query("entityKey")
 
     const conditions = []
     if (status) {
-      conditions.push(eq(webhookEvents.status, status))
+      // `failed` matches `failed` and `failed:…` / `failed:timeout` snippets.
+      if (status === "failed") {
+        conditions.push(like(webhookEvents.status, "failed%"))
+      } else if (status === "d:boot" || status.startsWith("d:")) {
+        conditions.push(like(webhookEvents.status, "d:%"))
+      } else {
+        conditions.push(eq(webhookEvents.status, status))
+      }
     }
     if (event) {
       conditions.push(eq(webhookEvents.event, event))
@@ -69,6 +78,9 @@ const router = new Hono<AuthEnv>()
     if (repo) {
       const escaped = repo.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")
       conditions.push(like(webhookEvents.repo, `%${escaped}%`))
+    }
+    if (entityKey) {
+      conditions.push(eq(webhookEvents.entityKey, entityKey))
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined
@@ -130,21 +142,31 @@ const router = new Hono<AuthEnv>()
         .where(sql`${webhookEvents.createdAt} >= ${Math.floor(oneDayAgo.getTime() / 1000)}`),
     ])
 
-    const byStatus: Record<string, number> = {}
     let total = 0
+    let pending = 0
+    let dispatched = 0
+    let completed = 0
+    let failed = 0
+    let skipped = 0
+    let stuck = 0
     for (const row of totals) {
-      byStatus[row.status] = row.count
       total += row.count
+      if (row.status === "pending") pending += row.count
+      else if (row.status === "dispatched") dispatched += row.count
+      else if (row.status === "completed") completed += row.count
+      else if (row.status === "skipped") skipped += row.count
+      else if (row.status.startsWith("failed")) failed += row.count
+      else if (row.status.startsWith("d:")) stuck += row.count
     }
 
     return c.json({
       total,
-      pending: byStatus.pending ?? 0,
-      dispatched: byStatus.dispatched ?? 0,
-      completed: byStatus.completed ?? 0,
-      failed: byStatus.failed ?? 0,
-      timeout: byStatus.timeout ?? 0,
-      skipped: byStatus.skipped ?? 0,
+      pending,
+      dispatched,
+      completed,
+      failed,
+      stuck,
+      skipped,
       last24h: recentCount[0]?.count ?? 0,
     })
   })
@@ -181,6 +203,11 @@ const router = new Hono<AuthEnv>()
     // installation id to mint a fresh token for the agent's git operations.
     if (!event.installationId) {
       return c.json({ error: "Cannot resend: event has no GitHub installation" }, 400)
+    }
+
+    // Skipped rows only store a reason stub — resending would admit useless context.
+    if (event.status === "skipped") {
+      return c.json({ error: "Cannot resend: skipped events have no full payload" }, 400)
     }
 
     // Optimistically mark pending so the UI reflects the in-flight resend; the

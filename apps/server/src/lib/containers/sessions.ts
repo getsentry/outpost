@@ -7,6 +7,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
 import { agentSessions } from "@/db/schema"
 import { normalizeFlueSessionBlob } from "./flue-session-adapt"
+import { toAgentInstanceId } from "./ids"
 
 type AnyRecord = Record<string, unknown>
 
@@ -171,12 +172,14 @@ export async function saveSession(
 
   const mergedData = existing?.sessionData ? mergeSessionData(existing.sessionData, normalized) : normalized
 
+  // Canonical Flue/sandbox id — do-prep and affinity lookups key on this column.
+  const sessionId = toAgentInstanceId(entityKey)
   const now = new Date()
   await db
     .insert(agentSessions)
     .values({
       entityKey,
-      sessionId: null,
+      sessionId,
       sessionData: mergedData,
       createdAt: now,
       updatedAt: now,
@@ -184,6 +187,7 @@ export async function saveSession(
     .onConflictDoUpdate({
       target: agentSessions.entityKey,
       set: {
+        sessionId,
         sessionData: mergedData,
         updatedAt: now,
       },

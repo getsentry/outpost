@@ -9,20 +9,24 @@ import {
   Code,
   Copy,
   CurrencyDollar,
+  ListBullets,
+  PaperPlaneTilt,
   Robot,
   Stack,
   Terminal,
   Trash,
   TreeStructure,
+  Warning,
   Wrench,
   X,
 } from "@phosphor-icons/react"
-import { Fragment, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import type { MessagePart, SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
 import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
-import { useDestroyContainer, useSessionDetail } from "@/client/lib/queries"
+import { useDestroyContainer, useEvents, useSendPrompt, useSessionDetail } from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
+import { StatusBadge } from "@/components/status-badge"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -179,14 +183,26 @@ function ChatMessage({ message }: { message: SessionMessage }) {
           {time && <span className="text-[10px] tabular-nums text-muted-foreground/60">{time}</span>}
         </div>
 
-        {/* Text content */}
+        {/* Text + reasoning (visually distinct) */}
         {textParts.map((part, i) => {
           const text = part.text ?? ""
           const isLong = text.length > 1000
           const display = isLong && !expanded ? `${text.slice(0, 1000)}...` : text
+          const isReasoning = part.type === "reasoning"
           return (
             <Fragment key={i}>
-              <pre className="whitespace-pre-wrap break-words text-[13px] leading-relaxed">{display}</pre>
+              {isReasoning && (
+                <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  Reasoning
+                </div>
+              )}
+              <pre
+                className={`whitespace-pre-wrap break-words text-[13px] leading-relaxed ${
+                  isReasoning ? "border-l-2 border-muted-foreground/30 pl-2 text-muted-foreground" : ""
+                }`}
+              >
+                {display}
+              </pre>
               {isLong && (
                 <button
                   type="button"
@@ -462,6 +478,57 @@ function SessionSidebarItem({
   )
 }
 
+function ToolTimeline({ messages }: { messages: SessionMessage[] }) {
+  const tools = useMemo(() => {
+    const items: { name: string; status?: string }[] = []
+    for (const msg of messages) {
+      for (const part of msg.parts ?? []) {
+        const isTool = typeof part.type === "string" && (part.type.startsWith("tool") || part.type === "dynamic-tool")
+        if (!isTool) continue
+        const stateObj = part.state && typeof part.state === "object" ? part.state : undefined
+        const rawStatus = typeof part.state === "string" ? part.state : stateObj?.status
+        const status =
+          rawStatus === "input-available" || rawStatus === "streaming"
+            ? "running"
+            : rawStatus === "output-available"
+              ? "done"
+              : rawStatus === "output-error"
+                ? "error"
+                : rawStatus
+        items.push({ name: part.tool ?? part.toolName ?? "unknown", status })
+      }
+    }
+    return items.slice(-12)
+  }, [messages])
+
+  if (tools.length === 0) return null
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2">
+      <ListBullets className="size-3 text-muted-foreground" />
+      <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tools</span>
+      {tools.map((t, i) => (
+        <span
+          key={`${t.name}-${i}`}
+          className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] ${
+            t.status === "running"
+              ? "border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-300"
+              : t.status === "error"
+                ? "border-red-300 text-red-700 dark:border-red-800 dark:text-red-300"
+                : t.status === "done"
+                  ? "border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300"
+                  : "border-border text-muted-foreground"
+          }`}
+        >
+          <Wrench className="size-2.5" />
+          {t.name}
+          {t.status === "running" && <ArrowClockwise className="size-2.5 animate-spin" />}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Main detail page
 // ---------------------------------------------------------------------------
@@ -476,9 +543,83 @@ export default function ContainerDetailPage() {
   const navigate = useNavigate()
   const { data, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useSessionDetail(entityKey)
   const destroyContainer = useDestroyContainer()
+  const sendPrompt = useSendPrompt(entityKey)
+  const entityEvents = useEvents({ entityKey, limit: 8 })
   const [showLogs, setShowLogs] = useState(false)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [destroyOpen, setDestroyOpen] = useState(false)
+  const [draft, setDraft] = useState("")
+  const [optimistic, setOptimistic] = useState<SessionMessage[]>([])
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
+
+  const detail = (data ?? null) as SessionDetailResponse | null
+  const sessions = detail?.sessions ?? []
+  const sessionStatus = detail?.sessionStatus ?? {}
+  const messages = detail?.messages ?? {}
+  const logs = detail?.logs ?? ""
+  const syncError = detail?.syncError
+
+  const orderedSessions = useMemo(() => {
+    const rootSessions = sessions.filter((s) => !s.parentID)
+    const childSessionsByParent = new Map<string, SessionInfo[]>()
+    for (const s of sessions) {
+      if (s.parentID) {
+        const arr = childSessionsByParent.get(s.parentID) ?? []
+        arr.push(s)
+        childSessionsByParent.set(s.parentID, arr)
+      }
+    }
+    const ordered: SessionInfo[] = []
+    for (const root of rootSessions) {
+      ordered.push(root)
+      const children = childSessionsByParent.get(root.id)
+      if (children) ordered.push(...children)
+    }
+    const placed = new Set(ordered.map((s) => s.id))
+    for (const s of sessions) {
+      if (!placed.has(s.id)) ordered.push(s)
+    }
+    return ordered
+  }, [sessions])
+
+  const allMessages = useMemo(() => Object.values(messages).flat(), [messages])
+  const effectiveSessionId = activeSessionId ?? orderedSessions[0]?.id ?? null
+  const ownActiveMessages = effectiveSessionId ? (messages[effectiveSessionId] ?? []) : []
+  const activeSession = orderedSessions.find((s) => s.id === effectiveSessionId)
+  const serverMessages =
+    ownActiveMessages.length === 0 && orderedSessions.length === 1 ? allMessages : ownActiveMessages
+  const activeMessages = useMemo(() => [...serverMessages, ...optimistic], [serverMessages, optimistic])
+  const messageCount = activeMessages.length
+  const streamingPlaceholder = hasBusyPlaceholder(activeMessages)
+
+  // Clear optimistic bubbles once the server transcript catches up.
+  useEffect(() => {
+    if (optimistic.length === 0) return
+    const serverUserTexts = new Set(
+      serverMessages
+        .filter((m) => m.info?.role === "user")
+        .map((m) => m.parts?.map((p) => p.text ?? "").join("") ?? "")
+        .filter(Boolean),
+    )
+    setOptimistic((prev) =>
+      prev.filter((m) => {
+        const t = m.parts?.[0]?.text ?? ""
+        if (!t) return false
+        // Match full operator-prefixed text, or the raw body if the server
+        // strips / rewrites the prefix.
+        const raw = t.startsWith("Operator guidance:\n\n") ? t.slice("Operator guidance:\n\n".length) : t
+        return ![...serverUserTexts].some((s) => s === t || s === raw || s.includes(raw))
+      }),
+    )
+  }, [serverMessages, optimistic.length])
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return
+    if (messageCount === 0 && !streamingPlaceholder) return
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [messageCount, streamingPlaceholder])
 
   const handleDestroy = () => {
     destroyContainer.mutate(entityKey, {
@@ -550,7 +691,7 @@ export default function ContainerDetailPage() {
     )
   }
 
-  if (isError || !data) {
+  if (isError || !detail) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-2">
@@ -567,50 +708,10 @@ export default function ContainerDetailPage() {
     )
   }
 
-  const detail = data as SessionDetailResponse
-  const sessions = detail.sessions ?? []
-  const sessionStatus = detail.sessionStatus ?? {}
-  const messages = detail.messages ?? {}
-  const logs = detail.logs ?? ""
-
   const ghUrl = entityGitHubUrl(entityKey, "issues")
   const parsed = parseEntityKey(entityKey)
   const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : null
-
-  // Order sessions: root first, then children grouped under parents
-  const rootSessions = sessions.filter((s) => !s.parentID)
-  const childSessionsByParent = new Map<string, SessionInfo[]>()
-  for (const s of sessions) {
-    if (s.parentID) {
-      const arr = childSessionsByParent.get(s.parentID) ?? []
-      arr.push(s)
-      childSessionsByParent.set(s.parentID, arr)
-    }
-  }
-  const orderedSessions: SessionInfo[] = []
-  for (const root of rootSessions) {
-    orderedSessions.push(root)
-    const children = childSessionsByParent.get(root.id)
-    if (children) orderedSessions.push(...children)
-  }
-  // Orphaned children
-  const placed = new Set(orderedSessions.map((s) => s.id))
-  for (const s of sessions) {
-    if (!placed.has(s.id)) orderedSessions.push(s)
-  }
-
-  const allMessages = Object.values(messages).flat()
-
-  // Active session
-  const effectiveSessionId = activeSessionId ?? orderedSessions[0]?.id ?? null
-  const ownActiveMessages = effectiveSessionId ? (messages[effectiveSessionId] ?? []) : []
-  const activeSession = orderedSessions.find((s) => s.id === effectiveSessionId)
-  // A lone placeholder session keys its messages under a different id than the one
-  // it advertises, so fall back to every message when this session has none of its
-  // own. This also feeds the derived agent/model/cost in the header.
-  const activeMessages =
-    ownActiveMessages.length === 0 && orderedSessions.length === 1 ? allMessages : ownActiveMessages
-  const activeSummary = summarizeSession(activeSession, activeMessages)
+  const activeSummary = summarizeSession(activeSession, serverMessages)
 
   // Summary. Cost is derived per-session with a message fallback so pending
   // placeholder sessions (no cost on the session object) still report a total.
@@ -625,6 +726,27 @@ export default function ContainerDetailPage() {
   const statusValues = Object.values(sessionStatus)
   const hasBusy = statusValues.some((s) => s.type === "busy")
   const overallStatus = hasBusy ? "busy" : statusValues.length > 0 ? "idle" : "unknown"
+
+  const handleSend = () => {
+    const text = draft.trim()
+    if (!text || sendPrompt.isPending) return
+    const optId = `opt-${crypto.randomUUID()}`
+    const prefixed = `Operator guidance:\n\n${text}`
+    setOptimistic((prev) => [
+      ...prev,
+      {
+        info: { id: optId, role: "user", createdAt: new Date().toISOString() },
+        parts: [{ type: "text", text: prefixed }],
+      },
+    ])
+    setDraft("")
+    stickToBottomRef.current = true
+    sendPrompt.mutate(text, {
+      onError: () => {
+        setOptimistic((prev) => prev.filter((m) => m.info?.id !== optId))
+      },
+    })
+  }
 
   return (
     <div className="-m-6 flex h-[calc(100%+3rem)] min-w-0 flex-col overflow-hidden">
@@ -661,7 +783,9 @@ export default function ContainerDetailPage() {
               {detail.updatedAt && (
                 <span className="inline-flex items-center gap-1">
                   <Clock className="size-3" />
-                  {formatTimeAgo(detail.updatedAt)}
+                  {formatTimeAgo(
+                    typeof detail.updatedAt === "string" ? detail.updatedAt : new Date(detail.updatedAt).toISOString(),
+                  )}
                 </span>
               )}
             </div>
@@ -680,36 +804,89 @@ export default function ContainerDetailPage() {
         </div>
       </div>
 
+      {syncError && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <Warning className="mt-0.5 size-3.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <span className="font-medium">Couldn't reach the live agent.</span> Showing the last saved snapshot —
+            messages may be empty or stale.
+            <details className="mt-1">
+              <summary className="cursor-pointer text-[10px] opacity-80">Technical details</summary>
+              <code className="mt-0.5 block break-all font-mono text-[10px] opacity-70">{syncError}</code>
+            </details>
+          </div>
+          <Button variant="outline" size="xs" className="shrink-0" onClick={() => refetch()} disabled={isFetching}>
+            <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Main content: sidebar + chat */}
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* Session sidebar */}
-        <div className="w-56 shrink-0 overflow-y-auto border-r p-2">
-          <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Sessions ({orderedSessions.length})
+        <div className="flex w-56 shrink-0 flex-col overflow-hidden border-r">
+          <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Sessions ({orderedSessions.length})
+            </div>
+            <div className="space-y-0.5">
+              {orderedSessions.map((s) => {
+                const ownMessages = Array.isArray(messages[s.id]) ? messages[s.id] : []
+                const sessionMessages =
+                  ownMessages.length === 0 && orderedSessions.length === 1 ? allMessages : ownMessages
+                const itemSummary = summarizeSession(s, sessionMessages)
+                return (
+                  <SessionSidebarItem
+                    key={s.id}
+                    session={s}
+                    status={sessionStatus[s.id]?.type ?? "unknown"}
+                    messageCount={sessionMessages.length}
+                    agent={itemSummary.agent}
+                    cost={itemSummary.cost}
+                    isActive={s.id === effectiveSessionId}
+                    onClick={() => setActiveSessionId(s.id)}
+                  />
+                )
+              })}
+              {orderedSessions.length === 0 && (
+                <div className="px-2 py-4 text-center text-xs text-muted-foreground">No sessions</div>
+              )}
+            </div>
           </div>
-          <div className="space-y-0.5">
-            {orderedSessions.map((s) => {
-              const ownMessages = Array.isArray(messages[s.id]) ? messages[s.id] : []
-              // A lone placeholder session keys its messages under a different id;
-              // fall back to every message so its count/agent/cost aren't blank.
-              const sessionMessages =
-                ownMessages.length === 0 && orderedSessions.length === 1 ? allMessages : ownMessages
-              const itemSummary = summarizeSession(s, sessionMessages)
-              return (
-                <SessionSidebarItem
-                  key={s.id}
-                  session={s}
-                  status={sessionStatus[s.id]?.type ?? "unknown"}
-                  messageCount={sessionMessages.length}
-                  agent={itemSummary.agent}
-                  cost={itemSummary.cost}
-                  isActive={s.id === effectiveSessionId}
-                  onClick={() => setActiveSessionId(s.id)}
-                />
-              )
-            })}
-            {orderedSessions.length === 0 && (
-              <div className="px-2 py-4 text-center text-xs text-muted-foreground">No sessions</div>
+          <div className="max-h-48 shrink-0 overflow-y-auto border-t p-2">
+            <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Recent events
+            </div>
+            {entityEvents.isLoading ? (
+              <div className="px-2 text-[10px] text-muted-foreground">Loading…</div>
+            ) : entityEvents.isError ? (
+              <div className="px-2 text-[10px] text-destructive">Couldn't load events</div>
+            ) : !entityEvents.data?.data.length ? (
+              <div className="px-2 text-[10px] text-muted-foreground">No events</div>
+            ) : (
+              <div className="space-y-1">
+                {entityEvents.data.data.map((ev) => (
+                  <button
+                    key={ev.id}
+                    type="button"
+                    onClick={() => navigate(`/events/${ev.id}`)}
+                    className="flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left hover:bg-muted/50"
+                  >
+                    <span className="truncate text-[11px] font-medium">
+                      {ev.event}
+                      {ev.action ? `.${ev.action}` : ""}
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <StatusBadge status={ev.status} />
+                      <span className="text-[10px] text-muted-foreground">{formatTimeAgo(ev.createdAt)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -754,13 +931,29 @@ export default function ContainerDetailPage() {
             </div>
           )}
 
+          <ToolTimeline messages={serverMessages} />
+
           {/* Messages */}
-          <div className="min-w-0 flex-1 overflow-y-auto">
+          <div
+            ref={chatScrollRef}
+            className="min-w-0 flex-1 overflow-y-auto"
+            onScroll={() => {
+              const el = chatScrollRef.current
+              if (!el) return
+              stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+            }}
+          >
             {activeMessages.length > 0 ? (
               <div className="min-w-0 divide-y divide-border/30">
                 {activeMessages.map((msg, i) => (
-                  <ChatMessage key={msg.info?.id ?? `${effectiveSessionId}-${i}`} message={msg} />
+                  <div
+                    key={msg.info?.id ?? `${effectiveSessionId}-${i}`}
+                    className={msg.info?.id?.startsWith("opt-") ? "opacity-70" : undefined}
+                  >
+                    <ChatMessage message={msg} />
+                  </div>
                 ))}
+                <div ref={chatEndRef} />
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center gap-2 py-16">
@@ -771,6 +964,41 @@ export default function ContainerDetailPage() {
               </div>
             )}
           </div>
+
+          {/* Operator composer */}
+          <div className="shrink-0 border-t bg-background p-3">
+            {sendPrompt.isError && (
+              <p id="operator-prompt-error" className="mb-2 text-xs text-destructive" role="alert">
+                {sendPrompt.error instanceof Error ? sendPrompt.error.message : "Failed to send"}
+              </p>
+            )}
+            <div className="flex items-end gap-2">
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                    e.preventDefault()
+                    handleSend()
+                  }
+                }}
+                aria-label="Operator guidance"
+                aria-invalid={sendPrompt.isError || undefined}
+                aria-describedby={sendPrompt.isError ? "operator-prompt-error" : undefined}
+                placeholder="Send guidance to the agent… (⌘/Ctrl+Enter)"
+                rows={2}
+                className="min-h-[2.5rem] flex-1 resize-none border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50"
+              />
+              <Button size="sm" disabled={!draft.trim() || sendPrompt.isPending} onClick={handleSend}>
+                {sendPrompt.isPending ? (
+                  <ArrowClockwise className="size-3.5 animate-spin" />
+                ) : (
+                  <PaperPlaneTilt className="size-3.5" />
+                )}
+                {sendPrompt.isPending ? "Sending…" : "Send"}
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -778,4 +1006,8 @@ export default function ContainerDetailPage() {
       {showLogs && <LogsPanel logs={logs} onClose={() => setShowLogs(false)} />}
     </div>
   )
+}
+
+function hasBusyPlaceholder(messages: SessionMessage[]): boolean {
+  return messages.some((m) => m.info?.role === "assistant" && !m.parts?.length)
 }

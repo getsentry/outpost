@@ -8,7 +8,7 @@
 // start of such turns. Idempotent and best-effort (never throws into the turn).
 
 import { getSandbox } from "@cloudflare/sandbox"
-import { eq } from "drizzle-orm"
+import { desc, eq, isNull } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { createGitHubApp } from "@/lib/github/app"
@@ -63,11 +63,22 @@ export async function ensureDoSandboxPrepped(env: DoPrepEnv, instanceId: string,
 
   const db = drizzle(env.DB, { schema: dbSchema })
   const rows = await db
-    .select({ entityKey: dbSchema.agentSessions.entityKey })
+    .select({ entityKey: dbSchema.agentSessions.entityKey, sessionId: dbSchema.agentSessions.sessionId })
     .from(dbSchema.agentSessions)
     .where(eq(dbSchema.agentSessions.sessionId, instanceId))
     .limit(1)
-  const entityKey = rows[0]?.entityKey
+  let entityKey = rows[0]?.entityKey
+  // Legacy rows may have null session_id — fall back to matching sanitized entity keys.
+  if (!entityKey) {
+    const { toAgentInstanceId } = await import("./ids")
+    const candidates = await db
+      .select({ entityKey: dbSchema.agentSessions.entityKey })
+      .from(dbSchema.agentSessions)
+      .where(isNull(dbSchema.agentSessions.sessionId))
+      .orderBy(desc(dbSchema.agentSessions.updatedAt))
+      .limit(200)
+    entityKey = candidates.find((r) => toAgentInstanceId(r.entityKey) === instanceId)?.entityKey
+  }
   if (!entityKey) {
     console.warn("do-prep: no agent_sessions row", { instanceId })
     return
