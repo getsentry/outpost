@@ -148,13 +148,19 @@ export function createGitHubApp(config: GitHubAppConfig) {
           privateKey,
         },
       })
-      const { data: installations } = await appOctokit.apps.listInstallations({ per_page: 100 })
+      // Paginate — a single page of 100 silently drops later installs/repos and
+      // the picker would then hide free-text when anything non-empty returns.
+      const installations = await appOctokit.paginate(appOctokit.apps.listInstallations, { per_page: 100 })
       const repos = new Set<string>()
       for (const installation of installations) {
         try {
           const octokit = this.getInstallationOctokit(installation.id)
-          const { data } = await octokit.apps.listReposAccessibleToInstallation({ per_page: 100 })
-          for (const repo of data.repositories) repos.add(repo.full_name)
+          const repositories = await octokit.paginate(
+            octokit.apps.listReposAccessibleToInstallation,
+            { per_page: 100 },
+            (response) => response.data.repositories,
+          )
+          for (const repo of repositories) repos.add(repo.full_name)
         } catch {
           // One inaccessible installation shouldn't blank the whole picker.
         }

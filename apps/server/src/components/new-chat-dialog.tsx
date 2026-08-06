@@ -23,34 +23,43 @@ import { isValidRepoSlug } from "@/lib/containers/chat-run"
 /**
  * Start an agent run from the dashboard instead of waiting for a GitHub event.
  *
- * The repo picker lists repositories the GitHub App can reach; when that list
- * can't be loaded the field falls back to free text so the feature still works.
+ * The repo picker lists repositories the GitHub App can reach. Free-text entry
+ * stays available so a truncated or incomplete install list can't hide a repo
+ * the App can still clone.
  */
 export function NewChatDialog({ trigger }: { trigger?: ReactElement }) {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const [repo, setRepo] = useState("")
   const [text, setText] = useState("")
+  const [customRepo, setCustomRepo] = useState(false)
 
   const repos = useChatRepos(open)
   const startChat = useStartChat()
 
   const knownRepos = repos.data?.repos ?? []
-  const selectedRepo = repo || knownRepos[0] || ""
-  const canSubmit = isValidRepoSlug(selectedRepo.trim()) && text.trim().length > 0 && !startChat.isPending
+  const useSelect = !customRepo && knownRepos.length > 0
+  const canSubmit = isValidRepoSlug(repo.trim()) && text.trim().length > 0 && !startChat.isPending
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next)
-    if (!next) startChat.reset()
+    if (!next) {
+      startChat.reset()
+      setRepo("")
+      setText("")
+      setCustomRepo(false)
+    }
   }
 
   const handleSubmit = () => {
     if (!canSubmit) return
     startChat.mutate(
-      { repo: selectedRepo.trim(), text: text.trim() },
+      { repo: repo.trim(), text: text.trim() },
       {
         onSuccess: ({ entityKey }) => {
           setText("")
+          setRepo("")
+          setCustomRepo(false)
           setOpen(false)
           navigate(`/containers/detail?key=${encodeURIComponent(entityKey)}`)
         },
@@ -84,29 +93,55 @@ export function NewChatDialog({ trigger }: { trigger?: ReactElement }) {
                 <Spinner />
                 Loading repositories…
               </div>
-            ) : knownRepos.length > 0 ? (
-              <Select value={selectedRepo} onValueChange={(value) => setRepo(value as string)}>
-                <SelectTrigger id="new-chat-repo" className="w-full">
-                  <SelectValue placeholder="Choose a repository" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {knownRepos.map((name) => (
-                      <SelectItem key={name} value={name}>
-                        {name}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
+            ) : useSelect ? (
+              <div className="flex flex-col gap-1.5">
+                <Select value={repo || null} onValueChange={(value) => setRepo((value as string) ?? "")}>
+                  <SelectTrigger id="new-chat-repo" className="w-full">
+                    <SelectValue placeholder="Choose a repository" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {knownRepos.map((name) => (
+                        <SelectItem key={name} value={name}>
+                          {name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <button
+                  type="button"
+                  className="self-start text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setCustomRepo(true)
+                    setRepo("")
+                  }}
+                >
+                  Enter a repo not listed
+                </button>
+              </div>
             ) : (
-              <Input
-                id="new-chat-repo"
-                value={repo}
-                onChange={(e) => setRepo(e.target.value)}
-                placeholder="owner/repo"
-                aria-invalid={repo.trim().length > 0 && !isValidRepoSlug(repo.trim())}
-              />
+              <div className="flex flex-col gap-1.5">
+                <Input
+                  id="new-chat-repo"
+                  value={repo}
+                  onChange={(e) => setRepo(e.target.value)}
+                  placeholder="owner/repo"
+                  aria-invalid={repo.trim().length > 0 && !isValidRepoSlug(repo.trim())}
+                />
+                {knownRepos.length > 0 && (
+                  <button
+                    type="button"
+                    className="self-start text-[11px] text-muted-foreground underline-offset-2 hover:underline"
+                    onClick={() => {
+                      setCustomRepo(false)
+                      setRepo("")
+                    }}
+                  >
+                    Pick from installed repos
+                  </button>
+                )}
+              </div>
             )}
             <FieldDescription>The agent clones this repository into its sandbox before it starts.</FieldDescription>
           </Field>

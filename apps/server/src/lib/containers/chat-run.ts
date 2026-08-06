@@ -19,10 +19,16 @@ const CHAT_ENTITY_KEY = /^([^#]+)#chat-[0-9a-f]+$/
 /**
  * `toAgentInstanceId` truncates to 63 characters, and a truncated key would drop
  * the `chat-<id>` suffix — two chat runs on the same repo would then collide on
- * one sandbox and one Flue conversation. Reject repos long enough for that to
- * happen (~50 chars); real `owner/repo` slugs are far shorter.
+ * one sandbox and one Flue conversation. Keep room for `#chat-` + 12 hex chars
+ * (45 + 6 + 12 = 63). Real `owner/repo` slugs are far shorter.
  */
-export const MAX_CHAT_REPO_LENGTH = 48
+export const MAX_CHAT_REPO_LENGTH = 45
+
+/** Hex chars kept from the UUID — 48 bits is enough at dashboard volumes. */
+export const CHAT_ID_HEX_LENGTH = 12
+
+/** How long a chat run is considered "still starting" before follow-ups are allowed. */
+export const CHAT_STARTING_WINDOW_MS = 5 * 60 * 1000
 
 /** Prefix on every operator-typed turn, so the agent can tell it from webhook text. */
 export const OPERATOR_PROMPT_PREFIX = "Operator guidance:\n\n"
@@ -61,7 +67,7 @@ export function isValidRepoSlug(repo: string): boolean {
 
 /** Mint a fresh entity key for a chat run against `repo`. */
 export function createChatEntityKey(repo: string, id: string = crypto.randomUUID()): string {
-  return `${repo}#chat-${id.replace(/[^0-9a-f]/g, "").slice(0, 8)}`
+  return `${repo}#chat-${id.replace(/[^0-9a-f]/g, "").slice(0, CHAT_ID_HEX_LENGTH)}`
 }
 
 /** True when this entity key belongs to a dashboard-started chat run. */

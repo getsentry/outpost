@@ -87,6 +87,10 @@ export type SessionDetailResponse = {
   logs: string
   /** Present when Phase 2 Flue history pull failed; D1 snapshot may be stale/empty. */
   syncError?: string | null
+  /** Present when a dashboard chat run's opening admit failed. */
+  chatError?: string | null
+  /** True once the opening chat prompt was admitted (follow-ups are safe). */
+  chatAdmitted?: boolean
 }
 
 export type EventStats = {

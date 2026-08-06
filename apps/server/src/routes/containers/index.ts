@@ -22,8 +22,10 @@ import type { DrizzleD1Database } from "drizzle-orm/d1"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
 import {
+  CHAT_STARTING_WINDOW_MS,
   createChatEntityKey,
   formatOperatorPrompt,
+  isChatEntityKey,
   isValidRepoSlug,
   MAX_CHAT_REPO_LENGTH,
 } from "@/lib/containers/chat-run"
@@ -45,6 +47,7 @@ import {
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
 import {
+  countSessionMessages,
   demoteBusyStatusesToIdle,
   deriveDisplayStatus,
   deriveOverallStatus,
@@ -255,6 +258,80 @@ async function admitPrompt(
   const sandbox = getSandbox(env.Sandbox, toAgentInstanceId(opts.entityKey), SANDBOX_OPTS)
   await dispatchPrompt(sandbox, opts.entityKey, opts.prompt, submissionId)
   return { submissionId }
+}
+
+/**
+ * Record that a chat run's opening admit failed so the UI can stop saying
+ * "starting up" and Clear Idle / stale demotion can treat it as finished.
+ */
+async function patchChatSessionMeta(
+  db: DrizzleD1Database<typeof dbSchema>,
+  entityKey: string,
+  patch: { chatError?: string; chatAdmitted?: boolean },
+): Promise<void> {
+  const row = await db.query.agentSessions.findFirst({
+    where: eq(dbSchema.agentSessions.entityKey, entityKey),
+    columns: { sessionData: true },
+  })
+  if (!row) return
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(row.sessionData) as Record<string, unknown>
+  } catch {
+    parsed = {}
+  }
+  if (patch.chatError !== undefined) parsed.chatError = patch.chatError.slice(0, 500)
+  if (patch.chatAdmitted !== undefined) {
+    parsed.chatAdmitted = patch.chatAdmitted
+    if (patch.chatAdmitted) delete parsed.chatError
+  }
+  let next = JSON.stringify(parsed)
+  if (patch.chatError !== undefined) next = demoteBusyStatusesToIdle(next)
+  await db
+    .update(dbSchema.agentSessions)
+    .set({ sessionData: next })
+    .where(eq(dbSchema.agentSessions.entityKey, entityKey))
+}
+
+/**
+ * Chat runs admit the opening turn asynchronously. Follow-ups that land before
+ * that admit finishes race sandbox prep and can reorder the Flue conversation.
+ */
+async function chatStartGate(
+  db: DrizzleD1Database<typeof dbSchema>,
+  entityKey: string,
+): Promise<{ blocked: true; status: 409 | 503; error: string } | { blocked: false }> {
+  if (!isChatEntityKey(entityKey)) return { blocked: false }
+  const session = await db.query.agentSessions.findFirst({
+    where: eq(dbSchema.agentSessions.entityKey, entityKey),
+    columns: { sessionData: true, createdAt: true },
+  })
+  if (!session) return { blocked: false }
+  if (countSessionMessages(session.sessionData) > 0) return { blocked: false }
+
+  let chatError: string | null = null
+  let chatAdmitted = false
+  try {
+    const parsed = JSON.parse(session.sessionData) as { chatError?: unknown; chatAdmitted?: unknown }
+    chatError = typeof parsed.chatError === "string" && parsed.chatError ? parsed.chatError : null
+    chatAdmitted = parsed.chatAdmitted === true
+  } catch {
+    /* ignore */
+  }
+  if (chatAdmitted) return { blocked: false }
+  if (chatError) {
+    return { blocked: true, status: 503, error: `Chat failed to start: ${chatError}` }
+  }
+
+  const age = Date.now() - new Date(session.createdAt).getTime()
+  if (age < CHAT_STARTING_WINDOW_MS) {
+    return {
+      blocked: true,
+      status: 409,
+      error: "Chat is still starting — wait for the first message to appear, then try again.",
+    }
+  }
+  return { blocked: false }
 }
 
 const router = new Hono<BaseEnv>()
@@ -549,6 +626,8 @@ const router = new Hono<BaseEnv>()
     }
 
     const statusObservedAt = typeof updatedAt === "string" ? updatedAt : new Date(updatedAt).toISOString()
+    const chatError = typeof parsed.chatError === "string" && parsed.chatError ? parsed.chatError : null
+    const chatAdmitted = parsed.chatAdmitted === true
 
     return c.json({
       entityKey: session.entityKey,
@@ -562,6 +641,8 @@ const router = new Hono<BaseEnv>()
       messages: parsed.messages ?? {},
       logs: parsed.logs ?? "",
       syncError,
+      chatError,
+      chatAdmitted,
     })
   })
 
@@ -573,6 +654,9 @@ const router = new Hono<BaseEnv>()
     const text = body?.text?.trim()
     if (!text) return c.json({ error: "text required" }, 400)
     if (text.length > 20_000) return c.json({ error: "text too long (max 20000)" }, 400)
+
+    const gate = await chatStartGate(db, entityKey)
+    if (gate.blocked) return c.json({ error: gate.error }, gate.status)
 
     const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
     const logger = c.get("logger").child({ ns: "containers.prompt", entity_key: entityKey })
@@ -674,9 +758,20 @@ const router = new Hono<BaseEnv>()
         }
         try {
           await admitPrompt(c.env, { entityKey, prompt, flueNative, logger })
+          try {
+            await patchChatSessionMeta(db, entityKey, { chatAdmitted: true })
+          } catch {
+            /* best effort — gate also clears once Flue history syncs */
+          }
           logger.info({ repo }, "chat run started")
         } catch (err) {
-          logger.error({ error: formatError(err) }, "chat run admit failed")
+          const message = formatError(err)
+          logger.error({ error: message }, "chat run admit failed")
+          try {
+            await patchChatSessionMeta(db, entityKey, { chatError: message })
+          } catch {
+            /* best effort */
+          }
         }
       })(),
     )

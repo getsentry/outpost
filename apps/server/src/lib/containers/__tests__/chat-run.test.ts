@@ -35,11 +35,15 @@ describe("chat run entity keys", () => {
 
   it("survives sandbox id sanitization, so two runs never share a container", () => {
     const repo = `${"a".repeat(20)}/${"b".repeat(MAX_CHAT_REPO_LENGTH - 21)}`
-    const a = toAgentInstanceId(createChatEntityKey(repo))
+    const key = createChatEntityKey(repo)
+    const a = toAgentInstanceId(key)
     const b = toAgentInstanceId(createChatEntityKey(repo))
 
+    expect(key.length).toBeLessThanOrEqual(63)
     expect(a).not.toBe(b)
     expect(a.length).toBeLessThanOrEqual(63)
+    // 12-hex suffix must survive truncation or two max-length repos collide.
+    expect(a).toMatch(/chat-[0-9a-f]{12}$/)
   })
 
   it("rejects repos that are not owner/name, or long enough to be truncated", () => {

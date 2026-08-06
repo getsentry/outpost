@@ -584,6 +584,8 @@ export default function ContainerDetailPage() {
   const messages = detail?.messages ?? {}
   const logs = detail?.logs ?? ""
   const syncError = detail?.syncError
+  const chatError = detail?.chatError
+  const chatAdmitted = detail?.chatAdmitted === true
 
   const orderedSessions = useMemo(() => {
     const rootSessions = sessions.filter((s) => !s.parentID)
@@ -617,6 +619,9 @@ export default function ContainerDetailPage() {
   const activeMessages = useMemo(() => [...serverMessages, ...optimistic], [serverMessages, optimistic])
   const messageCount = activeMessages.length
   const streamingPlaceholder = hasBusyPlaceholder(activeMessages)
+  // Opening admit is async — block the composer until it lands so a follow-up
+  // can't race sandbox prep and reorder the Flue conversation.
+  const chatStarting = !!chatRepo && allMessages.length === 0 && !chatAdmitted && !chatError && optimistic.length === 0
 
   // Clear optimistic bubbles once the server transcript catches up. Both sides
   // are reduced to the operator's own words, so the agent framing the Worker
@@ -854,6 +859,18 @@ export default function ContainerDetailPage() {
         </div>
       )}
 
+      {chatError && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 border-b border-border/60 bg-muted/40 px-4 py-2 text-xs text-muted-foreground"
+        >
+          <Warning className="mt-0.5 size-3.5 shrink-0 text-destructive" />
+          <div className="min-w-0 flex-1">
+            <span className="font-medium text-foreground">Chat failed to start.</span> {chatError}
+          </div>
+        </div>
+      )}
+
       {/* Main content: sidebar + chat */}
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* Session sidebar */}
@@ -1012,8 +1029,12 @@ export default function ContainerDetailPage() {
                       </>
                     ) : overallStatus === "historical" ? (
                       <>This run is historical. The sandbox has likely scaled to zero.</>
-                    ) : chatRepo ? (
+                    ) : chatError ? (
+                      <>Chat failed to start: {chatError}</>
+                    ) : chatStarting ? (
                       <>The agent is starting up on {chatRepo}. Your message appears here once it reports in.</>
+                    ) : chatRepo ? (
+                      <>Send a follow-up below to keep talking to the agent.</>
                     ) : (
                       <>Send operator guidance below to continue the agent, or open a related webhook event.</>
                     )}
@@ -1031,6 +1052,11 @@ export default function ContainerDetailPage() {
 
           {/* Operator composer */}
           <div className="shrink-0 border-t bg-background p-3">
+            {chatStarting && (
+              <p className="mb-2 text-xs text-muted-foreground">
+                Waiting for the agent to pick up the first message before you can send another…
+              </p>
+            )}
             {sendPrompt.isError && (
               <p id="operator-prompt-error" className="mb-2 text-xs text-destructive" role="alert">
                 {sendPrompt.error instanceof Error ? sendPrompt.error.message : "Failed to send"}
@@ -1046,16 +1072,27 @@ export default function ContainerDetailPage() {
                     handleSend()
                   }
                 }}
+                disabled={chatStarting || !!chatError}
                 aria-label={chatRepo ? "Message to the agent" : "Operator guidance"}
                 aria-invalid={sendPrompt.isError || undefined}
                 aria-describedby={sendPrompt.isError ? "operator-prompt-error" : undefined}
                 placeholder={
-                  chatRepo ? "Message the agent… (⌘/Ctrl+Enter)" : "Send guidance to the agent… (⌘/Ctrl+Enter)"
+                  chatError
+                    ? "Chat failed to start"
+                    : chatStarting
+                      ? "Starting…"
+                      : chatRepo
+                        ? "Message the agent… (⌘/Ctrl+Enter)"
+                        : "Send guidance to the agent… (⌘/Ctrl+Enter)"
                 }
                 rows={2}
-                className="min-h-[2.5rem] flex-1 resize-none border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50"
+                className="min-h-[2.5rem] flex-1 resize-none border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
               />
-              <Button size="sm" disabled={!draft.trim() || sendPrompt.isPending} onClick={handleSend}>
+              <Button
+                size="sm"
+                disabled={!draft.trim() || sendPrompt.isPending || chatStarting || !!chatError}
+                onClick={handleSend}
+              >
                 {sendPrompt.isPending ? (
                   <ArrowClockwise className="size-3.5 animate-spin" />
                 ) : (
