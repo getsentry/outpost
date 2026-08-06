@@ -94,17 +94,17 @@ and respond to feedback.
 ### Phase 4: Implementation
 
 7. **Implement the plan.** Once your plan from step 6 is precise, hand
-   the first-pass edits to the `worker` subagent (cheaper model), giving
-   it: the full plan, the working directory (`/workspace/repo`), the coding
-   conventions from step 3, and the exact files/changes/tests to write.
-   Then **review `worker`'s output yourself** before trusting it — the
+   the first-pass edits to the `implement` subagent (cheaper coding model),
+   giving it: the full plan, the working directory (`/workspace/repo`), the
+   coding conventions from step 3, and the exact files/changes/tests to write.
+   Then **review `implement`'s output yourself** before trusting it — the
    correctness judgment stays with you. For small or subtle changes,
    just do them directly.
 
 8. **Verify the implementation.**
    - Check that every item in the plan was implemented (your judgment).
    - Run the test suite (use the test command from step 3) — you may
-     delegate the test run + failure summary to `worker`.
+     delegate the test run + failure summary to `implement`.
    - If this was a bug fix, run the reproduction from step 5.
 
 9. **Loop if failing.** If tests fail or the issue isn't resolved:

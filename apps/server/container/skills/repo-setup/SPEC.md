@@ -50,8 +50,8 @@ workflow starts with `repo-setup`.
 
 ## Evaluation criteria
 
-- The target repo is edited in `/workspace/repo`, matching OpenCode's project
-  root and snapshots
+- The target repo is edited in `/workspace/repo`, the agent's working directory
+  for the run
 - New issue work starts from the default branch on `issue-<number>-<slug>`
 - Existing PR work checks out the PR head branch
 - Follow-up events do not discard dirty in-progress work on the correct branch
@@ -65,5 +65,5 @@ workflow starts with `repo-setup`.
 - Keep `/workspace/repo` as the only target-repo checkout unless the container
   lifecycle changes. Multi-repo investigation may still clone other repos under
   `~/dev/...` for read-only context.
-- The container runtime already clones the target repo before OpenCode starts;
+- The container runtime already clones the target repo before the agent starts;
   if that changes, update this skill and the runtime together.

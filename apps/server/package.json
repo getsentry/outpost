@@ -13,6 +13,7 @@
     "db:migrate:prod": "NODE_ENV=production wrangler d1 migrations apply --remote jared",
     "db:studio:dev": "drizzle-kit studio",
     "db:studio:prod": "NODE_ENV=production drizzle-kit studio",
+    "sync:skills": "node container/scripts/sync-skills.mjs",
     "test": "vitest run"
   },
   "dependencies": {

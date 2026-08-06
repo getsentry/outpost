@@ -57,7 +57,8 @@ apps/
       Dockerfile            # Thin sandbox image (Phase 2)
       Dockerfile.phase1     # In-container Flue + Lore (Phase 1)
       flue/                 # Phase 1 Node Flue app source
-      .agents/skills/       # Workspace skills discovered by Flue
+      skills/               # Canonical agent skills (SKILL.md + references/ + SPEC.md)
+      .agents/skills/       # Generated from skills/ (SKILL.md + references/); baked into the image
 packages/
   utils/
   validations/
