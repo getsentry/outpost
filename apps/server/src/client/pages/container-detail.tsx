@@ -20,7 +20,7 @@ import {
   Wrench,
   X,
 } from "@phosphor-icons/react"
-import { Fragment, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import type { MessagePart, SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
 import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
@@ -134,7 +134,6 @@ function CopyButton({ text }: { text: string }) {
 // ---------------------------------------------------------------------------
 
 function ChatMessage({ message }: { message: SessionMessage }) {
-  const [expanded, setExpanded] = useState(false)
   const role = message.info?.role ?? "unknown"
   const parts = message.parts ?? []
   const time = message.info?.createdAt ? formatTime(message.info.createdAt) : null
@@ -142,27 +141,23 @@ function ChatMessage({ message }: { message: SessionMessage }) {
   const isAssistant = role === "assistant"
   const isUser = role === "user"
 
-  // OpenCode v1.17.0 emits part types: text, reasoning, tool, step-start, etc.
-  // Flue emits `dynamic-tool` (normalized server-side to `tool`, but keep a
-  // client-side fallback for any blob that skipped normalization).
-  const textParts = parts.filter((p) => (p.type === "text" || p.type === "reasoning") && p.text)
-  const isToolPart = (p: MessagePart) =>
-    typeof p.type === "string" && (p.type.startsWith("tool") || p.type === "dynamic-tool")
-  const toolParts = parts.filter(isToolPart)
-  // Internal stream markers OpenCode emits that aren't worth showing.
-  const NOISE = new Set(["step-start", "step-finish", "snapshot", "patch"])
-  const otherParts = parts.filter(
-    (p) => p.type !== "text" && p.type !== "reasoning" && !isToolPart(p) && !NOISE.has(p.type),
-  )
-
   // Operator messages are framed for the agent before dispatch; show the words
   // the human actually typed.
-  const displayText = (part: MessagePart) => (isUser ? operatorText(part.text ?? "") : (part.text ?? ""))
+  const displayText = (text: string) => (isUser ? operatorText(text) : text)
 
-  // Concatenated visible text for the copy button (text + reasoning parts only).
-  const copyText = textParts.map(displayText).join("\n\n").trim()
+  // Render parts IN ORDER so the agent's narrative reads correctly: a line of
+  // reasoning/text sits right next to the tool call it describes, instead of all
+  // prose being hoisted above a wall of tool calls.
+  const items = useMemo(() => toRenderItems(parts), [parts])
 
-  const hasVisibleContent = textParts.length > 0 || toolParts.length > 0 || otherParts.length > 0
+  // Concatenated visible prose for the copy button (text + reasoning only).
+  const copyText = items
+    .filter((it) => it.kind === "text")
+    .map((it) => displayText(it.text))
+    .join("\n\n")
+    .trim()
+
+  const hasVisibleContent = items.length > 0
   // Assistant messages may still be streaming (no parts yet). Show a working
   // indicator rather than hiding the message, so agent activity is visible.
   if (!hasVisibleContent && !isAssistant) return null
@@ -205,87 +200,26 @@ function ChatMessage({ message }: { message: SessionMessage }) {
           {time && <span className="text-[10px] tabular-nums text-muted-foreground/60">{time}</span>}
         </div>
 
-        {/* Text + reasoning (visually distinct) */}
-        {textParts.map((part, i) => {
-          const text = displayText(part)
-          const isLong = text.length > 1000
-          const display = isLong && !expanded ? `${text.slice(0, 1000)}...` : text
-          const isReasoning = part.type === "reasoning"
-          return (
-            <Fragment key={i}>
-              {isReasoning && (
-                <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
-                  Reasoning
-                </div>
-              )}
-              <pre
-                className={`whitespace-pre-wrap break-words text-[13px] leading-relaxed ${
-                  isReasoning ? "border-l-2 border-muted-foreground/30 pl-2 text-muted-foreground" : ""
-                }`}
-              >
-                {display}
-              </pre>
-              {isLong && (
-                <button
-                  type="button"
-                  onClick={() => setExpanded(!expanded)}
-                  className="mt-1 text-[11px] font-medium text-primary hover:underline"
-                >
-                  {expanded ? "Show less" : `Show all (${text.length.toLocaleString()} chars)`}
-                </button>
-              )}
-            </Fragment>
-          )
-        })}
-
-        {/* Tool calls */}
-        {toolParts.length > 0 && (
-          <div className="mt-2 space-y-1">
-            {toolParts.map((part, i) => {
-              // OpenCode v1.17.0: `state` is an object { status, input, output, ... }.
-              // Legacy: `state` is a string and args/result are top-level.
-              // Flue dynamic-tool (unnormalized): state is a string like
-              // "input-available" / "output-available" with top-level input/output.
-              const stateObj = part.state && typeof part.state === "object" ? part.state : undefined
-              const rawStatus = typeof part.state === "string" ? part.state : stateObj?.status
-              const status =
-                rawStatus === "input-available" || rawStatus === "streaming"
-                  ? "running"
-                  : rawStatus === "output-available"
-                    ? "completed"
-                    : rawStatus === "output-error"
-                      ? "error"
-                      : rawStatus
-              const args =
-                stateObj?.input ??
-                (part.type === "tool-invocation" || part.type === "dynamic-tool"
-                  ? (part.input ?? part.args)
-                  : undefined)
-              const result =
-                stateObj?.output ??
-                (part.type === "dynamic-tool"
-                  ? (part.output ?? part.errorText)
-                  : part.type !== "tool-invocation"
-                    ? part.result
-                    : undefined)
-              return (
-                <ToolCallBlock
-                  key={i}
-                  toolName={part.tool ?? part.toolName ?? "unknown"}
-                  status={status}
-                  args={args}
-                  result={result}
-                />
-              )
-            })}
-          </div>
-        )}
-
-        {otherParts.map((part, i) => (
-          <div key={i} className="mt-1 text-[10px] text-muted-foreground">
-            [{part.type}]
-          </div>
-        ))}
+        {/* Interleaved reasoning / text / tool calls, in the order they happened. */}
+        <div className="space-y-1.5">
+          {items.map((item, i) => {
+            if (item.kind === "text") {
+              return <TextPart key={i} text={displayText(item.text)} reasoning={item.reasoning} />
+            }
+            if (item.kind === "transient") {
+              return <TransientGroup key={i} tools={item.tools} sample={item.sample} />
+            }
+            return (
+              <ToolCallBlock
+                key={i}
+                toolName={item.toolName}
+                status={item.status}
+                args={item.args}
+                result={item.result}
+              />
+            )
+          })}
+        </div>
 
         {isAssistant && !hasVisibleContent && (
           <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
@@ -300,6 +234,178 @@ function ChatMessage({ message }: { message: SessionMessage }) {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Message part normalization
+// ---------------------------------------------------------------------------
+
+type RenderItem =
+  | { kind: "text"; reasoning: boolean; text: string }
+  | {
+      kind: "tool"
+      toolName: string
+      status?: string
+      args?: Record<string, unknown>
+      result?: unknown
+    }
+  // A run of consecutive sandbox-reset failures, collapsed into one quiet row.
+  | { kind: "transient"; tools: string[]; sample: unknown }
+
+// Internal stream markers that aren't worth showing.
+const NOISE_PART_TYPES = new Set(["step-start", "step-finish", "snapshot", "patch"])
+
+const isToolPart = (p: MessagePart) =>
+  typeof p.type === "string" && (p.type.startsWith("tool") || p.type === "dynamic-tool")
+
+/**
+ * Sandbox tools run inside a Cloudflare Durable Object. When the Worker is
+ * redeployed — or the platform recycles the object — in-flight tools fail with
+ * these messages. They are infrastructure hiccups, not the agent getting it
+ * wrong, so we surface them quietly instead of as loud red errors.
+ */
+const TRANSIENT_ERROR_RE =
+  /Durable Object reset|Internal error in Durable Object storage|Network connection lost|object to be reset/i
+
+function isTransientToolError(status: string | undefined, result: unknown): boolean {
+  if (status !== "error") return false
+  const text = typeof result === "string" ? result : result != null ? JSON.stringify(result) : ""
+  return TRANSIENT_ERROR_RE.test(text)
+}
+
+/** Flatten a message's parts into ordered, render-ready items. */
+function toRenderItems(parts: MessagePart[]): RenderItem[] {
+  const items: RenderItem[] = []
+  for (const part of parts) {
+    if ((part.type === "text" || part.type === "reasoning") && part.text) {
+      items.push({ kind: "text", reasoning: part.type === "reasoning", text: part.text })
+      continue
+    }
+    if (isToolPart(part)) {
+      // v1.17.0: `state` is an object { status, input, output }.
+      // Flue dynamic-tool (unnormalized): `state` is a string like
+      // "input-available" / "output-available" with top-level input/output.
+      const stateObj = part.state && typeof part.state === "object" ? part.state : undefined
+      const rawStatus = typeof part.state === "string" ? part.state : stateObj?.status
+      const status =
+        rawStatus === "input-available" || rawStatus === "streaming"
+          ? "running"
+          : rawStatus === "output-available"
+            ? "completed"
+            : rawStatus === "output-error"
+              ? "error"
+              : rawStatus
+      const args =
+        stateObj?.input ??
+        (part.type === "tool-invocation" || part.type === "dynamic-tool" ? (part.input ?? part.args) : undefined)
+      const result =
+        stateObj?.output ??
+        (part.type === "dynamic-tool"
+          ? (part.output ?? part.errorText)
+          : part.type !== "tool-invocation"
+            ? part.result
+            : undefined)
+      const toolName = part.tool ?? part.toolName ?? "unknown"
+
+      if (isTransientToolError(status, result)) {
+        // Coalesce a run of resets into a single quiet row so 90 interrupted
+        // bash calls don't drown out the actual work between them.
+        const prev = items[items.length - 1]
+        if (prev?.kind === "transient") {
+          prev.tools.push(toolName)
+          prev.sample = result
+        } else {
+          items.push({ kind: "transient", tools: [toolName], sample: result })
+        }
+        continue
+      }
+
+      items.push({ kind: "tool", toolName, status, args: args as Record<string, unknown> | undefined, result })
+      continue
+    }
+    // Everything else (unknown / noise) is dropped from the transcript.
+    if (!NOISE_PART_TYPES.has(part.type)) {
+      // Keep a faint breadcrumb for genuinely unknown part types.
+      items.push({ kind: "text", reasoning: true, text: `[${part.type}]` })
+    }
+  }
+  return items
+}
+
+/** A single reasoning or answer block, individually expandable when long. */
+function TextPart({ text, reasoning }: { text: string; reasoning: boolean }) {
+  const [expanded, setExpanded] = useState(false)
+  const isLong = text.length > 1000
+  const display = isLong && !expanded ? `${text.slice(0, 1000)}...` : text
+  return (
+    <div>
+      {reasoning && (
+        <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+          Reasoning
+        </div>
+      )}
+      <pre
+        className={`whitespace-pre-wrap break-words text-[13px] leading-relaxed ${
+          reasoning ? "border-l-2 border-muted-foreground/30 pl-2 text-muted-foreground" : ""
+        }`}
+      >
+        {display}
+      </pre>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="mt-1 text-[11px] font-medium text-primary hover:underline"
+        >
+          {expanded ? "Show less" : `Show all (${text.length.toLocaleString()} chars)`}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * A collapsed run of sandbox-reset failures. These come from deploys or platform
+ * hiccups recycling the tool's Durable Object mid-call — infrastructure, not the
+ * agent — so we fold them into one muted, expandable line instead of a wall of
+ * red errors that makes the run look broken.
+ */
+function TransientGroup({ tools, sample }: { tools: string[]; sample: unknown }) {
+  const [open, setOpen] = useState(false)
+  const count = tools.length
+  const label =
+    count === 1 ? `${tools[0]} interrupted — sandbox reset` : `${count} tool calls interrupted — sandbox reset`
+
+  return (
+    <div className="rounded-md border border-dashed border-border/40 bg-muted/10">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-1 text-left text-[11px] text-muted-foreground/70 hover:bg-muted/20"
+        title="The sandbox was reset (a deploy or platform hiccup), not an agent error. The agent retries these automatically."
+      >
+        <Warning className="size-3 shrink-0 text-muted-foreground/40" />
+        <span className="italic">{label}</span>
+        <span className="ml-auto">
+          {open ? (
+            <CaretDown className="size-3 text-muted-foreground/50" />
+          ) : (
+            <CaretRight className="size-3 text-muted-foreground/50" />
+          )}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-1 border-t border-border/20 px-2.5 py-1.5">
+          {count > 1 && <div className="font-mono text-[10px] text-muted-foreground/50">{tools.join(", ")}</div>}
+          {sample != null && sample !== "" && (
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-relaxed text-muted-foreground/60">
+              {typeof sample === "string" ? sample : JSON.stringify(sample, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -745,6 +851,10 @@ export default function ContainerDetailPage() {
   }, 0)
   const totalCost = perSessionCost > 0 ? perSessionCost : summarizeSession(sessions[0], allMessages).cost
   const totalMessages = allMessages.length
+  // Tool calls are a far more meaningful "how much work happened" signal than
+  // cost, which the Flue runtime does not report per message (so it reads 0).
+  const totalTools = allMessages.reduce((sum, m) => sum + (m.parts?.filter(isToolPart).length ?? 0), 0)
+  const hasAssistant = allMessages.some((m) => m.info?.role === "assistant")
   const overallStatus =
     detail.status ??
     (() => {
@@ -814,14 +924,28 @@ export default function ContainerDetailPage() {
                 <Stack className="size-3" />
                 {sessions.length}
               </span>
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1" title="Messages">
                 <ChatText className="size-3" />
                 {totalMessages}
               </span>
-              {totalCost > 0 && (
-                <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1" title="Tool calls">
+                <Wrench className="size-3" />
+                {totalTools}
+              </span>
+              {totalCost > 0 ? (
+                <span className="inline-flex items-center gap-1" title="Model cost reported for this run">
                   <CurrencyDollar className="size-3" />${totalCost.toFixed(4)}
                 </span>
+              ) : (
+                hasAssistant && (
+                  <span
+                    className="inline-flex items-center gap-1 text-muted-foreground/50"
+                    title="Token usage / cost isn't reported by the agent runtime for these runs, so there's nothing to total here."
+                  >
+                    <CurrencyDollar className="size-3" />
+                    n/a
+                  </span>
+                )
               )}
               {observedAtIso && (
                 <span className="inline-flex items-center gap-1">
