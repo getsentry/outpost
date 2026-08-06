@@ -11,7 +11,10 @@
   "packageManager": "pnpm@10.15.0",
   "pnpm": {
     "overrides": {
-      "undici": ">=7.28.0"
+      "undici": ">=7.28.0",
+      "next": "16.2.11",
+      "js-yaml@^4.0.0": "4.3.0",
+      "sharp": ">=0.35.0"
     },
     "patchedDependencies": {
       "@flue/runtime@2.0.1": "patches/@flue__runtime@2.0.1.patch"
