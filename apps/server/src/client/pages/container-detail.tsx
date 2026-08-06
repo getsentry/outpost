@@ -563,7 +563,7 @@ export default function ContainerDetailPage() {
   // encoded slash (%2F) in the entity key isn't matched by SPA asset fallback.
   const entityKey = searchParams.get("key") ?? (rawKey ? decodeURIComponent(rawKey) : "")
   const navigate = useNavigate()
-  const { data, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useSessionDetail(entityKey)
+  const { data, isLoading, isError, isFetching, refetch, dataUpdatedAt, streaming } = useSessionDetail(entityKey)
   const destroyContainer = useDestroyContainer()
   const sendPrompt = useSendPrompt(entityKey)
   // Chat runs are started from the dashboard, so no webhook ever targets them.
@@ -798,6 +798,15 @@ export default function ContainerDetailPage() {
                 </Badge>
               )}
               <span className="shrink-0 text-[11px] text-muted-foreground">{statusLabel(overallStatus)}</span>
+              {streaming && (
+                <span
+                  className="inline-flex shrink-0 items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400"
+                  title="Live updates streaming over SSE"
+                >
+                  <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+                  Live
+                </span>
+              )}
             </div>
             <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
               {repoName && <GitHubLink href={repoGitHubUrl(repoName)}>{repoName}</GitHubLink>}
