@@ -27,6 +27,11 @@ own container, so `/workspace/repo` is already isolated.
      ```sh
      BRANCH=$(gh pr view <number> --json headRefName --jq .headRefName)
      ```
+   - **Operator chat** (a `New operator chat` turn — a repo but no issue/PR):
+     there is nothing to branch from yet. Stay on the default branch for
+     read-only exploration and answering questions. Only create a branch once
+     the operator asks for a change that needs a PR, and name it for the work
+     (e.g. `chat-<slug>`); don't invent an `issue-*` branch for a chat.
 
 3. **Preserve in-progress follow-up work**. If `/workspace/repo` is already on
    the intended branch and has uncommitted changes, keep them and skip branch

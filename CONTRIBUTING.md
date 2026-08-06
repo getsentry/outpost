@@ -51,9 +51,22 @@
 
 ## Adding agent skills
 
-Agent skills live in `apps/server/container/skills/`. Each skill is a directory with:
+Agent skills live in `apps/server/container/skills/` — this is the single source
+of truth. Each skill is a directory with:
 - `SKILL.md` — instructions the agent follows when the skill is loaded
-- Optional supporting files
+- `references/` — optional supporting files the `SKILL.md` links to
+- `SPEC.md` — optional authoring-only design notes (not shipped to the sandbox)
+
+The runtime tree `apps/server/container/.agents/skills/` (baked into the image
+and discovered by Flue) is **generated** from `skills/` — it mirrors every file
+except `SPEC.md`. After editing a skill, regenerate and commit the result:
+
+```bash
+pnpm -F @jared/server sync:skills
+```
+
+CI fails if `.agents/skills/` is out of date with `skills/`, so never hand-edit
+the generated tree.
 
 ## Database
 
