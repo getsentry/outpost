@@ -69,10 +69,18 @@ export type SessionMessage = {
   parts?: MessagePart[]
 }
 
+export type DisplayRunStatus = "working" | "idle" | "sync_unavailable" | "historical" | "unknown"
+
 export type SessionDetailResponse = {
   entityKey: string
   createdAt: string
   updatedAt: string
+  /** ISO timestamp of the stored snapshot used for status derivation. */
+  statusObservedAt?: string
+  /** Static note about sandbox scale-to-zero behavior. */
+  sandboxHint?: string
+  /** Operator-facing run status (stale busy → sync_unavailable, etc.). */
+  status?: DisplayRunStatus
   sessions: SessionInfo[]
   sessionStatus: Record<string, { type: string }>
   messages: Record<string, SessionMessage[]>
@@ -96,10 +104,12 @@ export type SessionListItem = {
   entityKey: string
   createdAt: string
   updatedAt: string
+  statusObservedAt?: string
+  sandboxHint?: string
   sessionCount: number
   messageCount: number
   totalCost: number
-  status: string
+  status: DisplayRunStatus | string
   title: string | null
   agent: string | null
   model: string | null

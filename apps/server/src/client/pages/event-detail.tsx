@@ -114,7 +114,7 @@ export default function EventDetailPage() {
               onClick={() => navigate(`/containers/detail?key=${encodeURIComponent(event.entityKey)}`)}
             >
               <Cube className="size-3.5" />
-              Open container
+              Open run
             </Button>
           )}
           <AlertDialog open={resendOpen} onOpenChange={setResendOpen}>

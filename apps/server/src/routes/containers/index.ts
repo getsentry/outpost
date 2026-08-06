@@ -15,6 +15,7 @@
 import { getSandbox } from "@cloudflare/sandbox"
 import { formatError } from "@jared/utils"
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
+import type { DrizzleD1Database } from "drizzle-orm/d1"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
 import {
@@ -34,7 +35,16 @@ import {
 } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
-import { deriveOverallStatus, mergeSessionData, saveSession, summarizeSession } from "@/lib/containers/sessions"
+import {
+  demoteBusyStatusesToIdle,
+  deriveDisplayStatus,
+  deriveOverallStatus,
+  isStaleBusy,
+  mergeSessionData,
+  SANDBOX_RUNTIME_NOTE,
+  saveSession,
+  summarizeSession,
+} from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
 import { formatOperatorPrompt, markEntityEventsCompleted } from "@/lib/github/dispatch"
 import { isAuthenticated } from "@/middlewares"
@@ -151,6 +161,27 @@ function parseSessionData(raw: string): Record<string, unknown> {
   } catch {
     return {}
   }
+}
+
+/**
+ * Best-effort: rewrite stale busy placeholders to idle in D1 without bumping
+ * updatedAt (age must stay accurate for historical classification).
+ *
+ * Re-reads the row before writing so a fresher ingest cannot be clobbered by a
+ * demotion scheduled from a stale request snapshot.
+ */
+async function persistStaleBusyDemotion(db: DrizzleD1Database<typeof dbSchema>, entityKey: string): Promise<void> {
+  const row = await db.query.agentSessions.findFirst({
+    where: eq(dbSchema.agentSessions.entityKey, entityKey),
+    columns: { sessionData: true, updatedAt: true },
+  })
+  if (!row || !isStaleBusy(row.sessionData, row.updatedAt)) return
+  const demoted = demoteBusyStatusesToIdle(row.sessionData)
+  if (demoted === row.sessionData) return
+  await db
+    .update(dbSchema.agentSessions)
+    .set({ sessionData: demoted })
+    .where(eq(dbSchema.agentSessions.entityKey, entityKey))
 }
 
 const router = new Hono<BaseEnv>()
@@ -286,6 +317,24 @@ const router = new Hono<BaseEnv>()
       }
     }
 
+    // Heal stale busy placeholders (saveInitialSession) so Clear Idle and future
+    // loads see idle — preserve updatedAt via dedicated update.
+    const demoteKeys = sessions.filter((s) => isStaleBusy(s.sessionData, s.updatedAt)).map((s) => s.entityKey)
+    if (demoteKeys.length > 0) {
+      c.executionCtx.waitUntil(
+        (async () => {
+          for (const row of sessions) {
+            if (!demoteKeys.includes(row.entityKey)) continue
+            try {
+              await persistStaleBusyDemotion(db, row.entityKey)
+            } catch {
+              /* best effort */
+            }
+          }
+        })(),
+      )
+    }
+
     const data = sessions.map((s) => {
       const parsed = parseSessionData(s.sessionData)
       const sessionList = (parsed.sessions ?? []) as Array<Record<string, unknown>>
@@ -313,15 +362,19 @@ const router = new Hono<BaseEnv>()
         return sum + summarizeSession(sess, msgs).cost
       }, 0)
 
+      const statusObservedAt = typeof s.updatedAt === "string" ? s.updatedAt : new Date(s.updatedAt).toISOString()
+
       return {
         entityKey: s.entityKey,
         createdAt: s.createdAt,
         updatedAt: s.updatedAt,
+        statusObservedAt,
+        sandboxHint: SANDBOX_RUNTIME_NOTE,
         // Summary fields for the list view (no raw sessionData blob)
         sessionCount: sessionList.length,
         messageCount: totalMessages,
         totalCost: totalCost > 0 ? totalCost : summary.cost,
-        status: deriveOverallStatus(parsed),
+        status: deriveDisplayStatus(parsed, s.updatedAt),
         // Root session metadata as a preview
         title: (rootSession?.title as string) ?? null,
         agent: summary.agent,
@@ -377,6 +430,14 @@ const router = new Hono<BaseEnv>()
         }
       } else {
         syncError = result.error
+        // Stale busy + failed sync: show sync_unavailable and demote for Clear Idle.
+        if (isStaleBusy(session.sessionData, session.updatedAt)) {
+          c.executionCtx.waitUntil(
+            persistStaleBusyDemotion(db, entityKey).catch(() => {
+              /* best effort */
+            }),
+          )
+        }
       }
     } else {
       const isStale = Date.now() - new Date(session.updatedAt).getTime() > 15_000
@@ -391,19 +452,38 @@ const router = new Hono<BaseEnv>()
                 if (deriveOverallStatus(freshData) === "idle") {
                   await markEntityEventsCompleted(db, entityKey, { dispatchedBefore: new Date() })
                 }
+              } else if (isStaleBusy(session.sessionData, session.updatedAt)) {
+                await persistStaleBusyDemotion(db, entityKey)
               }
             } catch {
-              /* leave snapshot */
+              if (isStaleBusy(session.sessionData, session.updatedAt)) {
+                try {
+                  await persistStaleBusyDemotion(db, entityKey)
+                } catch {
+                  /* leave snapshot */
+                }
+              }
             }
           })(),
         )
+      } else if (isStaleBusy(session.sessionData, session.updatedAt)) {
+        c.executionCtx.waitUntil(
+          persistStaleBusyDemotion(db, entityKey).catch(() => {
+            /* best effort */
+          }),
+        )
       }
     }
+
+    const statusObservedAt = typeof updatedAt === "string" ? updatedAt : new Date(updatedAt).toISOString()
 
     return c.json({
       entityKey: session.entityKey,
       createdAt: session.createdAt,
       updatedAt,
+      statusObservedAt,
+      sandboxHint: SANDBOX_RUNTIME_NOTE,
+      status: deriveDisplayStatus(parsed, updatedAt, { syncError }),
       sessions: parsed.sessions ?? [],
       sessionStatus: parsed.sessionStatus ?? {},
       messages: parsed.messages ?? {},
@@ -556,7 +636,7 @@ const router = new Hono<BaseEnv>()
 
   // Clear agent sessions.
   //   ?mode=all  (default) — destroy every sandbox, then delete all D1 rows
-  //   ?mode=idle           — delete only Idle (status=idle) D1 rows; no destroy
+  //   ?mode=idle           — delete non-working rows (idle / historical / stale busy); no destroy
   .delete("/sessions", async (c) => {
     const db = c.get("db")
     const mode = c.req.query("mode") === "idle" ? "idle" : "all"
@@ -565,11 +645,24 @@ const router = new Hono<BaseEnv>()
       .select({
         entityKey: dbSchema.agentSessions.entityKey,
         sessionData: dbSchema.agentSessions.sessionData,
+        updatedAt: dbSchema.agentSessions.updatedAt,
       })
       .from(dbSchema.agentSessions)
 
     if (mode === "idle") {
-      const idleKeys = rows.filter((row) => deriveOverallStatus(row.sessionData) === "idle").map((row) => row.entityKey)
+      // Clear anything that is not actively working: idle/historical display, or
+      // stale busy placeholders that never finished syncing.
+      const idleKeys = rows
+        .filter((row) => {
+          const display = deriveDisplayStatus(row.sessionData, row.updatedAt)
+          return (
+            display === "idle" ||
+            display === "historical" ||
+            display === "sync_unavailable" ||
+            isStaleBusy(row.sessionData, row.updatedAt)
+          )
+        })
+        .map((row) => row.entityKey)
       if (idleKeys.length === 0) {
         return c.json({ ok: true, mode, deleted: 0, destroyed: 0 })
       }
