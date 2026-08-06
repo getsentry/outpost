@@ -66,6 +66,35 @@ export async function dispatchToFlueAgent(
 
 export type FlueHistoryResult = { ok: true; history: Record<string, unknown> } | { ok: false; error: string }
 
+/** Transient failures worth a quick retry — the DO/hairpin is briefly unreachable. */
+export function isTransientHistoryError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  // 404 (conversation not materialized yet) and 401/403 (auth) are not transient
+  // in a way a synchronous retry fixes — let the dashboard's auto-refresh cover
+  // the "still starting" case instead of blocking the response here.
+  return /timeout|timed out|network|fetch failed|econnreset|502|503|504|429/i.test(message)
+}
+
+/**
+ * The dashboard history read hairpins to the Worker's own public URL, which can
+ * briefly fail while the agent's Durable Object spins up or right after a deploy.
+ * A couple of short retries keeps those hiccups from surfacing as "sync
+ * unavailable" on an otherwise healthy run.
+ */
+async function withHistoryRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastErr: unknown
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastErr = err
+      if (i === attempts - 1 || !isTransientHistoryError(err)) break
+      await new Promise((resolve) => setTimeout(resolve, 200 * (i + 1)))
+    }
+  }
+  throw lastErr
+}
+
 /**
  * Pull a materialized conversation history from the Flue agent for the dashboard.
  * Requires APP_URL and authenticates with the internal token against the locked-down
@@ -86,7 +115,7 @@ export async function fetchFlueHistoryResult(env: Env, entityKey: string): Promi
   const client = createFlueClient({ url: conversationUrl, token })
 
   try {
-    const history = await client.history()
+    const history = await withHistoryRetry(() => client.history())
     return { ok: true, history: history as unknown as Record<string, unknown> }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
