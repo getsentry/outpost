@@ -1,4 +1,4 @@
-import { ArrowClockwise, ArrowLeft, CaretDown, CaretRight, Copy, PaperPlaneTilt } from "@phosphor-icons/react"
+import { ArrowClockwise, ArrowLeft, CaretDown, CaretRight, Copy, Cube, PaperPlaneTilt } from "@phosphor-icons/react"
 import { useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { copyToClipboard } from "@/client/lib/clipboard"
@@ -106,47 +106,58 @@ export default function EventDetailPage() {
         </h1>
         <StatusBadge status={event.status} />
 
-        <AlertDialog open={resendOpen} onOpenChange={setResendOpen}>
-          <AlertDialogTrigger
-            render={
-              <Button
-                variant="outline"
-                size="sm"
-                className="ml-auto"
-                disabled={!event.installationId || resendEvent.isPending}
-                title={event.installationId ? undefined : "Resend is only available for GitHub events"}
-              >
-                {resendEvent.isPending ? (
-                  <ArrowClockwise className="size-3.5 animate-spin" />
-                ) : (
-                  <PaperPlaneTilt className="size-3.5" />
-                )}
-                Resend
-              </Button>
-            }
-          />
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Resend this event to the agent?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This re-dispatches the event to its container (<span className="font-mono">{event.entityKey}</span>) and
-                re-runs the agent on it. If the agent is already working, this queues another turn.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={resendEvent.isPending}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={resendEvent.isPending}
-                onClick={(e) => {
-                  e.preventDefault()
-                  handleResend()
-                }}
-              >
-                {resendEvent.isPending ? "Resending..." : "Resend"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <div className="ml-auto flex items-center gap-2">
+          {!event.entityKey.startsWith("ephemeral/") && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => navigate(`/containers/detail?key=${encodeURIComponent(event.entityKey)}`)}
+            >
+              <Cube className="size-3.5" />
+              Open container
+            </Button>
+          )}
+          <AlertDialog open={resendOpen} onOpenChange={setResendOpen}>
+            <AlertDialogTrigger
+              render={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!event.installationId || resendEvent.isPending}
+                  title={event.installationId ? undefined : "Resend is only available for GitHub events"}
+                >
+                  {resendEvent.isPending ? (
+                    <ArrowClockwise className="size-3.5 animate-spin" />
+                  ) : (
+                    <PaperPlaneTilt className="size-3.5" />
+                  )}
+                  Resend
+                </Button>
+              }
+            />
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Resend this event to the agent?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This re-dispatches the event to its container (<span className="font-mono">{event.entityKey}</span>)
+                  and re-runs the agent on it. If the agent is already working, this queues another turn.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={resendEvent.isPending}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  disabled={resendEvent.isPending}
+                  onClick={(e) => {
+                    e.preventDefault()
+                    handleResend()
+                  }}
+                >
+                  {resendEvent.isPending ? "Resending..." : "Resend"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
       </div>
       {resendEvent.isError && (
         <p className="text-sm text-destructive">

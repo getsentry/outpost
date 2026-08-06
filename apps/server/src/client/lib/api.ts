@@ -6,6 +6,7 @@ export type EventsParams = {
   status?: string
   event?: string
   repo?: string
+  entityKey?: string
 }
 
 export type SessionsParams = {
@@ -76,6 +77,8 @@ export type SessionDetailResponse = {
   sessionStatus: Record<string, { type: string }>
   messages: Record<string, SessionMessage[]>
   logs: string
+  /** Present when Phase 2 Flue history pull failed; D1 snapshot may be stale/empty. */
+  syncError?: string | null
 }
 
 export type SessionListItem = {
@@ -93,14 +96,15 @@ export type SessionListItem = {
 
 export const api = {
   async getEvents(params: EventsParams = {}) {
-    const query: Record<string, string> = {}
-    if (params.page != null) query.page = String(params.page)
-    if (params.limit != null) query.limit = String(params.limit)
-    if (params.status) query.status = params.status
-    if (params.event) query.event = params.event
-    if (params.repo) query.repo = params.repo
+    const qs = new URLSearchParams()
+    if (params.page != null) qs.set("page", String(params.page))
+    if (params.limit != null) qs.set("limit", String(params.limit))
+    if (params.status) qs.set("status", params.status)
+    if (params.event) qs.set("event", params.event)
+    if (params.repo) qs.set("repo", params.repo)
+    if (params.entityKey) qs.set("entityKey", params.entityKey)
 
-    const res = await endpoint.api.events.$get({ query })
+    const res = await fetch(`/api/events?${qs.toString()}`)
     if (!res.ok) throw new Error(`Failed to fetch events: ${res.status}`)
     return res.json()
   },
@@ -176,5 +180,18 @@ export const api = {
     const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/destroy`, { method: "POST" })
     if (!res.ok) throw new Error(`Failed to destroy container: ${res.status}`)
     return res.json()
+  },
+
+  async sendPrompt(entityKey: string, text: string) {
+    const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/prompt`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text }),
+    })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null
+      throw new Error(body?.error ?? `Failed to send prompt: ${res.status}`)
+    }
+    return res.json() as Promise<{ ok: true; entityKey: string; conversationUrl?: string; submissionId?: string }>
   },
 }

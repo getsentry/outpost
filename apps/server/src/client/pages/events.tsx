@@ -22,7 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
-const STATUS_OPTIONS = ["all", "pending", "dispatched", "completed", "failed", "skipped"] as const
+const STATUS_OPTIONS = ["all", "pending", "dispatched", "completed", "failed", "skipped", "d:boot"] as const
 const PAGE_SIZES = [10, 25, 50] as const
 
 export default function EventsPage() {
@@ -89,6 +89,7 @@ export default function EventsPage() {
     completed: stats?.completed ?? 0,
     failed: stats?.failed ?? 0,
     skipped: stats?.skipped ?? 0,
+    "d:boot": (stats as { stuck?: number } | undefined)?.stuck ?? 0,
   }
 
   const pagination = data?.pagination
@@ -146,7 +147,7 @@ export default function EventsPage() {
         <div className="flex items-center gap-1">
           {STATUS_OPTIONS.map((s) => (
             <Button key={s} variant={statusFilter === s ? "default" : "outline"} size="xs" onClick={() => setStatus(s)}>
-              {s === "all" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}
+              {s === "all" ? "All" : s === "d:boot" ? "Stuck" : s.charAt(0).toUpperCase() + s.slice(1)}
               <span className="ml-1 opacity-60 tabular-nums">{statusCounts[s] ?? 0}</span>
             </Button>
           ))}

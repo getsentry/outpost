@@ -17,12 +17,26 @@ import { formatError } from "@jared/utils"
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
-import { applyGitHubAuth, FLUE_AGENT_MOUNT, FLUE_PORT, OPENCODE_PORT } from "@/lib/containers/dispatch"
-import { fetchFlueHistory, flueHistoryToSessionData } from "@/lib/containers/flue-dispatch"
+import {
+  applyGitHubAuth,
+  ensureSandboxReady,
+  FLUE_AGENT_MOUNT,
+  FLUE_PORT,
+  OPENCODE_PORT,
+  saveInitialSession,
+} from "@/lib/containers/dispatch"
+import { parseOwnerRepo } from "@/lib/containers/do-prep"
+import {
+  dispatchToFlueAgent,
+  fetchFlueHistory,
+  fetchFlueHistoryResult,
+  flueHistoryToSessionData,
+} from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
 import { deriveOverallStatus, saveSession, summarizeSession } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
+import { markEntityEventsCompleted } from "@/lib/github/dispatch"
 import { isAuthenticated } from "@/middlewares"
 import { requireUserOrInternalToken } from "@/middlewares/flue-auth"
 import type { BaseEnv } from "@/types"
@@ -321,8 +335,7 @@ const router = new Hono<BaseEnv>()
     })
   })
 
-  // Single session detail — returns parsed, structured data.
-  // Auto-syncs from the container / Flue DO when data is stale (>15s).
+  // Single session detail — prefers live Flue DO history (Phase 2), falls back to D1.
   .get("/sessions/detail", async (c) => {
     const db = c.get("db")
     const entityKey = c.req.query("entityKey")
@@ -338,45 +351,131 @@ const router = new Hono<BaseEnv>()
       return c.json({ error: "Session not found" }, 404)
     }
 
-    // Auto-sync: if data is stale, refresh from the running container IN THE
-    // BACKGROUND so a busy container (agent using CPU) never blocks the UI.
-    // The response always returns the latest D1 snapshot immediately; the next
-    // poll picks up the freshly-synced data.
-    const isStale = Date.now() - new Date(session.updatedAt).getTime() > 15_000
-    if (isStale) {
-      const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
-      c.executionCtx.waitUntil(
-        (async () => {
-          try {
-            if (flueNative) {
-              // Phase 2: pull conversation history from the Flue Durable Object.
-              const history = await fetchFlueHistory(c.env, entityKey)
-              if (history) {
-                await saveSession(db, entityKey, flueHistoryToSessionData(entityKey, history))
-              }
-              return
-            }
-            const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
-            const freshData = await collectContainerData(sandbox, entityKey)
-            if (freshData) await saveSession(db, entityKey, freshData)
-          } catch {
-            // Container / agent might be dead/busy — leave the existing snapshot.
-          }
-        })(),
-      )
-    }
+    const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
+    let syncError: string | null = null
+    let parsed = parseSessionData(session.sessionData)
+    let updatedAt = session.updatedAt
 
-    const parsed = parseSessionData(session.sessionData)
+    if (flueNative) {
+      // Live-first: await Flue history so empty D1 placeholders do not win.
+      const result = await fetchFlueHistoryResult(c.env, entityKey)
+      if (result.ok) {
+        const blob = flueHistoryToSessionData(entityKey, result.history)
+        try {
+          await saveSession(db, entityKey, blob)
+        } catch {
+          /* best effort persist */
+        }
+        parsed = parseSessionData(blob)
+        updatedAt = new Date()
+        if (deriveOverallStatus(parsed) === "idle") {
+          c.executionCtx.waitUntil(markEntityEventsCompleted(db, entityKey))
+        }
+      } else {
+        syncError = result.error
+      }
+    } else {
+      const isStale = Date.now() - new Date(session.updatedAt).getTime() > 15_000
+      if (isStale) {
+        c.executionCtx.waitUntil(
+          (async () => {
+            try {
+              const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
+              const freshData = await collectContainerData(sandbox, entityKey)
+              if (freshData) await saveSession(db, entityKey, freshData)
+            } catch {
+              /* leave snapshot */
+            }
+          })(),
+        )
+      }
+    }
 
     return c.json({
       entityKey: session.entityKey,
       createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
+      updatedAt,
       sessions: parsed.sessions ?? [],
       sessionStatus: parsed.sessionStatus ?? {},
       messages: parsed.messages ?? {},
       logs: parsed.logs ?? "",
+      syncError,
     })
+  })
+
+  // Operator chat: admit free-form guidance into the live Jared conversation.
+  .post("/:entityKey/prompt", async (c) => {
+    const entityKey = decodeURIComponent(c.req.param("entityKey"))
+    const db = c.get("db")
+    const body = (await c.req.json().catch(() => null)) as { text?: string } | null
+    const text = body?.text?.trim()
+    if (!text) return c.json({ error: "text required" }, 400)
+    if (text.length > 20_000) return c.json({ error: "text too long (max 20000)" }, 400)
+
+    const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
+    const logger = c.get("logger").child({ ns: "containers.prompt", entity_key: entityKey })
+
+    try {
+      await saveInitialSession(db, entityKey)
+    } catch {
+      /* may already exist */
+    }
+
+    const parsed = parseOwnerRepo(entityKey)
+    const sandboxId = toAgentInstanceId(entityKey)
+    const sandbox = getSandbox(c.env.Sandbox, sandboxId, SANDBOX_OPTS)
+
+    // Prep thin sandbox when we can resolve a repo (same path as webhooks).
+    if (parsed) {
+      try {
+        const app = createGitHubApp({
+          appId: c.env.GITHUB_APP_ID,
+          privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
+          webhookSecret: c.env.GITHUB_APP_WEBHOOK_SECRET,
+        })
+        const [installationToken, botLogin] = await Promise.all([
+          app.getRepoInstallationToken(parsed.owner, parsed.repo),
+          app.getBotLogin().catch(() => ""),
+        ])
+        if (installationToken) {
+          const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
+          await ensureSandboxReady(sandbox, {
+            repo: parsed.slug,
+            botLogin,
+            installationToken,
+            entityKey,
+            openrouterApiKey: c.env.OPENROUTER_API_KEY,
+            anthropicApiKey: c.env.ANTHROPIC_API_KEY,
+            openaiApiKey: c.env.OPENAI_API_KEY,
+            sentryDsn: c.env.SENTRY_DSN,
+            sentryAuthToken: c.env.SENTRY_AUTH_TOKEN,
+            appUrl: c.env.APP_URL,
+            thinSandbox: flueNative,
+            loreGatewayUrl: c.env.LORE_GATEWAY_URL,
+            flueInternalToken: (await resolveFlueInternalToken(c.env)) ?? undefined,
+          })
+        }
+      } catch (err) {
+        logger.warn({ error: formatError(err) }, "operator prompt sandbox prep failed — continuing admit")
+      }
+    }
+
+    const prompt = `Operator guidance:\n\n${text}`
+
+    if (flueNative) {
+      const { conversationUrl, submissionId } = await dispatchToFlueAgent(c.env, {
+        entityKey,
+        prompt,
+        logger,
+      })
+      return c.json({ ok: true, entityKey, conversationUrl, submissionId })
+    }
+
+    // Phase 1 fallback: admit via in-container Flue.
+    const eventId = crypto.randomUUID()
+    const { dispatchPrompt } = await import("@/lib/containers/dispatch")
+    await dispatchPrompt(sandbox, entityKey, prompt, eventId)
+    return c.json({ ok: true, entityKey, submissionId: eventId })
   })
 
   // Live container / agent inspection — collects data and saves to D1

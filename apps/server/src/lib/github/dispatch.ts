@@ -8,7 +8,7 @@
 import { getSandbox } from "@cloudflare/sandbox"
 import { formatError, type Logger } from "@jared/utils"
 import * as Sentry from "@sentry/cloudflare"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
@@ -145,9 +145,10 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
 
     logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.scheduled")
 
+    const now = new Date()
     await db
       .update(dbSchema.webhookEvents)
-      .set({ status: "dispatched", dispatchedAt: new Date() })
+      .set({ status: "dispatched", dispatchedAt: now })
       .where(eq(dbSchema.webhookEvents.id, eventId))
 
     logger.info({ entity_key: containerKey, event_id: eventId }, "event dispatched to agent")
@@ -160,10 +161,25 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       const snippet = formatError(err).slice(0, 180).replace(/\s+/g, " ")
       await db
         .update(dbSchema.webhookEvents)
-        .set({ status: `failed:${snippet}` })
+        .set({ status: `failed:${snippet}`, completedAt: new Date() })
         .where(eq(dbSchema.webhookEvents.id, eventId))
     } catch {
       /* best effort */
     }
+  }
+}
+
+/**
+ * When a conversation goes idle after work, upgrade still-open `dispatched`
+ * webhook rows for that entity to `completed` so the Events UI reflects finish.
+ */
+export async function markEntityEventsCompleted(db: Db, entityKey: string): Promise<void> {
+  try {
+    await db
+      .update(dbSchema.webhookEvents)
+      .set({ status: "completed", completedAt: new Date() })
+      .where(and(eq(dbSchema.webhookEvents.entityKey, entityKey), eq(dbSchema.webhookEvents.status, "dispatched")))
+  } catch {
+    /* best effort */
   }
 }

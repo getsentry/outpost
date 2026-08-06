@@ -124,10 +124,21 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
   // (fix-ci / mark-pr-ready), matching that same router exception.
   const isSelfTriggered = !!botLogin && sender === botLogin && event !== "check_suite" && event !== "workflow_run"
 
-  const isSkipped = isSelfTriggered || !(hasLabel || isBotEntity)
+  const skipReason = isSelfTriggered
+    ? "self_triggered"
+    : !entityKey
+      ? "no_entity"
+      : !(hasLabel || isBotEntity)
+        ? "no_label"
+        : null
+  const isSkipped = skipReason !== null
 
   const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
   const eventId = crypto.randomUUID()
+
+  // Skipped events keep a tiny reason stub instead of the full GitHub JSON —
+  // they dominate D1 size (~94% of rows) and are never resent.
+  const storedPayload = isSkipped ? JSON.stringify({ reason: skipReason }) : rawBody
 
   try {
     await db.insert(dbSchema.webhookEvents).values({
@@ -139,7 +150,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
       sender,
       repo,
       installationId,
-      payload: rawBody,
+      payload: storedPayload,
       status: isSkipped ? "skipped" : "pending",
       createdAt: new Date(),
     })
@@ -151,7 +162,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
   }
 
   if (isSkipped) {
-    logger.info({ delivery_id: deliveryId, event, action }, "event skipped")
+    logger.info({ delivery_id: deliveryId, event, action, reason: skipReason }, "event skipped")
     return c.json({
       ok: true,
       delivery_id: deliveryId,
@@ -161,6 +172,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
       entity_key: entityKey?.key ?? null,
       installation_id: installationId,
       skipped: true,
+      reason: skipReason,
     })
   }
 

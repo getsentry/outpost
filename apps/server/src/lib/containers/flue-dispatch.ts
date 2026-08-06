@@ -64,22 +64,22 @@ export async function dispatchToFlueAgent(
   return { conversationUrl, submissionId }
 }
 
+export type FlueHistoryResult = { ok: true; history: Record<string, unknown> } | { ok: false; error: string }
+
 /**
  * Pull a materialized conversation history from the Flue agent for the dashboard.
  * Requires APP_URL and authenticates with the internal token against the locked-down
  * `/agents/jared` mount.
  */
-export async function fetchFlueHistory(env: Env, entityKey: string): Promise<Record<string, unknown> | null> {
+export async function fetchFlueHistoryResult(env: Env, entityKey: string): Promise<FlueHistoryResult> {
   const appUrl = env.APP_URL
   if (!appUrl) {
-    console.warn("fetchFlueHistory: APP_URL unset — cannot sync Phase 2 history")
-    return null
+    return { ok: false, error: "APP_URL unset — cannot sync Phase 2 history" }
   }
 
   const token = await resolveFlueInternalToken(env)
   if (!token) {
-    console.warn("fetchFlueHistory: no FLUE_INTERNAL_TOKEN/BETTER_AUTH_SECRET — cannot auth history pull")
-    return null
+    return { ok: false, error: "No FLUE_INTERNAL_TOKEN/BETTER_AUTH_SECRET — cannot auth history pull" }
   }
 
   const conversationUrl = jaredConversationUrl(appUrl, entityKey)
@@ -87,9 +87,18 @@ export async function fetchFlueHistory(env: Env, entityKey: string): Promise<Rec
 
   try {
     const history = await client.history()
-    return history as unknown as Record<string, unknown>
+    return { ok: true, history: history as unknown as Record<string, unknown> }
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
     console.warn("fetchFlueHistory failed", err)
-    return null
+    return { ok: false, error: message }
   }
+}
+
+/**
+ * Pull Flue history, returning null on failure (list/background sync paths).
+ */
+export async function fetchFlueHistory(env: Env, entityKey: string): Promise<Record<string, unknown> | null> {
+  const result = await fetchFlueHistoryResult(env, entityKey)
+  return result.ok ? result.history : null
 }
