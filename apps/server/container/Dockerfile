@@ -1,8 +1,8 @@
 # Thin Cloudflare Sandbox image for Outpost (Phase 2).
 #
 # The Flue agent brain runs as a Durable Object in the Worker. This container
-# is only a Linux workspace: git, gh, node, ripgrep, and workspace skills.
-# No OpenCode / Flue / Lore process runs here.
+# is only a Linux workspace: git, gh, sentry CLI, node, ripgrep, and workspace
+# skills. No OpenCode / Flue / Lore process runs here.
 #
 # IMPORTANT: skills/AGENTS.md are baked under /root/.agents — NEVER under
 # /workspace/repo. The Worker clones the target repo into /workspace/repo and
@@ -48,6 +48,14 @@ RUN npm install -g n \
  && corepack enable \
  && corepack prepare pnpm@10.15.0 --activate \
  && node --version && pnpm --version
+
+# --- Sentry CLI ---
+# Used for issue/trace debugging inside the sandbox. Auth is injected at runtime
+# via SENTRY_AUTH_TOKEN in /tmp/flue-env.sh (see writeEnvFile).
+RUN curl -fsSL https://cli.sentry.dev/install \
+    | SENTRY_INSTALL_DIR=/usr/local/bin \
+      bash -s -- --no-modify-path --no-completions \
+ && sentry --version
 
 # Empty parent for the Worker-managed clone target. Do not create
 # /workspace/repo itself — `mv repo-tmp /workspace/repo` nests if dest exists.

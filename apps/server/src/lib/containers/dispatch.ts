@@ -44,6 +44,8 @@ export type SandboxSetupOpts = {
   anthropicApiKey?: string
   openaiApiKey?: string
   sentryDsn?: string
+  /** Auth token for the in-sandbox `sentry` CLI (issue/trace debugging). */
+  sentryAuthToken?: string
   entityKey: string
   /** Public base URL of this Worker, so the in-container reporter can POST session data back. */
   appUrl?: string
@@ -293,6 +295,7 @@ async function writeEnvFile(sandbox: ReturnType<typeof getSandbox>, opts: Sandbo
   if (opts.anthropicApiKey) push("ANTHROPIC_API_KEY", opts.anthropicApiKey)
   if (opts.openaiApiKey) push("OPENAI_API_KEY", opts.openaiApiKey)
   if (opts.sentryDsn) push("SENTRY_DSN", opts.sentryDsn)
+  if (opts.sentryAuthToken) push("SENTRY_AUTH_TOKEN", opts.sentryAuthToken)
 
   // Always record the intended Lore URL, but do NOT force OPENAI/ANTHROPIC base
   // URLs here — maybeEnableLoreBaseUrls() adds those only after a health probe.
