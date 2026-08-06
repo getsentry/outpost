@@ -1,8 +1,15 @@
 // Phase 2: dispatch prompts to the Jared Flue Durable Object.
 //
-// Prefer in-process `dispatch()` (no public HTTP hairpin, no rate-limit key).
-// HTTP via @flue/sdk remains available for dashboard history, authenticated
-// with the shared internal token.
+// Both the write (`dispatch()`) and the read (history) go through the runtime
+// IN-PROCESS: the agent's Durable Object is addressed via the ambient
+// `cloudflare:workers` binding, so neither depends on APP_URL or rate limits.
+//
+// This matters: a Worker fetching its OWN public URL (the `APP_URL` hairpin)
+// does not resolve to the same Durable Object that processed the webhook — it
+// comes back 404 ("conversation not found") even though the conversation
+// exists and is readable by any external client. Reading in-process through the
+// mounted agent router hits the correct DO every time. The @flue/sdk HTTP
+// hairpin is kept only as a defensive fallback.
 
 import { createFlueClient } from "@flue/sdk"
 import type { Logger } from "@jared/utils"
@@ -96,11 +103,83 @@ async function withHistoryRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<
 }
 
 /**
- * Pull a materialized conversation history from the Flue agent for the dashboard.
- * Requires APP_URL and authenticates with the internal token against the locked-down
- * `/agents/jared` mount.
+ * Minimal shape of the mounted Flue agent router we call in-process. It is the
+ * same factory app.ts mounts at `/agents/jared`; a second instance is safe
+ * because `createAgentRouter` is a pure factory with no side effects.
+ */
+type AgentRouter = { request: (input: string, init?: RequestInit, env?: unknown) => Promise<Response> }
+
+let jaredRouterPromise: Promise<AgentRouter> | null = null
+
+/** Lazily build (and memoize) an in-process Jared agent router. */
+function getJaredAgentRouter(): Promise<AgentRouter> {
+  jaredRouterPromise ??= (async () => {
+    const [{ createAgentRouter }, { Jared }] = await Promise.all([
+      import("@flue/runtime/routing"),
+      import("@/agents/jared.ts"),
+    ])
+    return createAgentRouter(Jared) as unknown as AgentRouter
+  })()
+  return jaredRouterPromise
+}
+
+type InProcessRead = { ok: true; history: Record<string, unknown> } | { ok: false; notFound: boolean; error: string }
+
+/**
+ * Read materialized history straight from the agent's Durable Object, in-process.
+ * The router registers `GET /:id`; addressing it here resolves the same DO that
+ * `dispatch()` writes to (ambient binding), so it does not hit the public-URL
+ * hairpin that returns a spurious 404.
+ */
+async function readFlueHistoryInProcess(env: Env, entityKey: string): Promise<InProcessRead> {
+  const id = toAgentInstanceId(entityKey)
+  try {
+    const router = await getJaredAgentRouter()
+    const res = await router.request(`/${encodeURIComponent(id)}?view=history`, undefined, env)
+    if (res.ok) {
+      const history = (await res.json()) as Record<string, unknown>
+      return { ok: true, history }
+    }
+    const notFound = res.status === 404
+    return {
+      ok: false,
+      notFound,
+      error: notFound
+        ? "Agent conversation not found (may never have started or was recycled)"
+        : `Flue history read failed (${res.status})`,
+    }
+  } catch (err) {
+    // Router unavailable for an unexpected reason (import/runtime) — let the
+    // caller fall back to the HTTP hairpin rather than fail the whole read.
+    const message = err instanceof Error ? err.message : String(err)
+    return { ok: false, notFound: false, error: `In-process history read failed: ${message}` }
+  }
+}
+
+/**
+ * Pull a materialized conversation history from the Jared agent for the dashboard.
+ *
+ * Primary path is the in-process DO read. Only when the router is unavailable
+ * for an unexpected reason do we fall back to the authenticated `/agents/jared`
+ * HTTP hairpin; a clean in-process 404 is surfaced directly (the hairpin can do
+ * no better for a conversation that genuinely does not exist).
  */
 export async function fetchFlueHistoryResult(env: Env, entityKey: string): Promise<FlueHistoryResult> {
+  const inProcess = await readFlueHistoryInProcess(env, entityKey)
+  if (inProcess.ok) return { ok: true, history: inProcess.history }
+  if (inProcess.notFound) return { ok: false, error: inProcess.error }
+
+  const hairpin = await fetchFlueHistoryViaHairpin(env, entityKey)
+  if (hairpin.ok) return hairpin
+  return { ok: false, error: hairpin.error }
+}
+
+/**
+ * Defensive fallback: pull history over the authenticated `/agents/jared` HTTP
+ * mount using the internal token. Susceptible to the Worker self-hairpin 404,
+ * so it is only used when the in-process router is unavailable.
+ */
+async function fetchFlueHistoryViaHairpin(env: Env, entityKey: string): Promise<FlueHistoryResult> {
   const appUrl = env.APP_URL
   if (!appUrl) {
     return { ok: false, error: "APP_URL unset — cannot sync Phase 2 history" }
@@ -119,7 +198,7 @@ export async function fetchFlueHistoryResult(env: Env, entityKey: string): Promi
     return { ok: true, history: history as unknown as Record<string, unknown> }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.warn("fetchFlueHistory failed", { entityKey, conversationUrl, error: message })
+    console.warn("fetchFlueHistory hairpin failed", { entityKey, conversationUrl, error: message })
     // Prefer a short operator-facing reason; keep the raw message for details.
     const hint = /404|not found/i.test(message)
       ? "Agent conversation not found (may never have started or was recycled)"
