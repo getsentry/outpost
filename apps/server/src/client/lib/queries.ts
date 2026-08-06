@@ -15,10 +15,11 @@ export function useSession() {
   })
 }
 
-export function useEvents(params: EventsParams = {}) {
+export function useEvents(params: EventsParams = {}, options: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: ["events", params],
     queryFn: () => api.getEvents(params),
+    enabled: options.enabled ?? true,
     placeholderData: keepPreviousData,
     refetchInterval: 10_000,
   })
@@ -101,6 +102,26 @@ export function useSendPrompt(entityKey: string) {
     mutationFn: (text: string) => api.sendPrompt(entityKey, text),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sessionDetail", entityKey] })
+      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    },
+  })
+}
+
+/** Repos the agent can be pointed at. Only fetched while the picker is open. */
+export function useChatRepos(enabled = true) {
+  return useQuery({
+    queryKey: ["chatRepos"],
+    queryFn: () => api.getChatRepos(),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export function useStartChat() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: { repo: string; text: string }) => api.startChat(input),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
     },
   })

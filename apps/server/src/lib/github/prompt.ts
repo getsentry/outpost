@@ -3,6 +3,8 @@
 // Emits identity + extracted fields (issue/PR/comment/CI/review) instead of the
 // full GitHub JSON payload, which bloated Flue conversation context on every turn.
 
+import { CHAT_PROMPT_HEADER, CHAT_REQUEST_MARKER } from "@/lib/containers/chat-run"
+
 const REVIEW_EVENTS = new Set(["pull_request_review", "pull_request_review_comment", "pull_request_review_thread"])
 
 const BODY_MAX = 4000
@@ -188,6 +190,39 @@ export function extractEventContext(event: string, payload: string): string {
   }
 
   return lines.join("\n")
+}
+
+/**
+ * Opening turn of a dashboard chat run.
+ *
+ * Jared's instructions are written around webhook triage, so this prompt has to
+ * say plainly that there is no event to route and that a human is watching —
+ * otherwise the router answers a direct request with `SKIPPED: not involved`.
+ */
+export function formatChatPrompt(opts: {
+  entityKey: string
+  repo: string
+  botLogin: string
+  operator?: string | null
+  text: string
+}): string {
+  return `${CHAT_PROMPT_HEADER} (dashboard-initiated, no webhook event)
+
+Bot identity: ${opts.botLogin}
+Repository: ${opts.repo}
+Entity: ${opts.entityKey}
+Operator: ${opts.operator || "dashboard user"}
+
+A human operator started this conversation from the Outpost dashboard. There is
+no event to triage, so skip the routing table and skip conditions entirely and
+treat the request below as your task. Load \`repo-setup\` first as usual; the repo
+is cloned at \`/workspace/repo\`.
+
+Unlike webhook runs, the operator IS watching and can reply here: ask a short
+clarifying question when the request is genuinely ambiguous, and report results
+in chat. Only open issues, PRs, or comments on GitHub when the request calls for
+it — otherwise answering here is enough.
+${CHAT_REQUEST_MARKER}${opts.text}`
 }
 
 export function formatEventPrompt(opts: {

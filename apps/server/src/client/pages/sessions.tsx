@@ -17,6 +17,7 @@ import { entityGitHubUrl, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@
 import { useClearSessions, useSessions } from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
 import { LastUpdated } from "@/components/last-updated"
+import { NewChatDialog } from "@/components/new-chat-dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ButtonGroup } from "@/components/ui/button-group"
 import { Card, CardContent } from "@/components/ui/card"
@@ -39,6 +41,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { chatEntityRepo } from "@/lib/containers/chat-run"
 
 const PAGE_SIZES = [10, 25, 50] as const
 
@@ -139,6 +142,7 @@ export default function SessionsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <NewChatDialog />
           <ButtonGroup aria-label="Clear agent runs">
             <Button
               variant="outline"
@@ -251,8 +255,18 @@ export default function SessionsPage() {
               <p className="text-sm text-muted-foreground">
                 {searchInput
                   ? "No runs match your search"
-                  : "No agent runs yet. Runs appear when the agent starts working."}
+                  : "No agent runs yet. Runs start from a GitHub event — or you can start one yourself."}
               </p>
+              {!searchInput && (
+                <NewChatDialog
+                  trigger={
+                    <Button variant="outline" size="sm">
+                      <ChatsCircle data-icon="inline-start" />
+                      Start a chat
+                    </Button>
+                  }
+                />
+              )}
             </div>
           ) : (
             <div className="w-full overflow-x-auto">
@@ -284,7 +298,8 @@ export default function SessionsPage() {
                   {filtered.map((session: SessionListItem) => {
                     const ghUrl = entityGitHubUrl(session.entityKey, "issues")
                     const parsed = parseEntityKey(session.entityKey)
-                    const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : null
+                    const chatRepo = chatEntityRepo(session.entityKey)
+                    const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
 
                     return (
                       <TableRow
@@ -294,8 +309,13 @@ export default function SessionsPage() {
                       >
                         <TableCell>
                           <div className="space-y-0.5">
-                            <div className="font-mono text-sm">
+                            <div className="flex items-center gap-2 font-mono text-sm">
                               {ghUrl ? <GitHubLink href={ghUrl}>{session.entityKey}</GitHubLink> : session.entityKey}
+                              {chatRepo && (
+                                <Badge variant="secondary" className="font-sans">
+                                  Chat
+                                </Badge>
+                              )}
                             </div>
                             {(session.title || repoName) && (
                               <div className="flex items-center gap-2 text-xs text-muted-foreground">

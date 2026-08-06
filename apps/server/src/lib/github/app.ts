@@ -20,6 +20,11 @@ export type GitHubAppConfig = {
 // Module-level cache for bot login — the slug never changes for a given app.
 const botLoginCache = new Map<string, string>()
 
+// Installed repos change rarely; cache per isolate so the picker doesn't burn
+// two GitHub API round trips on every dashboard open.
+const REPO_CACHE_TTL_MS = 5 * 60 * 1000
+const installationReposCache = new Map<string, { repos: string[]; expiresAt: number }>()
+
 /**
  * Convert a PKCS#1 (RSA PRIVATE KEY) PEM to PKCS#8 (PRIVATE KEY) PEM.
  * GitHub generates PKCS#1 keys, but universal-github-app-jwt requires PKCS#8.
@@ -124,6 +129,40 @@ export function createGitHubApp(config: GitHubAppConfig) {
       const login = `${data.slug}[bot]`
       botLoginCache.set(config.appId, login)
       return login
+    },
+
+    /**
+     * List every `owner/repo` this App is installed on, across installations.
+     *
+     * Used to populate the dashboard's repo picker for chat runs, so operators
+     * can only start runs against repos the agent can actually clone.
+     */
+    async listInstallationRepos(): Promise<string[]> {
+      const cached = installationReposCache.get(config.appId)
+      if (cached && cached.expiresAt > Date.now()) return cached.repos
+
+      const appOctokit = new Octokit({
+        authStrategy: createAppAuth,
+        auth: {
+          appId: config.appId,
+          privateKey,
+        },
+      })
+      const { data: installations } = await appOctokit.apps.listInstallations({ per_page: 100 })
+      const repos = new Set<string>()
+      for (const installation of installations) {
+        try {
+          const octokit = this.getInstallationOctokit(installation.id)
+          const { data } = await octokit.apps.listReposAccessibleToInstallation({ per_page: 100 })
+          for (const repo of data.repositories) repos.add(repo.full_name)
+        } catch {
+          // One inaccessible installation shouldn't blank the whole picker.
+        }
+      }
+
+      const sorted = [...repos].sort()
+      installationReposCache.set(config.appId, { repos: sorted, expiresAt: Date.now() + REPO_CACHE_TTL_MS })
+      return sorted
     },
 
     /**

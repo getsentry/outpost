@@ -203,6 +203,25 @@ export const api = {
     return res.json()
   },
 
+  async getChatRepos(): Promise<{ repos: string[] }> {
+    const res = await fetch("/api/containers/chat/repos")
+    if (!res.ok) throw new Error(`Failed to fetch repositories: ${res.status}`)
+    return res.json() as Promise<{ repos: string[] }>
+  },
+
+  async startChat(input: { repo: string; text: string }) {
+    const res = await fetch("/api/containers/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null
+      throw new Error(body?.error ?? `Failed to start chat: ${res.status}`)
+    }
+    return res.json() as Promise<{ ok: true; entityKey: string; repo: string }>
+  },
+
   async sendPrompt(entityKey: string, text: string) {
     const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/prompt`, {
       method: "POST",

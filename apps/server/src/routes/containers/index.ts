@@ -5,6 +5,9 @@
 //   GET  /sessions         — authenticated, paginated list of agent sessions
 //   GET  /sessions/detail  — authenticated, single session detail (syncs Flue DO or container)
 //   DELETE /sessions       — authenticated, destroy sandboxes + clear D1 (or idle-only)
+//   POST /:entityKey/prompt — authenticated, admit operator guidance into a run
+//   POST /chat             — authenticated, start a dashboard chat run (no webhook)
+//   GET  /chat/repos       — authenticated, repos the GitHub App can reach
 //   GET  /:entityKey/debug — authenticated, live container inspection + D1 sync
 //   POST /:entityKey/exec  — authenticated, execute command inside container
 //   POST /:entityKey/destroy — authenticated, force-destroy a container
@@ -13,11 +16,17 @@
 // via @flue/sdk instead of curling an in-container harness.
 
 import { getSandbox } from "@cloudflare/sandbox"
-import { formatError } from "@jared/utils"
+import { formatError, type Logger } from "@jared/utils"
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
+import {
+  createChatEntityKey,
+  formatOperatorPrompt,
+  isValidRepoSlug,
+  MAX_CHAT_REPO_LENGTH,
+} from "@/lib/containers/chat-run"
 import {
   applyGitHubAuth,
   ensureSandboxReady,
@@ -46,7 +55,8 @@ import {
   summarizeSession,
 } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
-import { formatOperatorPrompt, markEntityEventsCompleted } from "@/lib/github/dispatch"
+import { markEntityEventsCompleted } from "@/lib/github/dispatch"
+import { formatChatPrompt } from "@/lib/github/prompt"
 import { isAuthenticated } from "@/middlewares"
 import { requireUserOrInternalToken } from "@/middlewares/flue-auth"
 import type { BaseEnv } from "@/types"
@@ -182,6 +192,69 @@ async function persistStaleBusyDemotion(db: DrizzleD1Database<typeof dbSchema>, 
     .update(dbSchema.agentSessions)
     .set({ sessionData: demoted })
     .where(eq(dbSchema.agentSessions.entityKey, entityKey))
+}
+
+type RepoAccess = { slug: string; installationToken: string; botLogin: string }
+
+/**
+ * Resolve the repo behind an entity key and mint an installation token for it.
+ * Returns null when the key carries no repo or the App can't reach it — cheap
+ * enough (one or two API calls) to run before responding to a request.
+ */
+async function resolveRepoAccess(env: BaseEnv["Bindings"], entityKey: string): Promise<RepoAccess | null> {
+  const parsed = parseOwnerRepo(entityKey)
+  if (!parsed) return null
+
+  const app = createGitHubApp({
+    appId: env.GITHUB_APP_ID,
+    privateKey: env.GITHUB_APP_PRIVATE_KEY,
+    webhookSecret: env.GITHUB_APP_WEBHOOK_SECRET,
+  })
+  const [installationToken, botLogin] = await Promise.all([
+    app.getRepoInstallationToken(parsed.owner, parsed.repo).catch(() => null),
+    app.getBotLogin().catch(() => ""),
+  ])
+  return installationToken ? { slug: parsed.slug, installationToken, botLogin } : null
+}
+
+/** Clone the repo into the entity's sandbox and apply auth — same path webhook dispatch takes. */
+async function prepEntitySandbox(
+  env: BaseEnv["Bindings"],
+  entityKey: string,
+  access: RepoAccess,
+  flueNative: boolean,
+): Promise<void> {
+  const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
+  await ensureSandboxReady(getSandbox(env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS), {
+    repo: access.slug,
+    botLogin: access.botLogin,
+    installationToken: access.installationToken,
+    entityKey,
+    openrouterApiKey: env.OPENROUTER_API_KEY,
+    anthropicApiKey: env.ANTHROPIC_API_KEY,
+    openaiApiKey: env.OPENAI_API_KEY,
+    sentryDsn: env.SENTRY_DSN,
+    sentryAuthToken: env.SENTRY_AUTH_TOKEN,
+    appUrl: env.APP_URL,
+    thinSandbox: flueNative,
+    loreGatewayUrl: env.LORE_GATEWAY_URL,
+    flueInternalToken: (await resolveFlueInternalToken(env)) ?? undefined,
+  })
+}
+
+/** Admit a prompt into the entity's conversation, Phase 2 (DO) or Phase 1 (in-container). */
+async function admitPrompt(
+  env: BaseEnv["Bindings"],
+  opts: { entityKey: string; prompt: string; flueNative: boolean; logger: Logger },
+): Promise<{ conversationUrl?: string; submissionId?: string }> {
+  if (opts.flueNative) {
+    return dispatchToFlueAgent(env, { entityKey: opts.entityKey, prompt: opts.prompt, logger: opts.logger })
+  }
+  const submissionId = crypto.randomUUID()
+  const { dispatchPrompt } = await import("@/lib/containers/dispatch")
+  const sandbox = getSandbox(env.Sandbox, toAgentInstanceId(opts.entityKey), SANDBOX_OPTS)
+  await dispatchPrompt(sandbox, opts.entityKey, opts.prompt, submissionId)
+  return { submissionId }
 }
 
 const router = new Hono<BaseEnv>()
@@ -510,61 +583,105 @@ const router = new Hono<BaseEnv>()
       /* may already exist */
     }
 
-    const parsed = parseOwnerRepo(entityKey)
-    const sandboxId = toAgentInstanceId(entityKey)
-    const sandbox = getSandbox(c.env.Sandbox, sandboxId, SANDBOX_OPTS)
+    try {
+      const access = await resolveRepoAccess(c.env, entityKey)
+      if (access) await prepEntitySandbox(c.env, entityKey, access, flueNative)
+    } catch (err) {
+      logger.warn({ error: formatError(err) }, "operator prompt sandbox prep failed — continuing admit")
+    }
 
-    // Prep thin sandbox when we can resolve a repo (same path as webhooks).
-    if (parsed) {
-      try {
-        const app = createGitHubApp({
-          appId: c.env.GITHUB_APP_ID,
-          privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
-          webhookSecret: c.env.GITHUB_APP_WEBHOOK_SECRET,
-        })
-        const [installationToken, botLogin] = await Promise.all([
-          app.getRepoInstallationToken(parsed.owner, parsed.repo),
-          app.getBotLogin().catch(() => ""),
-        ])
-        if (installationToken) {
-          const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
-          await ensureSandboxReady(sandbox, {
-            repo: parsed.slug,
-            botLogin,
-            installationToken,
-            entityKey,
-            openrouterApiKey: c.env.OPENROUTER_API_KEY,
-            anthropicApiKey: c.env.ANTHROPIC_API_KEY,
-            openaiApiKey: c.env.OPENAI_API_KEY,
-            sentryDsn: c.env.SENTRY_DSN,
-            sentryAuthToken: c.env.SENTRY_AUTH_TOKEN,
-            appUrl: c.env.APP_URL,
-            thinSandbox: flueNative,
-            loreGatewayUrl: c.env.LORE_GATEWAY_URL,
-            flueInternalToken: (await resolveFlueInternalToken(c.env)) ?? undefined,
-          })
+    const { conversationUrl, submissionId } = await admitPrompt(c.env, {
+      entityKey,
+      prompt: formatOperatorPrompt(text),
+      flueNative,
+      logger,
+    })
+    return c.json({ ok: true, entityKey, conversationUrl, submissionId })
+  })
+
+  // Repos the GitHub App is installed on — the picker for starting a chat run.
+  .get("/chat/repos", async (c) => {
+    const app = createGitHubApp({
+      appId: c.env.GITHUB_APP_ID,
+      privateKey: c.env.GITHUB_APP_PRIVATE_KEY,
+      webhookSecret: c.env.GITHUB_APP_WEBHOOK_SECRET,
+    })
+    try {
+      return c.json({ repos: await app.listInstallationRepos() })
+    } catch (err) {
+      // Fall back to repos we've actually seen events from so the picker still
+      // works when the installations API is unavailable.
+      c.get("logger").warn({ ns: "containers.chat", error: formatError(err) }, "installation repo list failed")
+      const rows = await c
+        .get("db")
+        .selectDistinct({ repo: dbSchema.webhookEvents.repo })
+        .from(dbSchema.webhookEvents)
+        .where(isNotNull(dbSchema.webhookEvents.repo))
+      const repos = rows
+        .map((r) => r.repo)
+        .filter((r): r is string => !!r && isValidRepoSlug(r))
+        .sort()
+      return c.json({ repos })
+    }
+  })
+
+  // Start a chat run: a conversation the operator opens from the dashboard
+  // rather than one a GitHub webhook triggered.
+  .post("/chat", async (c) => {
+    const db = c.get("db")
+    const body = (await c.req.json().catch(() => null)) as { repo?: string; text?: string } | null
+    const repo = body?.repo?.trim()
+    const text = body?.text?.trim()
+
+    if (!repo || !isValidRepoSlug(repo)) {
+      return c.json({ error: `repo must be an owner/name slug of at most ${MAX_CHAT_REPO_LENGTH} characters` }, 400)
+    }
+    if (!text) return c.json({ error: "text required" }, 400)
+    if (text.length > 20_000) return c.json({ error: "text too long (max 20000)" }, 400)
+
+    const entityKey = createChatEntityKey(repo)
+    const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
+    const logger = c.get("logger").child({ ns: "containers.chat", entity_key: entityKey })
+
+    // Check repo access before creating anything, so a repo the App can't reach
+    // reports a real error instead of leaving an empty run behind.
+    const access = await resolveRepoAccess(c.env, entityKey)
+    if (!access) {
+      return c.json({ error: `Can't access ${repo}. Check that the GitHub App is installed on it.` }, 400)
+    }
+
+    await saveInitialSession(db, entityKey)
+
+    const user = c.get("user")
+    const prompt = formatChatPrompt({
+      entityKey,
+      repo,
+      botLogin: access.botLogin,
+      operator: user?.name ?? user?.email ?? null,
+      text,
+    })
+
+    // Cloning into a cold sandbox takes tens of seconds, so hand the run back
+    // now and let the dashboard watch it start. Prep must finish before the
+    // admit: dispatching first would race Jared's own clone check.
+    c.executionCtx.waitUntil(
+      (async () => {
+        try {
+          await prepEntitySandbox(c.env, entityKey, access, flueNative)
+        } catch (err) {
+          // Recoverable — Jared re-preps the sandbox on its first turn.
+          logger.warn({ error: formatError(err) }, "chat run sandbox prep failed — continuing admit")
         }
-      } catch (err) {
-        logger.warn({ error: formatError(err) }, "operator prompt sandbox prep failed — continuing admit")
-      }
-    }
+        try {
+          await admitPrompt(c.env, { entityKey, prompt, flueNative, logger })
+          logger.info({ repo }, "chat run started")
+        } catch (err) {
+          logger.error({ error: formatError(err) }, "chat run admit failed")
+        }
+      })(),
+    )
 
-    const prompt = formatOperatorPrompt(text)
-
-    if (flueNative) {
-      const { conversationUrl, submissionId } = await dispatchToFlueAgent(c.env, {
-        entityKey,
-        prompt,
-        logger,
-      })
-      return c.json({ ok: true, entityKey, conversationUrl, submissionId })
-    }
-
-    // Phase 1 fallback: admit via in-container Flue.
-    const eventId = crypto.randomUUID()
-    const { dispatchPrompt } = await import("@/lib/containers/dispatch")
-    await dispatchPrompt(sandbox, entityKey, prompt, eventId)
-    return c.json({ ok: true, entityKey, submissionId: eventId })
+    return c.json({ ok: true, entityKey, repo })
   })
 
   // Live container / agent inspection — collects data and saves to D1

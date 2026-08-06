@@ -38,9 +38,11 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import { chatEntityRepo, operatorText } from "@/lib/containers/chat-run"
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -153,11 +155,12 @@ function ChatMessage({ message }: { message: SessionMessage }) {
     (p) => p.type !== "text" && p.type !== "reasoning" && !isToolPart(p) && !NOISE.has(p.type),
   )
 
+  // Operator messages are framed for the agent before dispatch; show the words
+  // the human actually typed.
+  const displayText = (part: MessagePart) => (isUser ? operatorText(part.text ?? "") : (part.text ?? ""))
+
   // Concatenated visible text for the copy button (text + reasoning parts only).
-  const copyText = textParts
-    .map((p) => p.text ?? "")
-    .join("\n\n")
-    .trim()
+  const copyText = textParts.map(displayText).join("\n\n").trim()
 
   const hasVisibleContent = textParts.length > 0 || toolParts.length > 0 || otherParts.length > 0
   // Assistant messages may still be streaming (no parts yet). Show a working
@@ -204,7 +207,7 @@ function ChatMessage({ message }: { message: SessionMessage }) {
 
         {/* Text + reasoning (visually distinct) */}
         {textParts.map((part, i) => {
-          const text = part.text ?? ""
+          const text = displayText(part)
           const isLong = text.length > 1000
           const display = isLong && !expanded ? `${text.slice(0, 1000)}...` : text
           const isReasoning = part.type === "reasoning"
@@ -563,7 +566,9 @@ export default function ContainerDetailPage() {
   const { data, isLoading, isError, isFetching, refetch, dataUpdatedAt } = useSessionDetail(entityKey)
   const destroyContainer = useDestroyContainer()
   const sendPrompt = useSendPrompt(entityKey)
-  const entityEvents = useEvents({ entityKey, limit: 8 })
+  // Chat runs are started from the dashboard, so no webhook ever targets them.
+  const chatRepo = chatEntityRepo(entityKey)
+  const entityEvents = useEvents({ entityKey, limit: 8 }, { enabled: !chatRepo })
   const [showLogs, setShowLogs] = useState(false)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [destroyOpen, setDestroyOpen] = useState(false)
@@ -613,25 +618,18 @@ export default function ContainerDetailPage() {
   const messageCount = activeMessages.length
   const streamingPlaceholder = hasBusyPlaceholder(activeMessages)
 
-  // Clear optimistic bubbles once the server transcript catches up.
+  // Clear optimistic bubbles once the server transcript catches up. Both sides
+  // are reduced to the operator's own words, so the agent framing the Worker
+  // wraps a turn in can't cause a false miss.
   useEffect(() => {
     if (optimistic.length === 0) return
     const serverUserTexts = new Set(
       serverMessages
         .filter((m) => m.info?.role === "user")
-        .map((m) => m.parts?.map((p) => p.text ?? "").join("") ?? "")
+        .map((m) => operatorText(m.parts?.map((p) => p.text ?? "").join("") ?? ""))
         .filter(Boolean),
     )
-    setOptimistic((prev) =>
-      prev.filter((m) => {
-        const t = m.parts?.[0]?.text ?? ""
-        if (!t) return false
-        // Match full operator-prefixed text, or the raw body if the server
-        // strips / rewrites the prefix.
-        const raw = t.startsWith("Operator guidance:\n\n") ? t.slice("Operator guidance:\n\n".length) : t
-        return ![...serverUserTexts].some((s) => s === t || s === raw || s.includes(raw))
-      }),
-    )
+    setOptimistic((prev) => prev.filter((m) => !serverUserTexts.has(m.parts?.[0]?.text ?? "")))
   }, [serverMessages, optimistic.length])
 
   useEffect(() => {
@@ -729,7 +727,7 @@ export default function ContainerDetailPage() {
 
   const ghUrl = entityGitHubUrl(entityKey, "issues")
   const parsed = parseEntityKey(entityKey)
-  const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : null
+  const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
   const activeSummary = summarizeSession(activeSession, serverMessages)
 
   // Summary. Cost is derived per-session with a message fallback so pending
@@ -757,12 +755,11 @@ export default function ContainerDetailPage() {
     const text = draft.trim()
     if (!text || sendPrompt.isPending) return
     const optId = `opt-${crypto.randomUUID()}`
-    const prefixed = `Operator guidance:\n\n${text}`
     setOptimistic((prev) => [
       ...prev,
       {
         info: { id: optId, role: "user", createdAt: new Date().toISOString() },
-        parts: [{ type: "text", text: prefixed }],
+        parts: [{ type: "text", text }],
       },
     ])
     setDraft("")
@@ -790,6 +787,11 @@ export default function ContainerDetailPage() {
               <h1 className="truncate font-mono text-sm font-semibold">
                 {ghUrl ? <GitHubLink href={ghUrl}>{entityKey}</GitHubLink> : entityKey}
               </h1>
+              {chatRepo && (
+                <Badge variant="secondary" className="shrink-0">
+                  Chat
+                </Badge>
+              )}
               <span className="shrink-0 text-[11px] text-muted-foreground">{statusLabel(overallStatus)}</span>
             </div>
             <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
@@ -884,38 +886,40 @@ export default function ContainerDetailPage() {
               )}
             </div>
           </div>
-          <div className="max-h-48 shrink-0 overflow-y-auto border-t p-2">
-            <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Recent events
-            </div>
-            {entityEvents.isLoading ? (
-              <div className="px-2 text-[10px] text-muted-foreground">Loading…</div>
-            ) : entityEvents.isError ? (
-              <div className="px-2 text-[10px] text-destructive">Couldn't load events</div>
-            ) : !entityEvents.data?.data.length ? (
-              <div className="px-2 text-[10px] text-muted-foreground">No events</div>
-            ) : (
-              <div className="space-y-1">
-                {entityEvents.data.data.map((ev) => (
-                  <button
-                    key={ev.id}
-                    type="button"
-                    onClick={() => navigate(`/events/${ev.id}`)}
-                    className="flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left hover:bg-muted/50"
-                  >
-                    <span className="truncate text-[11px] font-medium">
-                      {ev.event}
-                      {ev.action ? `.${ev.action}` : ""}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <StatusBadge status={ev.status} />
-                      <span className="text-[10px] text-muted-foreground">{formatTimeAgo(ev.createdAt)}</span>
-                    </span>
-                  </button>
-                ))}
+          {!chatRepo && (
+            <div className="max-h-48 shrink-0 overflow-y-auto border-t p-2">
+              <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Recent events
               </div>
-            )}
-          </div>
+              {entityEvents.isLoading ? (
+                <div className="px-2 text-[10px] text-muted-foreground">Loading…</div>
+              ) : entityEvents.isError ? (
+                <div className="px-2 text-[10px] text-destructive">Couldn't load events</div>
+              ) : !entityEvents.data?.data.length ? (
+                <div className="px-2 text-[10px] text-muted-foreground">No events</div>
+              ) : (
+                <div className="space-y-1">
+                  {entityEvents.data.data.map((ev) => (
+                    <button
+                      key={ev.id}
+                      type="button"
+                      onClick={() => navigate(`/events/${ev.id}`)}
+                      className="flex w-full flex-col gap-0.5 rounded px-2 py-1.5 text-left hover:bg-muted/50"
+                    >
+                      <span className="truncate text-[11px] font-medium">
+                        {ev.event}
+                        {ev.action ? `.${ev.action}` : ""}
+                      </span>
+                      <span className="flex items-center gap-1.5">
+                        <StatusBadge status={ev.status} />
+                        <span className="text-[10px] text-muted-foreground">{formatTimeAgo(ev.createdAt)}</span>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Chat area */}
@@ -1008,6 +1012,8 @@ export default function ContainerDetailPage() {
                       </>
                     ) : overallStatus === "historical" ? (
                       <>This run is historical. The sandbox has likely scaled to zero.</>
+                    ) : chatRepo ? (
+                      <>The agent is starting up on {chatRepo}. Your message appears here once it reports in.</>
                     ) : (
                       <>Send operator guidance below to continue the agent, or open a related webhook event.</>
                     )}
@@ -1040,10 +1046,12 @@ export default function ContainerDetailPage() {
                     handleSend()
                   }
                 }}
-                aria-label="Operator guidance"
+                aria-label={chatRepo ? "Message to the agent" : "Operator guidance"}
                 aria-invalid={sendPrompt.isError || undefined}
                 aria-describedby={sendPrompt.isError ? "operator-prompt-error" : undefined}
-                placeholder="Send guidance to the agent… (⌘/Ctrl+Enter)"
+                placeholder={
+                  chatRepo ? "Message the agent… (⌘/Ctrl+Enter)" : "Send guidance to the agent… (⌘/Ctrl+Enter)"
+                }
                 rows={2}
                 className="min-h-[2.5rem] flex-1 resize-none border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50"
               />

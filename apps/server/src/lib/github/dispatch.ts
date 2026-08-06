@@ -197,8 +197,3 @@ export async function markEntityEventsCompleted(
     /* best effort */
   }
 }
-
-/** Shared prefix for operator-injected chat turns (server admit + UI optimistic). */
-export function formatOperatorPrompt(text: string): string {
-  return `Operator guidance:\n\n${text}`
-}
