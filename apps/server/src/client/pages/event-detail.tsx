@@ -123,8 +123,14 @@ export default function EventDetailPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={!event.installationId || resendEvent.isPending}
-                  title={event.installationId ? undefined : "Resend is only available for GitHub events"}
+                  disabled={!event.installationId || event.status === "skipped" || resendEvent.isPending}
+                  title={
+                    event.status === "skipped"
+                      ? "Skipped events have no full payload to resend"
+                      : event.installationId
+                        ? undefined
+                        : "Resend is only available for GitHub events"
+                  }
                 >
                   {resendEvent.isPending ? (
                     <ArrowClockwise className="size-3.5 animate-spin" />

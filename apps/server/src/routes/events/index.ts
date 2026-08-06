@@ -22,7 +22,8 @@ const router = new Hono<AuthEnv>()
         pending: sql<number>`sum(case when ${webhookEvents.status} = 'pending' then 1 else 0 end)`,
         dispatched: sql<number>`sum(case when ${webhookEvents.status} = 'dispatched' then 1 else 0 end)`,
         completed: sql<number>`sum(case when ${webhookEvents.status} = 'completed' then 1 else 0 end)`,
-        failed: sql<number>`sum(case when ${webhookEvents.status} = 'failed' then 1 else 0 end)`,
+        failed: sql<number>`sum(case when ${webhookEvents.status} like 'failed%' then 1 else 0 end)`,
+        stuck: sql<number>`sum(case when ${webhookEvents.status} like 'd:%' then 1 else 0 end)`,
         skipped: sql<number>`sum(case when ${webhookEvents.status} = 'skipped' then 1 else 0 end)`,
         latest: sql<string>`max(${webhookEvents.createdAt})`,
       })
@@ -202,6 +203,11 @@ const router = new Hono<AuthEnv>()
     // installation id to mint a fresh token for the agent's git operations.
     if (!event.installationId) {
       return c.json({ error: "Cannot resend: event has no GitHub installation" }, 400)
+    }
+
+    // Skipped rows only store a reason stub — resending would admit useless context.
+    if (event.status === "skipped") {
+      return c.json({ error: "Cannot resend: skipped events have no full payload" }, 400)
     }
 
     // Optimistically mark pending so the UI reflects the in-flight resend; the

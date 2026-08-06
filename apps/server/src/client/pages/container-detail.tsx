@@ -515,7 +515,9 @@ function ToolTimeline({ messages }: { messages: SessionMessage[] }) {
               ? "border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-300"
               : t.status === "error"
                 ? "border-red-300 text-red-700 dark:border-red-800 dark:text-red-300"
-                : "border-border text-muted-foreground"
+                : t.status === "done"
+                  ? "border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300"
+                  : "border-border text-muted-foreground"
           }`}
         >
           <Wrench className="size-2.5" />
@@ -549,6 +551,8 @@ export default function ContainerDetailPage() {
   const [draft, setDraft] = useState("")
   const [optimistic, setOptimistic] = useState<SessionMessage[]>([])
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatScrollRef = useRef<HTMLDivElement>(null)
+  const stickToBottomRef = useRef(true)
 
   const detail = (data ?? null) as SessionDetailResponse | null
   const sessions = detail?.sessions ?? []
@@ -593,16 +597,26 @@ export default function ContainerDetailPage() {
   // Clear optimistic bubbles once the server transcript catches up.
   useEffect(() => {
     if (optimistic.length === 0) return
-    const serverText = serverMessages.map((m) => m.parts?.map((p) => p.text ?? "").join("") ?? "").join("\n")
+    const serverUserTexts = new Set(
+      serverMessages
+        .filter((m) => m.info?.role === "user")
+        .map((m) => m.parts?.map((p) => p.text ?? "").join("") ?? "")
+        .filter(Boolean),
+    )
     setOptimistic((prev) =>
       prev.filter((m) => {
         const t = m.parts?.[0]?.text ?? ""
-        return t && !serverText.includes(t)
+        if (!t) return false
+        // Match full operator-prefixed text, or the raw body if the server
+        // strips / rewrites the prefix.
+        const raw = t.startsWith("Operator guidance:\n\n") ? t.slice("Operator guidance:\n\n".length) : t
+        return ![...serverUserTexts].some((s) => s === t || s === raw || s.includes(raw))
       }),
     )
   }, [serverMessages, optimistic.length])
 
   useEffect(() => {
+    if (!stickToBottomRef.current) return
     if (messageCount === 0 && !streamingPlaceholder) return
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messageCount, streamingPlaceholder])
@@ -716,15 +730,22 @@ export default function ContainerDetailPage() {
   const handleSend = () => {
     const text = draft.trim()
     if (!text || sendPrompt.isPending) return
+    const optId = `opt-${crypto.randomUUID()}`
+    const prefixed = `Operator guidance:\n\n${text}`
     setOptimistic((prev) => [
       ...prev,
       {
-        info: { id: `opt-${Date.now()}`, role: "user", createdAt: new Date().toISOString() },
-        parts: [{ type: "text", text: `Operator guidance:\n\n${text}` }],
+        info: { id: optId, role: "user", createdAt: new Date().toISOString() },
+        parts: [{ type: "text", text: prefixed }],
       },
     ])
     setDraft("")
-    sendPrompt.mutate(text)
+    stickToBottomRef.current = true
+    sendPrompt.mutate(text, {
+      onError: () => {
+        setOptimistic((prev) => prev.filter((m) => m.info?.id !== optId))
+      },
+    })
   }
 
   return (
@@ -784,12 +805,23 @@ export default function ContainerDetailPage() {
       </div>
 
       {syncError && (
-        <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+        <div
+          role="alert"
+          className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+        >
           <Warning className="mt-0.5 size-3.5 shrink-0" />
-          <div>
-            <span className="font-medium">Live sync failed.</span> Showing cached D1 snapshot — messages may be empty or
-            stale. {syncError}
+          <div className="min-w-0 flex-1">
+            <span className="font-medium">Couldn't reach the live agent.</span> Showing the last saved snapshot —
+            messages may be empty or stale.
+            <details className="mt-1">
+              <summary className="cursor-pointer text-[10px] opacity-80">Technical details</summary>
+              <code className="mt-0.5 block break-all font-mono text-[10px] opacity-70">{syncError}</code>
+            </details>
           </div>
+          <Button variant="outline" size="xs" className="shrink-0" onClick={() => refetch()} disabled={isFetching}>
+            <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
+            Retry
+          </Button>
         </div>
       )}
 
@@ -831,6 +863,8 @@ export default function ContainerDetailPage() {
             </div>
             {entityEvents.isLoading ? (
               <div className="px-2 text-[10px] text-muted-foreground">Loading…</div>
+            ) : entityEvents.isError ? (
+              <div className="px-2 text-[10px] text-destructive">Couldn't load events</div>
             ) : !entityEvents.data?.data.length ? (
               <div className="px-2 text-[10px] text-muted-foreground">No events</div>
             ) : (
@@ -900,11 +934,24 @@ export default function ContainerDetailPage() {
           <ToolTimeline messages={serverMessages} />
 
           {/* Messages */}
-          <div className="min-w-0 flex-1 overflow-y-auto">
+          <div
+            ref={chatScrollRef}
+            className="min-w-0 flex-1 overflow-y-auto"
+            onScroll={() => {
+              const el = chatScrollRef.current
+              if (!el) return
+              stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+            }}
+          >
             {activeMessages.length > 0 ? (
               <div className="min-w-0 divide-y divide-border/30">
                 {activeMessages.map((msg, i) => (
-                  <ChatMessage key={msg.info?.id ?? `${effectiveSessionId}-${i}`} message={msg} />
+                  <div
+                    key={msg.info?.id ?? `${effectiveSessionId}-${i}`}
+                    className={msg.info?.id?.startsWith("opt-") ? "opacity-70" : undefined}
+                  >
+                    <ChatMessage message={msg} />
+                  </div>
                 ))}
                 <div ref={chatEndRef} />
               </div>
@@ -921,7 +968,7 @@ export default function ContainerDetailPage() {
           {/* Operator composer */}
           <div className="shrink-0 border-t bg-background p-3">
             {sendPrompt.isError && (
-              <p className="mb-2 text-xs text-destructive">
+              <p id="operator-prompt-error" className="mb-2 text-xs text-destructive" role="alert">
                 {sendPrompt.error instanceof Error ? sendPrompt.error.message : "Failed to send"}
               </p>
             )}
@@ -935,9 +982,12 @@ export default function ContainerDetailPage() {
                     handleSend()
                   }
                 }}
+                aria-label="Operator guidance"
+                aria-invalid={sendPrompt.isError || undefined}
+                aria-describedby={sendPrompt.isError ? "operator-prompt-error" : undefined}
                 placeholder="Send guidance to the agent… (⌘/Ctrl+Enter)"
                 rows={2}
-                className="min-h-[2.5rem] flex-1 resize-none border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-ring"
+                className="min-h-[2.5rem] flex-1 resize-none border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50"
               />
               <Button size="sm" disabled={!draft.trim() || sendPrompt.isPending} onClick={handleSend}>
                 {sendPrompt.isPending ? (
@@ -945,7 +995,7 @@ export default function ContainerDetailPage() {
                 ) : (
                   <PaperPlaneTilt className="size-3.5" />
                 )}
-                Send
+                {sendPrompt.isPending ? "Sending…" : "Send"}
               </Button>
             </div>
           </div>

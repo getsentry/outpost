@@ -89,7 +89,7 @@ export default function EventsPage() {
     completed: stats?.completed ?? 0,
     failed: stats?.failed ?? 0,
     skipped: stats?.skipped ?? 0,
-    "d:boot": (stats as { stuck?: number } | undefined)?.stuck ?? 0,
+    "d:boot": stats?.stuck ?? 0,
   }
 
   const pagination = data?.pagination
@@ -223,6 +223,7 @@ export default function EventsPage() {
                     <TableHead className="text-right">Dispatched</TableHead>
                     <TableHead className="text-right">Completed</TableHead>
                     <TableHead className="text-right">Failed</TableHead>
+                    <TableHead className="text-right">Stuck</TableHead>
                     <TableHead className="text-right">Skipped</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -251,6 +252,7 @@ export default function EventsPage() {
                       <TableCell className="text-right font-mono">{group.dispatched}</TableCell>
                       <TableCell className="text-right font-mono">{group.completed}</TableCell>
                       <TableCell className="text-right font-mono">{group.failed}</TableCell>
+                      <TableCell className="text-right font-mono">{group.stuck}</TableCell>
                       <TableCell className="text-right font-mono">{group.skipped}</TableCell>
                     </TableRow>
                   ))}

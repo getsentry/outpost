@@ -34,9 +34,9 @@ import {
 } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
-import { deriveOverallStatus, saveSession, summarizeSession } from "@/lib/containers/sessions"
+import { deriveOverallStatus, mergeSessionData, saveSession, summarizeSession } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
-import { markEntityEventsCompleted } from "@/lib/github/dispatch"
+import { formatOperatorPrompt, markEntityEventsCompleted } from "@/lib/github/dispatch"
 import { isAuthenticated } from "@/middlewares"
 import { requireUserOrInternalToken } from "@/middlewares/flue-auth"
 import type { BaseEnv } from "@/types"
@@ -361,15 +361,19 @@ const router = new Hono<BaseEnv>()
       const result = await fetchFlueHistoryResult(c.env, entityKey)
       if (result.ok) {
         const blob = flueHistoryToSessionData(entityKey, result.history)
+        // saveSession merges with D1; respond with that same merge so we don't
+        // drop prior sessions/messages that Flue no longer reports.
+        const mergedRaw = session.sessionData ? mergeSessionData(session.sessionData, blob) : blob
         try {
           await saveSession(db, entityKey, blob)
         } catch {
           /* best effort persist */
         }
-        parsed = parseSessionData(blob)
+        parsed = parseSessionData(mergedRaw)
         updatedAt = new Date()
         if (deriveOverallStatus(parsed) === "idle") {
-          c.executionCtx.waitUntil(markEntityEventsCompleted(db, entityKey))
+          const observedIdleAt = new Date()
+          c.executionCtx.waitUntil(markEntityEventsCompleted(db, entityKey, { dispatchedBefore: observedIdleAt }))
         }
       } else {
         syncError = result.error
@@ -382,7 +386,12 @@ const router = new Hono<BaseEnv>()
             try {
               const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
               const freshData = await collectContainerData(sandbox, entityKey)
-              if (freshData) await saveSession(db, entityKey, freshData)
+              if (freshData) {
+                await saveSession(db, entityKey, freshData)
+                if (deriveOverallStatus(freshData) === "idle") {
+                  await markEntityEventsCompleted(db, entityKey, { dispatchedBefore: new Date() })
+                }
+              }
             } catch {
               /* leave snapshot */
             }
@@ -460,7 +469,7 @@ const router = new Hono<BaseEnv>()
       }
     }
 
-    const prompt = `Operator guidance:\n\n${text}`
+    const prompt = formatOperatorPrompt(text)
 
     if (flueNative) {
       const { conversationUrl, submissionId } = await dispatchToFlueAgent(c.env, {

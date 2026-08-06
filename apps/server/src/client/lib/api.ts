@@ -81,6 +81,17 @@ export type SessionDetailResponse = {
   syncError?: string | null
 }
 
+export type EventStats = {
+  total: number
+  pending: number
+  dispatched: number
+  completed: number
+  failed: number
+  stuck: number
+  skipped: number
+  last24h: number
+}
+
 export type SessionListItem = {
   entityKey: string
   createdAt: string
@@ -124,10 +135,10 @@ export const api = {
     return res.json()
   },
 
-  async getEventStats() {
+  async getEventStats(): Promise<EventStats> {
     const res = await endpoint.api.events.stats.$get()
     if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`)
-    return res.json()
+    return res.json() as Promise<EventStats>
   },
 
   async clearEvents() {

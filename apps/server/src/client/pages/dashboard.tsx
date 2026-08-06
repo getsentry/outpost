@@ -34,15 +34,13 @@ function StatsCards() {
     return <div className="py-4 text-center text-sm text-destructive">Failed to load stats</div>
   }
 
-  const skipped = stats?.skipped ?? 0
   const total = stats?.total ?? 0
-  const stuck = (stats as { stuck?: number } | undefined)?.stuck ?? 0
-  const actionable = Math.max(0, total - skipped)
+  const stuck = stats?.stuck ?? 0
   const cards = [
     { label: "Total Events", value: total, icon: Lightning },
-    { label: "Actionable", value: actionable, icon: Hourglass },
-    { label: "Skipped", value: skipped, icon: CircleDashed },
-    { label: "Stuck (d:*)", value: stuck, icon: Clock },
+    { label: "Pending", value: stats?.pending ?? 0, icon: CircleDashed },
+    { label: "Dispatched", value: stats?.dispatched ?? 0, icon: Hourglass },
+    { label: "Stuck", value: stuck, icon: Clock },
     { label: "Completed", value: stats?.completed ?? 0, icon: CheckCircle },
   ]
 
