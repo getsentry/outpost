@@ -195,29 +195,120 @@ export async function saveSession(
 }
 
 /**
- * Overall container status shown in the Containers list.
- * Matches the dashboard: any busy child → busy; otherwise idle if we have
- * status entries, else unknown (offline).
+ * Raw overall status from sessionStatus entries.
+ * Used for Clear Idle filtering and demotion decisions — not shown in the UI.
+ * Any busy child → busy; otherwise idle if we have status entries, else unknown.
  */
 export type OverallSessionStatus = "busy" | "idle" | "unknown"
 
-export function deriveOverallStatus(sessionData: string | AnyRecord): OverallSessionStatus {
-  let parsed: AnyRecord
+/** Operator-facing status for list/detail (accounts for stale busy + sync failures). */
+export type DisplayRunStatus = "working" | "idle" | "sync_unavailable" | "historical" | "unknown"
+
+/** Busy placeholders older than this are treated as stale (not truly working). */
+export const STALE_BUSY_MS = 30 * 60 * 1000
+
+/** Idle runs older than this are shown as historical archives. */
+export const HISTORICAL_IDLE_MS = 24 * 60 * 60 * 1000
+
+/** With a sync error, still prefer "working" when the snapshot is this fresh. */
+export const FRESH_BUSY_WITH_SYNC_ERROR_MS = 2 * 60 * 1000
+
+export const SANDBOX_RUNTIME_NOTE = "Sandbox scales to zero after ~10m idle"
+
+function parseSessionBlob(sessionData: string | AnyRecord): AnyRecord | null {
   if (typeof sessionData === "string") {
     try {
-      parsed = JSON.parse(sessionData) as AnyRecord
+      return JSON.parse(sessionData) as AnyRecord
     } catch {
-      return "unknown"
+      return null
     }
-  } else {
-    parsed = sessionData
   }
+  return sessionData
+}
+
+function toUpdatedAtMs(updatedAt: Date | string | number): number {
+  if (typeof updatedAt === "number") return updatedAt
+  if (updatedAt instanceof Date) return updatedAt.getTime()
+  return new Date(updatedAt).getTime()
+}
+
+export function deriveOverallStatus(sessionData: string | AnyRecord): OverallSessionStatus {
+  const parsed = parseSessionBlob(sessionData)
+  if (!parsed) return "unknown"
 
   const statuses = parsed.sessionStatus as Record<string, Record<string, string>> | null | undefined
   const statusValues = statuses ? Object.values(statuses) : []
   if (statusValues.some((st) => st?.type === "busy")) return "busy"
   if (statusValues.length > 0) return "idle"
   return "unknown"
+}
+
+/** Count messages across all sessions in a stored blob. */
+export function countSessionMessages(sessionData: string | Record<string, unknown>): number {
+  const parsed = parseSessionBlob(sessionData)
+  if (!parsed) return 0
+  const messages = (parsed.messages ?? {}) as Record<string, unknown[]>
+  return Object.values(messages).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : 0), 0)
+}
+
+/**
+ * Display status for the Agent runs dashboard.
+ *
+ * - working: overall busy, not stale, and either no syncError or very fresh (<2m)
+ * - sync_unavailable: stale busy, or busy+syncError after 2m, or syncError without idle confirmation
+ * - idle / historical: overall idle, split by HISTORICAL_IDLE_MS
+ * - unknown: otherwise
+ */
+export function deriveDisplayStatus(
+  sessionData: string | Record<string, unknown>,
+  updatedAt: Date | string | number,
+  opts?: { syncError?: string | null; now?: number },
+): DisplayRunStatus {
+  const overall = deriveOverallStatus(sessionData)
+  const now = opts?.now ?? Date.now()
+  const age = Math.max(0, now - toUpdatedAtMs(updatedAt))
+  const syncError = opts?.syncError ?? null
+  const hasSyncError = typeof syncError === "string" && syncError.length > 0
+
+  if (overall === "busy") {
+    if (age >= STALE_BUSY_MS) return "sync_unavailable"
+    if (hasSyncError && age > FRESH_BUSY_WITH_SYNC_ERROR_MS) return "sync_unavailable"
+    return "working"
+  }
+
+  if (overall === "idle") {
+    return age >= HISTORICAL_IDLE_MS ? "historical" : "idle"
+  }
+
+  // No reliable idle confirmation — surface sync problems instead of a blank Offline.
+  if (hasSyncError) return "sync_unavailable"
+  return "unknown"
+}
+
+/** True when stored overall is busy and the row is older than STALE_BUSY_MS. */
+export function isStaleBusy(
+  sessionData: string | Record<string, unknown>,
+  updatedAt: Date | string | number,
+  now = Date.now(),
+): boolean {
+  if (deriveOverallStatus(sessionData) !== "busy") return false
+  return now - toUpdatedAtMs(updatedAt) >= STALE_BUSY_MS
+}
+
+/**
+ * Rewrite every sessionStatus entry to idle (preserves other fields).
+ * Used to heal stale busy placeholders written by saveInitialSession.
+ */
+export function demoteBusyStatusesToIdle(sessionData: string): string {
+  const parsed = parseSessionBlob(sessionData)
+  if (!parsed) return sessionData
+  const status = (parsed.sessionStatus ?? {}) as Record<string, AnyRecord>
+  if (Object.keys(status).length === 0) return sessionData
+  const demoted: Record<string, AnyRecord> = {}
+  for (const [id, st] of Object.entries(status)) {
+    demoted[id] = { ...st, type: "idle" }
+  }
+  return JSON.stringify({ ...parsed, sessionStatus: demoted })
 }
 
 /**

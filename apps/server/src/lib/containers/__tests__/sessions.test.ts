@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest"
-import { deriveOverallStatus, mergeSessionData } from "../sessions"
+import {
+  countSessionMessages,
+  demoteBusyStatusesToIdle,
+  deriveDisplayStatus,
+  deriveOverallStatus,
+  FRESH_BUSY_WITH_SYNC_ERROR_MS,
+  HISTORICAL_IDLE_MS,
+  isStaleBusy,
+  mergeSessionData,
+  STALE_BUSY_MS,
+} from "../sessions"
 
 type Parsed = {
   sessions: Array<Record<string, unknown>>
@@ -156,5 +166,86 @@ describe("deriveOverallStatus", () => {
     expect(deriveOverallStatus({ sessionStatus: {} })).toBe("unknown")
     expect(deriveOverallStatus({})).toBe("unknown")
     expect(deriveOverallStatus("not json")).toBe("unknown")
+  })
+})
+
+describe("countSessionMessages", () => {
+  it("sums messages across session keys", () => {
+    expect(
+      countSessionMessages({
+        messages: { a: [{}, {}], b: [{}] },
+      }),
+    ).toBe(3)
+  })
+
+  it("returns 0 for empty or unparseable blobs", () => {
+    expect(countSessionMessages({})).toBe(0)
+    expect(countSessionMessages("not json")).toBe(0)
+  })
+})
+
+describe("deriveDisplayStatus", () => {
+  const busy = { sessionStatus: { a: { type: "busy" } } }
+  const idle = { sessionStatus: { a: { type: "idle" } } }
+  const now = 1_700_000_000_000
+
+  it("returns working for fresh busy without sync error", () => {
+    expect(deriveDisplayStatus(busy, now - 60_000, { now })).toBe("working")
+  })
+
+  it("returns working for busy with sync error only when very fresh", () => {
+    expect(
+      deriveDisplayStatus(busy, now - FRESH_BUSY_WITH_SYNC_ERROR_MS + 1_000, {
+        now,
+        syncError: "timeout",
+      }),
+    ).toBe("working")
+    expect(
+      deriveDisplayStatus(busy, now - FRESH_BUSY_WITH_SYNC_ERROR_MS - 1_000, {
+        now,
+        syncError: "timeout",
+      }),
+    ).toBe("sync_unavailable")
+  })
+
+  it("returns sync_unavailable for stale busy", () => {
+    expect(deriveDisplayStatus(busy, now - STALE_BUSY_MS - 1, { now })).toBe("sync_unavailable")
+  })
+
+  it("returns sync_unavailable when sync fails without idle confirmation", () => {
+    expect(deriveDisplayStatus({}, now - 60_000, { now, syncError: "failed" })).toBe("sync_unavailable")
+  })
+
+  it("returns idle vs historical based on age", () => {
+    expect(deriveDisplayStatus(idle, now - 60_000, { now })).toBe("idle")
+    expect(deriveDisplayStatus(idle, now - HISTORICAL_IDLE_MS, { now })).toBe("historical")
+  })
+
+  it("keeps idle even when syncError is set (idle is confirmed)", () => {
+    expect(deriveDisplayStatus(idle, now - 60_000, { now, syncError: "failed" })).toBe("idle")
+  })
+
+  it("returns unknown when there is no status and no sync error", () => {
+    expect(deriveDisplayStatus({}, now, { now })).toBe("unknown")
+  })
+})
+
+describe("demoteBusyStatusesToIdle / isStaleBusy", () => {
+  it("detects stale busy snapshots", () => {
+    const now = Date.now()
+    expect(isStaleBusy({ sessionStatus: { a: { type: "busy" } } }, now - STALE_BUSY_MS - 1, now)).toBe(true)
+    expect(isStaleBusy({ sessionStatus: { a: { type: "busy" } } }, now - 60_000, now)).toBe(false)
+    expect(isStaleBusy({ sessionStatus: { a: { type: "idle" } } }, now - STALE_BUSY_MS - 1, now)).toBe(false)
+  })
+
+  it("rewrites busy sessionStatus entries to idle", () => {
+    const raw = JSON.stringify({
+      sessions: [{ id: "a" }],
+      sessionStatus: { a: { type: "busy", reason: "placeholder" }, b: { type: "idle" } },
+      messages: {},
+    })
+    const demoted = JSON.parse(demoteBusyStatusesToIdle(raw)) as Parsed
+    expect(demoted.sessionStatus.a.type).toBe("idle")
+    expect(demoted.sessionStatus.b.type).toBe("idle")
   })
 })

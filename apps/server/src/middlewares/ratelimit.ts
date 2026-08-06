@@ -3,6 +3,7 @@ import type { Context, Next } from "hono"
 import { getContext } from "hono/context-storage"
 import type { AuthEnv } from "@/types"
 import { RateLimitError } from "@/utils/errors"
+import { FLUE_INTERNAL_HEADER, requestHasFlueInternalToken } from "./flue-auth"
 
 const logger = createLogger({ namespace: "ratelimit" })
 
@@ -40,6 +41,13 @@ function getIdentifier(customKey?: RateLimitOptions["key"]): string | null {
 export const rateLimit =
   ({ key, failOpen = false }: RateLimitOptions = {}) =>
   async (c: Context<AuthEnv>, next: Next) => {
+    // Worker→self Flue history pulls present the internal token; do not count
+    // them against the shared IP/user bucket when the dashboard polls.
+    const flueHeader = c.req.header(FLUE_INTERNAL_HEADER) ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "")
+    if (await requestHasFlueInternalToken(flueHeader, c.env)) {
+      return next()
+    }
+
     const identifier = getIdentifier(key)
 
     // If we can't identify the request, either fail open or closed

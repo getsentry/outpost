@@ -44,15 +44,31 @@ const PAGE_SIZES = [10, 25, 50] as const
 
 function StatusIndicator({ status }: { status: string }) {
   const config: Record<string, { bg: string; dot: string; label: string }> = {
+    working: {
+      bg: "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
+      dot: "bg-yellow-500 animate-pulse",
+      label: "Working",
+    },
+    // Legacy API value before display-status rollout
     busy: {
       bg: "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
       dot: "bg-yellow-500 animate-pulse",
-      label: "Active",
+      label: "Working",
     },
     idle: {
       bg: "bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300",
       dot: "bg-green-500",
       label: "Idle",
+    },
+    sync_unavailable: {
+      bg: "border border-amber-300 bg-transparent text-amber-800 dark:border-amber-700 dark:text-amber-200",
+      dot: "bg-amber-500",
+      label: "Sync unavailable",
+    },
+    historical: {
+      bg: "bg-muted text-muted-foreground",
+      dot: "bg-muted-foreground/50",
+      label: "Historical",
     },
     unknown: {
       bg: "bg-gray-50 text-gray-600 dark:bg-gray-900 dark:text-gray-400",
@@ -115,13 +131,15 @@ export default function SessionsPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-semibold">Containers</h1>
+          <h1 className="text-lg font-semibold">Agent runs</h1>
           <p className="text-sm text-muted-foreground">
-            {pagination ? `${pagination.total} container${pagination.total !== 1 ? "s" : ""}` : "Live agent containers"}
+            {pagination
+              ? `${pagination.total} agent run${pagination.total !== 1 ? "s" : ""}`
+              : "Recent agent conversations"}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <ButtonGroup aria-label="Clear containers">
+          <ButtonGroup aria-label="Clear agent runs">
             <Button
               variant="outline"
               size="sm"
@@ -150,18 +168,18 @@ export default function SessionsPage() {
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>
-                  {clearMode === "idle" ? "Clear idle session entries?" : "Destroy all containers?"}
+                  {clearMode === "idle" ? "Clear idle agent runs?" : "Destroy all agent runs?"}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
                   {clearMode === "idle" ? (
                     <>
-                      This will permanently delete Idle session records from the database. Active and Offline entries
-                      are left alone, and no running containers will be destroyed. This action cannot be undone.
+                      This will permanently delete Idle, Historical, and Sync unavailable run records. Working runs are
+                      left alone, and no sandboxes will be destroyed. This action cannot be undone.
                     </>
                   ) : (
                     <>
                       This will destroy every running sandbox and permanently delete all {pagination?.total ?? 0} agent
-                      session records from the database. This action cannot be undone.
+                      run records from the database. This action cannot be undone.
                     </>
                   )}
                 </AlertDialogDescription>
@@ -178,7 +196,7 @@ export default function SessionsPage() {
                     })
                   }}
                 >
-                  {clearing ? "Clearing..." : clearMode === "idle" ? "Clear Idle Entries" : "Destroy All Containers"}
+                  {clearing ? "Clearing..." : clearMode === "idle" ? "Clear Idle Entries" : "Destroy All Runs"}
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -232,8 +250,8 @@ export default function SessionsPage() {
               <Robot className="size-8 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground">
                 {searchInput
-                  ? "No sessions match your search"
-                  : "No agent sessions yet. Sessions appear when the agent starts working."}
+                  ? "No runs match your search"
+                  : "No agent runs yet. Runs appear when the agent starts working."}
               </p>
             </div>
           ) : (

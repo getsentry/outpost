@@ -39,7 +39,7 @@ import { authClient } from "@/lib/endpoint"
 const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: House },
   { to: "/events", label: "Webhook Events", icon: Lightning },
-  { to: "/containers", label: "Containers", icon: Robot },
+  { to: "/containers", label: "Agent runs", icon: Robot },
 ]
 
 const THEME_OPTIONS = [

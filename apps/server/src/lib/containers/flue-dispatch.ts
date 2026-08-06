@@ -90,8 +90,18 @@ export async function fetchFlueHistoryResult(env: Env, entityKey: string): Promi
     return { ok: true, history: history as unknown as Record<string, unknown> }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    console.warn("fetchFlueHistory failed", err)
-    return { ok: false, error: message }
+    console.warn("fetchFlueHistory failed", { entityKey, conversationUrl, error: message })
+    // Prefer a short operator-facing reason; keep the raw message for details.
+    const hint = /404|not found/i.test(message)
+      ? "Agent conversation not found (may never have started or was recycled)"
+      : /401|403|unauthorized|forbidden/i.test(message)
+        ? "History auth failed — check FLUE_INTERNAL_TOKEN"
+        : /429|rate.?limit/i.test(message)
+          ? "History pull rate-limited"
+          : /timeout|timed out|network|fetch failed/i.test(message)
+            ? "Could not reach Flue history (network/timeout)"
+            : "Flue history sync failed"
+    return { ok: false, error: `${hint}: ${message}` }
   }
 }
 

@@ -48,10 +48,29 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 function StatusDot({ status }: { status: string }) {
   const styles: Record<string, string> = {
+    working: "bg-yellow-500 animate-pulse",
     busy: "bg-yellow-500 animate-pulse",
     idle: "bg-green-500",
+    sync_unavailable: "bg-amber-500",
+    historical: "bg-muted-foreground/50",
   }
   return <span className={`inline-block size-2 rounded-full ${styles[status] ?? "bg-gray-400"}`} />
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case "working":
+    case "busy":
+      return "Working"
+    case "idle":
+      return "Idle"
+    case "sync_unavailable":
+      return "Sync unavailable"
+    case "historical":
+      return "Historical"
+    default:
+      return "Offline"
+  }
 }
 
 /**
@@ -648,9 +667,9 @@ export default function ContainerDetailPage() {
         </AlertDialogTrigger>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Destroy this container?</AlertDialogTitle>
+            <AlertDialogTitle>Destroy this agent run?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will force-stop the container and delete the session data for{" "}
+              This will force-stop the sandbox (if running) and delete the session data for{" "}
               <span className="font-mono font-medium">{entityKey}</span>. The agent will stop working. This action
               cannot be undone.
             </AlertDialogDescription>
@@ -670,7 +689,7 @@ export default function ContainerDetailPage() {
                   Destroying...
                 </>
               ) : (
-                "Destroy Container"
+                "Destroy run"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -697,12 +716,12 @@ export default function ContainerDetailPage() {
         <div className="flex items-center justify-between gap-2">
           <Button variant="ghost" size="sm" onClick={() => navigate("/containers")}>
             <ArrowLeft className="size-3.5" />
-            Back to containers
+            Back to agent runs
           </Button>
           {headerActions}
         </div>
         <div className="py-12 text-center text-sm text-muted-foreground">
-          Container not found or still starting up. Try refreshing.
+          Agent run not found or still starting up. Try refreshing.
         </div>
       </div>
     )
@@ -723,9 +742,16 @@ export default function ContainerDetailPage() {
   }, 0)
   const totalCost = perSessionCost > 0 ? perSessionCost : summarizeSession(sessions[0], allMessages).cost
   const totalMessages = allMessages.length
-  const statusValues = Object.values(sessionStatus)
-  const hasBusy = statusValues.some((s) => s.type === "busy")
-  const overallStatus = hasBusy ? "busy" : statusValues.length > 0 ? "idle" : "unknown"
+  const overallStatus =
+    detail.status ??
+    (() => {
+      const statusValues = Object.values(sessionStatus)
+      const hasBusy = statusValues.some((s) => s.type === "busy")
+      return hasBusy ? "working" : statusValues.length > 0 ? "idle" : "unknown"
+    })()
+  const observedAt = detail.statusObservedAt ?? detail.updatedAt
+  const observedAtIso =
+    typeof observedAt === "string" ? observedAt : observedAt ? new Date(observedAt).toISOString() : null
 
   const handleSend = () => {
     const text = draft.trim()
@@ -764,6 +790,7 @@ export default function ContainerDetailPage() {
               <h1 className="truncate font-mono text-sm font-semibold">
                 {ghUrl ? <GitHubLink href={ghUrl}>{entityKey}</GitHubLink> : entityKey}
               </h1>
+              <span className="shrink-0 text-[11px] text-muted-foreground">{statusLabel(overallStatus)}</span>
             </div>
             <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
               {repoName && <GitHubLink href={repoGitHubUrl(repoName)}>{repoName}</GitHubLink>}
@@ -780,14 +807,13 @@ export default function ContainerDetailPage() {
                   <CurrencyDollar className="size-3" />${totalCost.toFixed(4)}
                 </span>
               )}
-              {detail.updatedAt && (
+              {observedAtIso && (
                 <span className="inline-flex items-center gap-1">
                   <Clock className="size-3" />
-                  {formatTimeAgo(
-                    typeof detail.updatedAt === "string" ? detail.updatedAt : new Date(detail.updatedAt).toISOString(),
-                  )}
+                  {formatTimeAgo(observedAtIso)}
                 </span>
               )}
+              {detail.sandboxHint && <span className="hidden text-[10px] sm:inline">{detail.sandboxHint}</span>}
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -806,13 +832,14 @@ export default function ContainerDetailPage() {
 
       {syncError && (
         <div
-          role="alert"
-          className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          role="status"
+          className="flex items-start gap-2 border-b border-border/60 bg-muted/40 px-4 py-2 text-xs text-muted-foreground"
         >
-          <Warning className="mt-0.5 size-3.5 shrink-0" />
+          <Warning className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
           <div className="min-w-0 flex-1">
-            <span className="font-medium">Couldn't reach the live agent.</span> Showing the last saved snapshot —
-            messages may be empty or stale.
+            <span className="font-medium text-foreground">Live sync unavailable.</span> Showing the last saved snapshot
+            {observedAtIso ? ` (updated ${formatTimeAgo(observedAtIso)})` : ""}. Sandboxes scale to zero after idle —
+            this does not mean the run is still active.
             <details className="mt-1">
               <summary className="cursor-pointer text-[10px] opacity-80">Technical details</summary>
               <code className="mt-0.5 block break-all font-mono text-[10px] opacity-70">{syncError}</code>
@@ -896,7 +923,13 @@ export default function ContainerDetailPage() {
           {/* Active session header */}
           {activeSession && (
             <div className="flex items-center gap-3 border-b px-4 py-2">
-              <StatusDot status={sessionStatus[activeSession.id]?.type ?? "unknown"} />
+              <StatusDot
+                status={
+                  overallStatus === "sync_unavailable" || overallStatus === "historical"
+                    ? overallStatus
+                    : (sessionStatus[activeSession.id]?.type ?? "unknown")
+                }
+              />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   {activeSession.parentID && <TreeStructure className="size-3 text-muted-foreground/50" />}
@@ -956,11 +989,36 @@ export default function ContainerDetailPage() {
                 <div ref={chatEndRef} />
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center gap-2 py-16">
-                <ChatText className="size-6 text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground">
-                  {effectiveSessionId ? "No messages in this session yet" : "Select a session to view messages"}
-                </p>
+              <div className="flex flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+                <ChatText className="size-6 text-muted-foreground/40" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-foreground">
+                    {syncError || overallStatus === "sync_unavailable"
+                      ? "No transcript in the saved snapshot"
+                      : effectiveSessionId
+                        ? "No messages in this session yet"
+                        : "Select a session to view messages"}
+                  </p>
+                  <p className="max-w-md text-xs text-muted-foreground">
+                    {syncError || overallStatus === "sync_unavailable" ? (
+                      <>
+                        Status: {statusLabel(overallStatus)}
+                        {observedAtIso ? ` · last updated ${formatTimeAgo(observedAtIso)}` : ""}. Check recent events in
+                        the sidebar, or send guidance below to start a new turn.
+                      </>
+                    ) : overallStatus === "historical" ? (
+                      <>This run is historical. The sandbox has likely scaled to zero.</>
+                    ) : (
+                      <>Send operator guidance below to continue the agent, or open a related webhook event.</>
+                    )}
+                  </p>
+                </div>
+                {(syncError || overallStatus === "sync_unavailable") && (
+                  <Button variant="outline" size="xs" onClick={() => refetch()} disabled={isFetching}>
+                    <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
+                    Retry sync
+                  </Button>
+                )}
               </div>
             )}
           </div>
