@@ -52,9 +52,14 @@ RUN npm install -g n \
 # --- Sentry CLI ---
 # Used for issue/trace debugging inside the sandbox. Auth is injected at runtime
 # via SENTRY_AUTH_TOKEN in /tmp/flue-env.sh (see writeEnvFile).
+#
+# Pin the version so the installer skips its `releases/latest` GitHub API lookup.
+# That call gets rate-limited (HTTP 403) from shared CI/build egress IPs, which
+# breaks the Cloudflare image build. Bump this to take a newer CLI.
+ARG SENTRY_CLI_VERSION=0.41.0
 RUN curl -fsSL https://cli.sentry.dev/install \
     | SENTRY_INSTALL_DIR=/usr/local/bin \
-      bash -s -- --no-modify-path --no-completions \
+      bash -s -- --no-modify-path --no-completions --version "${SENTRY_CLI_VERSION}" \
  && sentry --version
 
 # Empty parent for the Worker-managed clone target. Do not create
