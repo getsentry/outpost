@@ -12,11 +12,7 @@ type AnyRecord = Record<string, unknown>
  * Maps Flue `{ role, parts }` messages into the OpenCode-like
  * `{ info: { role }, parts }` shape the UI already renders.
  */
-export function flueHistoryToSessionData(
-  entityKey: string,
-  history: Record<string, unknown> | null,
-  opts?: { logs?: string },
-): string {
+export function flueHistoryToSessionData(entityKey: string, history: Record<string, unknown> | null): string {
   const sid = toAgentInstanceId(entityKey)
   const rawMessages = extractRawMessages(history)
   const settlements = extractSettlements(history)
@@ -41,7 +37,6 @@ export function flueHistoryToSessionData(
     ],
     sessionStatus: { [sid]: { type: status } },
     messages: { [sid]: messages },
-    logs: opts?.logs ?? "",
     flue: true,
     flueHistory: history,
   })
@@ -84,7 +79,6 @@ export function normalizeFlueSessionBlob(entityKey: string, raw: string): string
       sessions: [{ id: sid, title: entityKey, agent: FLUE_AGENT }],
       sessionStatus: { [sid]: { type: anyBusy ? "busy" : "idle" } },
       messages: { [sid]: [] },
-      logs: typeof data.logs === "string" ? data.logs : "",
       flue: true,
     })
   }
@@ -102,9 +96,7 @@ export function normalizeFlueSessionBlob(entityKey: string, raw: string): string
     history.messages = rawList
   }
 
-  return flueHistoryToSessionData(entityKey, history, {
-    logs: typeof data.logs === "string" ? data.logs : "",
-  })
+  return flueHistoryToSessionData(entityKey, history)
 }
 
 /** Adapt a Flue conversation message into the dashboard's SessionMessage shape. */

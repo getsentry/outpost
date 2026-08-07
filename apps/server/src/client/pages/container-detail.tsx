@@ -18,7 +18,6 @@ import {
   TreeStructure,
   Warning,
   Wrench,
-  X,
 } from "@phosphor-icons/react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown"
@@ -671,68 +670,6 @@ function ToolCallBlock({
 // Logs panel
 // ---------------------------------------------------------------------------
 
-function LogsPanel({ logs, onClose }: { logs: string; onClose: () => void }) {
-  const [searchTerm, setSearchTerm] = useState("")
-
-  const lines = useMemo(() => {
-    if (!logs) return []
-    return logs.split("\n").filter(Boolean)
-  }, [logs])
-
-  const filtered = useMemo(() => {
-    if (!searchTerm) return lines
-    const q = searchTerm.toLowerCase()
-    return lines.filter((line) => line.toLowerCase().includes(q))
-  }, [lines, searchTerm])
-
-  return (
-    <div className="border-t bg-background">
-      <div className="flex items-center gap-2 border-b px-3 py-1.5">
-        <Terminal className="size-3.5 text-muted-foreground" />
-        <span className="text-xs font-medium">Logs</span>
-        <input
-          type="text"
-          placeholder="Filter..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="ml-2 h-5 w-48 border border-input bg-background px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-ring"
-        />
-        <span className="text-[10px] text-muted-foreground">
-          {filtered.length}/{lines.length}
-        </span>
-        <button type="button" onClick={onClose} className="ml-auto text-muted-foreground hover:text-foreground">
-          <X className="size-3.5" />
-        </button>
-      </div>
-      <div className="max-h-52 overflow-auto p-1">
-        {filtered.length > 0 ? (
-          filtered.map((line, i) => {
-            const isError = /error|fail|panic|fatal/i.test(line)
-            const isWarn = /warn/i.test(line)
-            return (
-              <div
-                key={i}
-                className={`flex gap-2 px-2 py-px font-mono text-[10px] leading-relaxed ${
-                  isError
-                    ? "text-red-600 dark:text-red-400"
-                    : isWarn
-                      ? "text-yellow-600 dark:text-yellow-400"
-                      : "text-muted-foreground"
-                }`}
-              >
-                <span className="w-6 shrink-0 select-none text-right text-muted-foreground/30">{i + 1}</span>
-                <span className="min-w-0 break-all">{line}</span>
-              </div>
-            )
-          })
-        ) : (
-          <div className="py-4 text-center text-[10px] text-muted-foreground">{logs ? "No matches" : "No logs"}</div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Session sidebar item
 // ---------------------------------------------------------------------------
@@ -853,7 +790,6 @@ export default function ContainerDetailPage() {
   // Chat runs are started from the dashboard, so no webhook ever targets them.
   const chatRepo = chatEntityRepo(entityKey)
   const entityEvents = useEvents({ entityKey, limit: 8 }, { enabled: !chatRepo })
-  const [showLogs, setShowLogs] = useState(false)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   // The session list is a fixed side column on desktop but a slide-over drawer
   // on phones, where a 224px rail would otherwise swallow the screen.
@@ -869,7 +805,6 @@ export default function ContainerDetailPage() {
   const sessions = detail?.sessions ?? []
   const sessionStatus = detail?.sessionStatus ?? {}
   const messages = detail?.messages ?? {}
-  const logs = detail?.logs ?? ""
   const syncError = detail?.syncError
   const chatError = detail?.chatError
   const chatAdmitted = detail?.chatAdmitted === true
@@ -1142,9 +1077,6 @@ export default function ContainerDetailPage() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
-            <Button variant={showLogs ? "secondary" : "outline"} size="xs" onClick={() => setShowLogs(!showLogs)}>
-              <Terminal className="size-3" /> Logs
-            </Button>
             {dataUpdatedAt && (
               <span className="hidden text-[10px] text-muted-foreground sm:inline">
                 {formatTimeAgo(new Date(dataUpdatedAt).toISOString())}
@@ -1447,9 +1379,6 @@ export default function ContainerDetailPage() {
           </div>
         </div>
       </div>
-
-      {/* Logs panel */}
-      {showLogs && <LogsPanel logs={logs} onClose={() => setShowLogs(false)} />}
     </div>
   )
 }
