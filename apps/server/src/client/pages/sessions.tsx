@@ -3,7 +3,6 @@ import {
   CaretLeft,
   CaretRight,
   ChatsCircle,
-  CurrencyDollar,
   MagnifyingGlass,
   Robot,
   Stack,
@@ -142,7 +141,7 @@ export default function SessionsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-lg font-semibold">Agent runs</h1>
           <p className="text-sm text-muted-foreground">
@@ -151,7 +150,7 @@ export default function SessionsPage() {
               : "Recent agent conversations"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <NewChatDialog />
           <ButtonGroup aria-label="Clear agent runs">
             <Button
@@ -219,15 +218,15 @@ export default function SessionsPage() {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <div className="relative flex items-center">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex w-full items-center sm:w-72">
           <MagnifyingGlass className="absolute left-2 size-3.5 text-muted-foreground" />
           <input
             type="text"
             placeholder="Search by entity, title, or agent..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="h-7 w-72 border border-input bg-background pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
+            className="h-7 w-full border border-input bg-background pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
           />
           {searchInput && (
             <button
@@ -239,7 +238,7 @@ export default function SessionsPage() {
             </button>
           )}
         </div>
-        <div className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:ml-auto">
           <span>Per page:</span>
           {PAGE_SIZES.map((s) => (
             <Button key={s} variant={limit === s ? "secondary" : "ghost"} size="xs" onClick={() => setLimit(s)}>
@@ -279,95 +278,143 @@ export default function SessionsPage() {
               )}
             </div>
           ) : (
-            <div className="w-full overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="min-w-[240px]">Entity</TableHead>
-                    <TableHead className="min-w-[140px]">Agent</TableHead>
-                    <TableHead className="w-[90px] text-center">Status</TableHead>
-                    <TableHead className="w-[80px] text-center">
-                      <span className="inline-flex items-center gap-1">
-                        <Stack className="size-3" /> Sessions
-                      </span>
-                    </TableHead>
-                    <TableHead className="w-[80px] text-center">
-                      <span className="inline-flex items-center gap-1">
-                        <ChatsCircle className="size-3" /> Msgs
-                      </span>
-                    </TableHead>
-                    <TableHead className="w-[80px] text-right">
-                      <span className="inline-flex items-center gap-1">
-                        <CurrencyDollar className="size-3" /> Cost
-                      </span>
-                    </TableHead>
-                    <TableHead className="w-[100px] text-right">Updated</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((session: SessionListItem) => {
-                    const ghUrl = entityGitHubUrl(session.entityKey, "issues")
-                    const parsed = parseEntityKey(session.entityKey)
-                    const chatRepo = chatEntityRepo(session.entityKey)
-                    const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
+            <>
+              {/* Mobile: stacked cards (the wide table doesn't fit a phone). */}
+              <ul className="divide-y md:hidden">
+                {filtered.map((session: SessionListItem) => {
+                  const chatRepo = chatEntityRepo(session.entityKey)
 
-                    return (
-                      <TableRow
-                        key={session.entityKey}
-                        className="cursor-pointer"
+                  return (
+                    <li key={session.entityKey}>
+                      <button
+                        type="button"
+                        className="flex w-full flex-col gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/40"
                         onClick={() => navigate(`/containers/detail?key=${encodeURIComponent(session.entityKey)}`)}
                       >
-                        <TableCell>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-sm">
+                            <span className="break-all">{session.entityKey}</span>
+                            {chatRepo && (
+                              <Badge variant="secondary" className="font-sans">
+                                Chat
+                              </Badge>
+                            )}
+                          </div>
+                          <StatusIndicator status={session.status} />
+                        </div>
+                        {(session.title || session.agent) && (
                           <div className="space-y-0.5">
-                            <div className="flex items-center gap-2 font-mono text-sm">
-                              {ghUrl ? <GitHubLink href={ghUrl}>{session.entityKey}</GitHubLink> : session.entityKey}
-                              {chatRepo && (
-                                <Badge variant="secondary" className="font-sans">
-                                  Chat
-                                </Badge>
-                              )}
-                            </div>
-                            {(session.title || repoName) && (
-                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                {session.title && <span className="truncate">{session.title}</span>}
-                                {repoName && (
-                                  <GitHubLink href={repoGitHubUrl(repoName)}>
-                                    <span className="text-[10px]">{repoName}</span>
-                                  </GitHubLink>
+                            {session.title && (
+                              <p className="line-clamp-2 text-xs text-muted-foreground">{session.title}</p>
+                            )}
+                            {session.agent && (
+                              <p className="text-[11px] text-muted-foreground">
+                                {session.agent}
+                                {session.model ? ` · ${session.model}` : ""}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                          <span className="inline-flex items-center gap-1">
+                            <Stack className="size-3" />
+                            {session.sessionCount} session{session.sessionCount !== 1 ? "s" : ""}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <ChatsCircle className="size-3" />
+                            {session.messageCount} msg{session.messageCount !== 1 ? "s" : ""}
+                          </span>
+                          <span className="ml-auto">{formatTimeAgo(session.updatedAt)}</span>
+                        </div>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+
+              {/* Desktop: full table. */}
+              <div className="hidden w-full overflow-x-auto md:block">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="min-w-[240px]">Entity</TableHead>
+                      <TableHead className="min-w-[140px]">Agent</TableHead>
+                      <TableHead className="w-[90px] text-center">Status</TableHead>
+                      <TableHead className="w-[80px] text-center">
+                        <span className="inline-flex items-center gap-1">
+                          <Stack className="size-3" /> Sessions
+                        </span>
+                      </TableHead>
+                      <TableHead className="w-[80px] text-center">
+                        <span className="inline-flex items-center gap-1">
+                          <ChatsCircle className="size-3" /> Msgs
+                        </span>
+                      </TableHead>
+                      <TableHead className="w-[100px] text-right">Updated</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filtered.map((session: SessionListItem) => {
+                      const ghUrl = entityGitHubUrl(session.entityKey, "issues")
+                      const parsed = parseEntityKey(session.entityKey)
+                      const chatRepo = chatEntityRepo(session.entityKey)
+                      const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
+
+                      return (
+                        <TableRow
+                          key={session.entityKey}
+                          className="cursor-pointer"
+                          onClick={() => navigate(`/containers/detail?key=${encodeURIComponent(session.entityKey)}`)}
+                        >
+                          <TableCell>
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2 font-mono text-sm">
+                                {ghUrl ? <GitHubLink href={ghUrl}>{session.entityKey}</GitHubLink> : session.entityKey}
+                                {chatRepo && (
+                                  <Badge variant="secondary" className="font-sans">
+                                    Chat
+                                  </Badge>
                                 )}
                               </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-0.5">
-                            <div className="text-sm">{session.agent ?? "-"}</div>
-                            {session.model && (
-                              <div className="truncate text-[11px] text-muted-foreground">{session.model}</div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <StatusIndicator status={session.status} />
-                        </TableCell>
-                        <TableCell className="text-center font-mono text-sm tabular-nums">
-                          {session.sessionCount}
-                        </TableCell>
-                        <TableCell className="text-center font-mono text-sm tabular-nums">
-                          {session.messageCount}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm tabular-nums">
-                          {session.totalCost > 0 ? `$${session.totalCost.toFixed(2)}` : "-"}
-                        </TableCell>
-                        <TableCell className="text-right text-muted-foreground">
-                          {formatTimeAgo(session.updatedAt)}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
-            </div>
+                              {(session.title || repoName) && (
+                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                  {session.title && <span className="truncate">{session.title}</span>}
+                                  {repoName && (
+                                    <GitHubLink href={repoGitHubUrl(repoName)}>
+                                      <span className="text-[10px]">{repoName}</span>
+                                    </GitHubLink>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-0.5">
+                              <div className="text-sm">{session.agent ?? "-"}</div>
+                              {session.model && (
+                                <div className="truncate text-[11px] text-muted-foreground">{session.model}</div>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-center">
+                            <StatusIndicator status={session.status} />
+                          </TableCell>
+                          <TableCell className="text-center font-mono text-sm tabular-nums">
+                            {session.sessionCount}
+                          </TableCell>
+                          <TableCell className="text-center font-mono text-sm tabular-nums">
+                            {session.messageCount}
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">
+                            {formatTimeAgo(session.updatedAt)}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
