@@ -36,10 +36,23 @@ but the rest should read naturally.
 5. Infra/dependency issue? BLOCKED.
 6. Otherwise: make the smallest fix. Reproduce locally if possible.
 7. Load `deslop` and `review` skills.
-8. Commit, push, and post a comment summarizing what you fixed and
-   how. Write it like a teammate explaining the fix, not a status
-   report.
+8. Commit and push, then **confirm the push landed** before you claim
+   anything:
+
+   ```sh
+   git push origin HEAD
+   git rev-parse HEAD @{u}   # the two SHAs must match — if not, the push failed
+   ```
+
+   Then post one comment summarizing what you fixed and how. Write it
+   like a teammate explaining the fix, not a status report.
+9. **Stop — do not busy-wait on CI.** After pushing, end the turn. Don't
+   sit in a `for`/`while` loop polling `gh pr checks` / `gh run watch`
+   waiting for the new run to go green: the CI-completion webhook wakes
+   you again once the run settles, and looping just burns the sandbox and
+   floods the transcript. Make the fix, push, confirm, comment, stop.
 
 Avoid modifying CI config unless the failure is specifically in it.
 Avoid bumping dependency versions — the fix should target the code,
-not the toolchain. Don't force-push. Don't merge.
+not the toolchain. Never stage unrelated files (`AGENTS.md`, harness
+config) — `git status` before committing. Don't force-push. Don't merge.

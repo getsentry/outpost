@@ -74,3 +74,7 @@ own container, so `/workspace/repo` is already isolated.
   disposable.
 - Multi-repo investigation may clone **other** repositories under `~/dev/...`,
   but the target repo for this issue/PR stays `/workspace/repo`.
+- The runtime bakes an `AGENTS.md` / `.agents/` skills overlay into the working
+  tree. Those are harness files, **not** part of the repo — never stage or commit
+  them. `git status` before every commit and unstage anything you didn't
+  deliberately change; keep the diff limited to the fix.

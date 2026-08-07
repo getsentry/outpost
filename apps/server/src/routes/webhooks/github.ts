@@ -15,6 +15,7 @@ import { createGitHubApp, type GitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
+import { acknowledgeGitHubEvent } from "@/lib/github/reactions"
 import type { BaseEnv } from "@/types"
 
 // A CI burst (many workflow_run/check_suite completions for one push) lands
@@ -259,6 +260,11 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
       reason: skipReason,
     })
   }
+
+  // Instant "seen it, on it" — drop an 👀 reaction on the comment/issue the
+  // human just touched. Fire-and-forget so it lands in seconds regardless of
+  // how long the sandbox takes to warm up (the agent leaves the 🎉 "done" one).
+  c.executionCtx.waitUntil(acknowledgeGitHubEvent({ app, installationId, repo, event, action, payload, logger }))
 
   // --- Dispatch to sandbox in waitUntil (shared with the manual resend path) ---
   c.executionCtx.waitUntil(

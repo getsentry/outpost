@@ -33,12 +33,38 @@ Before triaging, confirm the comment is actually for you:
 - **Not actionable**: style preference, out of scope, already handled → reply with reason
 - **Approval thumbs-up** (short body, no code refs): don't reply, stop
 
+## Own your PR end-to-end
+
+If the bot authored the PR, the bot owns getting it merge-ready — that doesn't
+change just because a maintainer later pushed a follow-up commit onto the branch.
+When a review comment on your PR is actionable, **fix it and push**; don't defer it
+("leaving this for the author of that commit") and stop. Deferring strands the PR.
+
+If a comment genuinely isn't yours to act on — it's out of scope, or it's about a
+change only a human should make — say that plainly on the thread AND `@`-mention a
+human maintainer so someone picks it up. Silently leaving it open with no owner is
+the one thing to avoid.
+
 ## Workflow
 
 1. Check PR authorship — only push to your own PR's branch.
-2. If actionable on your own PR: implement the fix, load `deslop`, commit,
-   push, then reply on the thread with the commit SHA and resolve the thread
-   (see below). After all fixes, re-request review.
+2. If actionable on your own PR: implement the fix, load `deslop`, commit and
+   push, then **confirm the push landed** before you reply:
+
+   ```sh
+   git push origin HEAD
+   git rev-parse HEAD @{u}   # the two SHAs must match — if not, the push failed
+   ```
+
+   Only once it's really on the branch, reply on the thread with the commit SHA,
+   resolve the thread (see below), and drop a 🎉 reaction on the comment as the
+   "done" signal:
+
+   ```sh
+   gh api -X POST repos/<OWNER>/<REPO>/pulls/comments/<COMMENT_ID>/reactions -f content=hooray
+   ```
+
+   After all fixes, re-request review.
 3. If actionable on someone else's PR: reply with a `suggestion` block
    or description. Don't push.
 4. If not actionable: reply on the thread with the reason and leave it open
