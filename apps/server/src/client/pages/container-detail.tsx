@@ -377,7 +377,10 @@ function toRenderItems(parts: MessagePart[]): RenderItem[] {
             : undefined)
       const toolName = part.tool ?? part.toolName ?? "unknown"
 
-      if (isTransientToolError(status, result)) {
+      // A subagent (`task`) is a whole unit of work — keep it as its own block
+      // (rendered with a failed state) even on a transient error, instead of
+      // hiding it inside the coalesced "sandbox reset" row.
+      if (toolName !== "task" && isTransientToolError(status, result)) {
         // Coalesce a run of resets into a single quiet row so 90 interrupted
         // bash calls don't drown out the actual work between them.
         const prev = items[items.length - 1]
