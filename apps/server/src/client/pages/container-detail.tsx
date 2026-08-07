@@ -677,6 +677,9 @@ export default function ContainerDetailPage() {
   const entityEvents = useEvents({ entityKey, limit: 8 }, { enabled: !chatRepo })
   const [showLogs, setShowLogs] = useState(false)
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  // The session list is a fixed side column on desktop but a slide-over drawer
+  // on phones, where a 224px rail would otherwise swallow the screen.
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const [destroyOpen, setDestroyOpen] = useState(false)
   const [draft, setDraft] = useState("")
   const [optimistic, setOptimistic] = useState<SessionMessage[]>([])
@@ -893,7 +896,16 @@ export default function ContainerDetailPage() {
         <div className="flex min-w-0 items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => navigate("/containers")}>
             <ArrowLeft className="size-3.5" />
-            Back
+            <span className="hidden sm:inline">Back</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="md:hidden"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Show sessions"
+          >
+            <ListBullets className="size-4" />
           </Button>
           <Separator orientation="vertical" className="!h-4" />
           <div className="min-w-0 flex-1">
@@ -918,9 +930,9 @@ export default function ContainerDetailPage() {
                 </span>
               )}
             </div>
-            <div className="mt-0.5 flex items-center gap-3 text-xs text-muted-foreground">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
               {repoName && <GitHubLink href={repoGitHubUrl(repoName)}>{repoName}</GitHubLink>}
-              <span className="inline-flex items-center gap-1">
+              <span className="inline-flex items-center gap-1" title="Sessions">
                 <Stack className="size-3" />
                 {sessions.length}
               </span>
@@ -940,10 +952,11 @@ export default function ContainerDetailPage() {
                 hasAssistant && (
                   <span
                     className="inline-flex items-center gap-1 text-muted-foreground/50"
-                    title="Token usage / cost isn't reported by the agent runtime for these runs, so there's nothing to total here."
+                    title="The agent runtime (Flue) doesn't report token usage or cost for these runs, so there's no spend to total."
                   >
                     <CurrencyDollar className="size-3" />
-                    n/a
+                    <span className="hidden sm:inline">usage not tracked</span>
+                    <span className="sm:hidden">no cost</span>
                   </span>
                 )
               )}
@@ -961,7 +974,7 @@ export default function ContainerDetailPage() {
               <Terminal className="size-3" /> Logs
             </Button>
             {dataUpdatedAt && (
-              <span className="text-[10px] text-muted-foreground">
+              <span className="hidden text-[10px] text-muted-foreground sm:inline">
                 {formatTimeAgo(new Date(dataUpdatedAt).toISOString())}
               </span>
             )}
@@ -1011,9 +1024,22 @@ export default function ContainerDetailPage() {
       )}
 
       {/* Main content: sidebar + chat */}
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {/* Session sidebar */}
-        <div className="flex w-56 shrink-0 flex-col overflow-hidden border-r">
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {/* Backdrop for the mobile drawer. */}
+        {sidebarOpen && (
+          <button
+            type="button"
+            aria-label="Close sessions"
+            className="absolute inset-0 z-20 bg-black/40 md:hidden"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+        {/* Session sidebar — static column on desktop, slide-over drawer on mobile. */}
+        <div
+          className={`${
+            sidebarOpen ? "absolute inset-y-0 left-0 z-30 flex w-72 max-w-[85%] shadow-xl" : "hidden"
+          } shrink-0 flex-col overflow-hidden border-r bg-background md:static md:z-auto md:flex md:w-56 md:max-w-none md:shadow-none`}
+        >
           <div className="min-h-0 flex-1 overflow-y-auto p-2">
             <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Sessions ({orderedSessions.length})
@@ -1033,7 +1059,10 @@ export default function ContainerDetailPage() {
                     agent={itemSummary.agent}
                     cost={itemSummary.cost}
                     isActive={s.id === effectiveSessionId}
-                    onClick={() => setActiveSessionId(s.id)}
+                    onClick={() => {
+                      setActiveSessionId(s.id)
+                      setSidebarOpen(false)
+                    }}
                   />
                 )
               })}
@@ -1095,7 +1124,7 @@ export default function ContainerDetailPage() {
                   {activeSession.parentID && <TreeStructure className="size-3 text-muted-foreground/50" />}
                   <span className="truncate text-sm font-medium">{activeSession.title ?? "Session"}</span>
                 </div>
-                <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
                   {activeSummary.agent && (
                     <span className="inline-flex items-center gap-1">
                       <Robot className="size-3" />
@@ -1103,9 +1132,9 @@ export default function ContainerDetailPage() {
                     </span>
                   )}
                   {activeSummary.model && (
-                    <span className="inline-flex items-center gap-1">
-                      <Code className="size-3" />
-                      {activeSummary.model}
+                    <span className="inline-flex min-w-0 items-center gap-1">
+                      <Code className="size-3 shrink-0" />
+                      <span className="truncate">{activeSummary.model}</span>
                     </span>
                   )}
                   {activeSummary.cost > 0 && (
@@ -1120,7 +1149,9 @@ export default function ContainerDetailPage() {
                   )}
                 </div>
               </div>
-              <span className="font-mono text-[10px] text-muted-foreground/40">{activeSession.id.slice(0, 16)}...</span>
+              <span className="hidden shrink-0 font-mono text-[10px] text-muted-foreground/40 sm:inline">
+                {activeSession.id.slice(0, 16)}...
+              </span>
             </div>
           )}
 

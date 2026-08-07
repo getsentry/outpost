@@ -193,6 +193,7 @@ export function buildPhase1BootstrapScript(opts: SandboxSetupOpts): string {
     "  rm -rf /workspace/repo /workspace/repo-tmp",
     "  mkdir -p /workspace",
     '  if git clone --depth 50 "$CLONE_URL" /workspace/repo-tmp; then',
+    "    rm -rf /workspace/repo",
     "    mv /workspace/repo-tmp /workspace/repo",
     "  else",
     '    echo "git clone failed" >> /tmp/flue-bootstrap.log',
@@ -256,25 +257,51 @@ export function buildPhase1BootstrapScript(opts: SandboxSetupOpts): string {
 async function ensureRepoCloned(sandbox: ReturnType<typeof getSandbox>, opts: SandboxSetupOpts): Promise<void> {
   if (!opts.repo) return
 
-  const checkRepo = await sandbox.exec("test -d /workspace/repo/.git", { cwd: "/workspace" })
-  if (!checkRepo.success) {
-    // Clone target must not exist as a directory — `mv src dest` nests into
-    // dest when dest already exists. Clear any stray /workspace/repo, keep
-    // only the parent, then rename repo-tmp → repo atomically.
-    await sandbox.exec("rm -rf /workspace/repo /workspace/repo-tmp && mkdir -p /workspace", { cwd: "/workspace" })
-    const cloneUrl = opts.installationToken
-      ? `https://x-access-token:${opts.installationToken}@github.com/${opts.repo}.git`
-      : `https://github.com/${opts.repo}.git`
-    // Clone into a temp dir then move, so a partial failure never leaves a
-    // half-populated /workspace/repo that blocks the next attempt.
-    const cloneResult = await sandbox.exec(
-      `git clone --depth 50 ${cloneUrl} /workspace/repo-tmp && mv /workspace/repo-tmp /workspace/repo`,
-      { cwd: "/workspace" },
-    )
-    if (!cloneResult.success) {
-      await sandbox.exec("rm -rf /workspace/repo-tmp", { cwd: "/workspace" })
-      throw new Error(`git clone failed: ${cloneResult.stderr}`)
-    }
+  const cloneUrl = opts.installationToken
+    ? `https://x-access-token:${opts.installationToken}@github.com/${opts.repo}.git`
+    : `https://github.com/${opts.repo}.git`
+
+  // Concurrency-safe clone. A single entity can receive a burst of webhook
+  // events (CI fan-out fires dozens of workflow_run/check_suite deliveries at
+  // once), so several `dispatchGitHubEvent` calls run `ensureRepoCloned` against
+  // the *same* sandbox filesystem in parallel. Without a lock they race:
+  // clone A into repo-tmp, clone B wipes it, both `mv repo-tmp repo`, and the
+  // second `mv` nests into the now-existing dir → "mv: cannot move ... Directory
+  // not empty" (JARED-H). Serialize with an atomic mkdir mutex, make the whole
+  // thing idempotent (skip if a peer already finished the clone), and always
+  // clear the destination immediately before the rename so it can never nest.
+  const script = [
+    "LOCK=/workspace/.repo-setup.lock",
+    // HELD guards lock ownership: only the process that actually acquired the
+    // lock may release it. Otherwise a process that gives up waiting would
+    // rmdir the lock still held by the peer doing the clone, breaking the mutex.
+    "HELD=0",
+    "i=0",
+    'while [ "$i" -lt 120 ]; do',
+    '  if mkdir "$LOCK" 2>/dev/null; then HELD=1; break; fi',
+    // A peer finished the clone while we waited — nothing left to do.
+    "  [ -d /workspace/repo/.git ] && break",
+    "  i=$((i+1)); sleep 1",
+    "done",
+    "RC=0",
+    "if [ ! -d /workspace/repo/.git ]; then",
+    "  rm -rf /workspace/repo /workspace/repo-tmp",
+    "  mkdir -p /workspace",
+    `  if git clone --depth 50 ${shellQuote(cloneUrl)} /workspace/repo-tmp; then`,
+    "    rm -rf /workspace/repo",
+    "    mv /workspace/repo-tmp /workspace/repo",
+    "  else",
+    "    rm -rf /workspace/repo-tmp",
+    "    RC=3",
+    "  fi",
+    "fi",
+    '[ "$HELD" = 1 ] && rmdir "$LOCK" 2>/dev/null; true',
+    "exit $RC",
+  ].join("\n")
+
+  const cloneResult = await sandbox.exec(script, { cwd: "/workspace" })
+  if (!cloneResult.success) {
+    throw new Error(`git clone failed: ${cloneResult.stderr}`)
   }
 
   if (opts.botLogin) {

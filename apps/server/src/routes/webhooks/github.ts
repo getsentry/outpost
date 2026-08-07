@@ -7,13 +7,21 @@
 import { formatError } from "@jared/utils"
 import { verify } from "@octokit/webhooks-methods"
 import * as Sentry from "@sentry/cloudflare"
+import { and, eq, gt, inArray } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
+import { classifyCiEvent, isCiEvent } from "@/lib/github/actionability"
 import { createGitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
 import type { BaseEnv } from "@/types"
+
+// A CI burst (many workflow_run/check_suite completions for one push) lands
+// within seconds. If an actionable CI event for the same entity is still
+// unprocessed, fold later ones into it: the agent re-derives live CI status via
+// `gh` when it handles that event, so the burst collapses to a single re-check.
+const CI_COALESCE_WINDOW_MS = 10 * 60 * 1000
 
 const router = new Hono<BaseEnv>().post("/", async (c) => {
   const logger = c.get("logger").child({ ns: "webhook.github" })
@@ -124,16 +132,43 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
   // (fix-ci / mark-pr-ready), matching that same router exception.
   const isSelfTriggered = !!botLogin && sender === botLogin && event !== "check_suite" && event !== "workflow_run"
 
-  const skipReason = isSelfTriggered
+  let skipReason: string | null = isSelfTriggered
     ? "self_triggered"
     : !entityKey
       ? "no_entity"
       : !(hasLabel || isBotEntity)
         ? "no_label"
         : null
-  const isSkipped = skipReason !== null
 
   const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
+
+  // Second gate: drop noisy CI lifecycle events (requested/in_progress, and
+  // cancelled/skipped/neutral completions) that Jared would only skip anyway,
+  // and coalesce bursts of actionable CI completions for the same entity.
+  if (!skipReason && isCiEvent(event)) {
+    const verdict = classifyCiEvent(event, action, payload)
+    if (!verdict.actionable) {
+      skipReason = verdict.reason
+    } else {
+      const since = new Date(Date.now() - CI_COALESCE_WINDOW_MS)
+      const pending = await db
+        .select({ id: dbSchema.webhookEvents.id })
+        .from(dbSchema.webhookEvents)
+        .where(
+          and(
+            eq(dbSchema.webhookEvents.entityKey, containerKey),
+            inArray(dbSchema.webhookEvents.event, ["check_suite", "workflow_run"]),
+            inArray(dbSchema.webhookEvents.status, ["pending", "dispatched"]),
+            gt(dbSchema.webhookEvents.createdAt, since),
+          ),
+        )
+        .limit(1)
+      if (pending.length > 0) skipReason = "ci_coalesced"
+    }
+  }
+
+  const isSkipped = skipReason !== null
+
   const eventId = crypto.randomUUID()
 
   // Skipped events keep a tiny reason stub instead of the full GitHub JSON —
