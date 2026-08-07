@@ -102,13 +102,10 @@ async function collectContainerData(
     cwd: "/workspace",
   })
   if (fluePing.success) {
-    const [logResult, histResult] = await Promise.all([
-      sandbox.exec("tail -100 /tmp/flue.log 2>/dev/null || true", { cwd: "/workspace" }),
-      sandbox.exec(
-        `CONV=$(cat /tmp/dispatch-session-id 2>/dev/null || echo default); curl -sf --max-time 8 "http://localhost:${FLUE_PORT}${FLUE_AGENT_MOUNT}/$CONV?view=history" 2>/dev/null`,
-        { cwd: "/workspace" },
-      ),
-    ])
+    const histResult = await sandbox.exec(
+      `CONV=$(cat /tmp/dispatch-session-id 2>/dev/null || echo default); curl -sf --max-time 8 "http://localhost:${FLUE_PORT}${FLUE_AGENT_MOUNT}/$CONV?view=history" 2>/dev/null`,
+      { cwd: "/workspace" },
+    )
     if (!histResult.stdout) return null
     try {
       const hist = JSON.parse(histResult.stdout) as Record<string, unknown>
@@ -120,15 +117,14 @@ async function collectContainerData(
         ).stdout?.trim() || "default"
       const key = entityKey ?? sid
       // Normalize into the OpenCode-like blob the dashboard renders.
-      return flueHistoryToSessionData(key, hist, { logs: logResult.stdout || "" })
+      return flueHistoryToSessionData(key, hist)
     } catch {
       return null
     }
   }
 
   // Legacy OpenCode fallback (pre-migration containers still running).
-  const [logResult, sessionResult, sessionList] = await Promise.all([
-    sandbox.exec("cat /tmp/opencode.log 2>/dev/null | tail -100", { cwd: "/workspace" }),
+  const [sessionResult, sessionList] = await Promise.all([
     sandbox.exec(`curl -sf --max-time 8 http://localhost:${OPENCODE_PORT}/session/status 2>/dev/null`, {
       cwd: "/workspace",
     }),
@@ -164,7 +160,6 @@ async function collectContainerData(
     return JSON.stringify({
       sessionStatus: sessionResult.stdout ? JSON.parse(sessionResult.stdout) : {},
       sessions,
-      logs: logResult.stdout || "",
       messages,
     })
   } catch {
@@ -204,7 +199,6 @@ function formatSessionDetailPayload(
     sessions: parsed.sessions ?? [],
     sessionStatus: parsed.sessionStatus ?? {},
     messages: parsed.messages ?? {},
-    logs: parsed.logs ?? "",
     syncError,
     chatError,
     chatAdmitted: parsed.chatAdmitted === true,

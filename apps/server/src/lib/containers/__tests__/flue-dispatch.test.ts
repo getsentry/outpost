@@ -131,19 +131,16 @@ describe("normalizeFlueSessionBlob", () => {
       messages: {
         "acme-app-9": [{ id: "m1", role: "user", parts: [{ type: "text", text: "ping", state: "done" }] }],
       },
-      logs: "boot",
       settlements: [{ submissionId: "s1", outcome: "completed" }],
     })
 
     const blob = JSON.parse(normalizeFlueSessionBlob("acme/app#9", raw)) as {
       messages: Record<string, Array<{ info?: { role?: string; id?: string } }>>
       sessionStatus: Record<string, { type: string }>
-      logs: string
     }
 
     expect(blob.messages["acme-app-9"][0]?.info?.role).toBe("user")
     expect(blob.messages["acme-app-9"][0]?.info?.id).toBe("m1")
-    expect(blob.logs).toBe("boot")
     expect(blob.sessionStatus["acme-app-9"]?.type).toBe("idle")
   })
 
