@@ -3,6 +3,7 @@ import { jaredConversationUrl } from "../flue-dispatch"
 import {
   deriveFlueBusyStatus,
   flueHistoryToSessionData,
+  isFlueHistoryBusy,
   normalizeFlueMessage,
   normalizeFlueSessionBlob,
 } from "../flue-session-adapt"
@@ -181,5 +182,32 @@ describe("deriveFlueBusyStatus", () => {
         [{ submissionId: "s1", outcome: "completed" }],
       ),
     ).toBe(false)
+  })
+})
+
+describe("isFlueHistoryBusy", () => {
+  it("is busy when a submission is still open (unsettled) — an active turn", () => {
+    const history = {
+      messages: [{ role: "user", submissionId: "s1", parts: [{ type: "text", text: "fix ci" }] }],
+      settlements: [],
+    }
+    expect(isFlueHistoryBusy(history)).toBe(true)
+  })
+
+  it("is idle when every submission is settled", () => {
+    const history = {
+      messages: [
+        { role: "user", submissionId: "s1", parts: [{ type: "text", text: "fix ci" }] },
+        { role: "assistant", submissionId: "s1", parts: [{ type: "text", text: "done", state: "done" }] },
+      ],
+      settlements: [{ submissionId: "s1", outcome: "completed" }],
+    }
+    expect(isFlueHistoryBusy(history)).toBe(false)
+  })
+
+  it("treats a missing/empty history as idle (nothing running)", () => {
+    expect(isFlueHistoryBusy(null)).toBe(false)
+    expect(isFlueHistoryBusy({})).toBe(false)
+    expect(isFlueHistoryBusy({ messages: [], settlements: [] })).toBe(false)
   })
 })

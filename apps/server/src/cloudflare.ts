@@ -9,7 +9,9 @@
  * remain per-conversation via Jared's scheduleFollowUp().
  */
 
+import { reconcileStuckDispatched } from "./lib/events/reconcile.ts"
 import { deleteExpiredWebhookEvents } from "./lib/events/retention.ts"
+import type { BaseEnvBindings } from "./types/env/base.ts"
 
 // ContainerProxy is a WorkerEntrypoint the Sandbox DO reaches via
 // `ctx.exports.ContainerProxy` to build outbound-interception fetchers (see
@@ -19,10 +21,15 @@ export { ContainerProxy } from "@cloudflare/sandbox"
 export { Sandbox } from "./lib/containers/sandbox.ts"
 
 export default {
-  async scheduled(controller: ScheduledController, env: { DB: D1Database }, _ctx: ExecutionContext): Promise<void> {
+  async scheduled(
+    controller: ScheduledController,
+    env: BaseEnvBindings["Bindings"],
+    _ctx: ExecutionContext,
+  ): Promise<void> {
     const deleted = await deleteExpiredWebhookEvents(env.DB, controller.scheduledTime)
-    // Also mark stuck intermediate dispatch statuses as timed out (>30m),
-    // and long-lived `dispatched` rows that never completed (>2h).
+
+    // Intermediate `d:%` sub-statuses (>30m) never reached the agent — a genuine
+    // pre-dispatch stall, so time them out outright.
     const stuckCutoff = Math.floor((controller.scheduledTime - 30 * 60 * 1000) / 1000)
     const stuck = await env.DB.prepare(
       "UPDATE webhook_events SET status = 'failed:timeout', completed_at = ? WHERE status LIKE 'd:%' AND created_at < ?",
@@ -30,17 +37,30 @@ export default {
       .bind(Math.floor(controller.scheduledTime / 1000), stuckCutoff)
       .run()
 
-    const dispatchedCutoff = Math.floor((controller.scheduledTime - 2 * 60 * 60 * 1000) / 1000)
-    const stuckDispatched = await env.DB.prepare(
-      "UPDATE webhook_events SET status = 'failed:timeout', completed_at = ? WHERE status = 'dispatched' AND dispatched_at < ?",
-    )
-      .bind(Math.floor(controller.scheduledTime / 1000), dispatchedCutoff)
-      .run()
+    // Long-lived `dispatched` rows (>2h) WERE admitted to the agent; reconcile
+    // them against the live Flue DO (idle → completed) instead of blanket-timing
+    // out finished work. Falls back to the old blanket timeout if the live read
+    // path is unavailable, so events can never get wedged in `dispatched`.
+    let reconciled = { entities: 0, completed: 0, timedOut: 0 }
+    try {
+      reconciled = await reconcileStuckDispatched(env, controller.scheduledTime)
+    } catch (err) {
+      console.warn("webhook_events.reconcile.failed", { error: err instanceof Error ? err.message : String(err) })
+      const dispatchedCutoff = Math.floor((controller.scheduledTime - 2 * 60 * 60 * 1000) / 1000)
+      const fallback = await env.DB.prepare(
+        "UPDATE webhook_events SET status = 'failed:timeout', completed_at = ? WHERE status = 'dispatched' AND dispatched_at < ?",
+      )
+        .bind(Math.floor(controller.scheduledTime / 1000), dispatchedCutoff)
+        .run()
+      reconciled.timedOut = fallback.meta.changes ?? 0
+    }
 
     console.info("webhook_events.retention.completed", {
       cron: controller.cron,
       deleted,
-      timedOut: (stuck.meta.changes ?? 0) + (stuckDispatched.meta.changes ?? 0),
+      timedOut: (stuck.meta.changes ?? 0) + reconciled.timedOut,
+      reconciledCompleted: reconciled.completed,
+      reconciledEntities: reconciled.entities,
       actionableRetentionHours: 24,
       skippedRetentionHours: 6,
     })
