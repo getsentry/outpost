@@ -6,6 +6,18 @@
 
 import { createAppAuth } from "@octokit/auth-app"
 import { Octokit } from "@octokit/rest"
+import * as Sentry from "@sentry/cloudflare"
+
+/**
+ * Pull the HTTP status + message out of an Octokit/RequestError so a swallowed
+ * GitHub App auth failure is legible: 401 → bad/rotated private key or app id,
+ * 404 → app not installed on that repo/org, 403 → rate-limited or suspended.
+ */
+function describeGitHubError(err: unknown): { status: number | null; message: string } {
+  const status = typeof (err as { status?: unknown })?.status === "number" ? (err as { status: number }).status : null
+  const message = err instanceof Error ? err.message : String(err)
+  return { status, message }
+}
 
 export type GitHubAppConfig = {
   appId: string
@@ -161,9 +173,20 @@ export function createGitHubApp(config: GitHubAppConfig) {
             (response) => response.data.repositories,
           )
           for (const repo of repositories) repos.add(repo.full_name)
-        } catch {
-          // One inaccessible installation shouldn't blank the whole picker.
+        } catch (err) {
+          // One inaccessible installation shouldn't blank the whole picker — but
+          // if EVERY installation errors the picker silently empties (masking an
+          // app-auth outage), so record why instead of swallowing blind.
+          const { status, message } = describeGitHubError(err)
+          console.warn("github.app.installationRepos.failed", { installationId: installation.id, status, message })
+          Sentry.captureException(err, {
+            tags: { githubApp: "listReposAccessibleToInstallation", status: status ?? "unknown" },
+          })
         }
+      }
+
+      if (installations.length === 0 || repos.size === 0) {
+        console.warn("github.app.installationRepos.empty", { installations: installations.length, repos: repos.size })
       }
 
       const sorted = [...repos].sort()
@@ -188,7 +211,14 @@ export function createGitHubApp(config: GitHubAppConfig) {
         const octokit = this.getInstallationOctokit(installation.id)
         const auth = (await octokit.auth({ type: "installation" })) as { token: string }
         return auth.token
-      } catch {
+      } catch (err) {
+        // Returning null here is what surfaces to callers as "sandbox isn't
+        // ready" / an empty repo picker, so make the actual GitHub reason
+        // legible (401 bad key, 404 not installed, 403 rate-limited/suspended)
+        // instead of collapsing every cause into a silent null.
+        const { status, message } = describeGitHubError(err)
+        console.warn("github.app.repoInstallationToken.failed", { repo: `${owner}/${repo}`, status, message })
+        Sentry.captureException(err, { tags: { githubApp: "getRepoInstallationToken", status: status ?? "unknown" } })
         return null
       }
     },

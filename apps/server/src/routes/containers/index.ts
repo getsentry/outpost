@@ -256,7 +256,10 @@ type RepoAccess = { slug: string; installationToken: string; botLogin: string }
  */
 async function resolveRepoAccess(env: BaseEnv["Bindings"], entityKey: string): Promise<RepoAccess | null> {
   const parsed = parseOwnerRepo(entityKey)
-  if (!parsed) return null
+  if (!parsed) {
+    console.warn("resolveRepoAccess.no_repo", { entityKey })
+    return null
+  }
 
   const app = createGitHubApp({
     appId: env.GITHUB_APP_ID,
@@ -267,7 +270,14 @@ async function resolveRepoAccess(env: BaseEnv["Bindings"], entityKey: string): P
     app.getRepoInstallationToken(parsed.owner, parsed.repo).catch(() => null),
     app.getBotLogin().catch(() => ""),
   ])
-  return installationToken ? { slug: parsed.slug, installationToken, botLogin } : null
+  // Null token → the App can't act on this repo (not installed / bad key /
+  // rate-limited). getRepoInstallationToken already logged the GitHub status;
+  // note the resulting access denial so the 503 it causes is traceable.
+  if (!installationToken) {
+    console.warn("resolveRepoAccess.no_token", { repo: parsed.slug })
+    return null
+  }
+  return { slug: parsed.slug, installationToken, botLogin }
 }
 
 /** Clone the repo into the entity's sandbox and apply auth — same path webhook dispatch takes. */
