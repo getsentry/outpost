@@ -117,15 +117,25 @@ export default function SessionsPage() {
   const setPage = (p: number) => updateParams({ page: String(p) })
   const setLimit = (l: number) => updateParams({ limit: String(l), page: "1" })
 
-  const filtered = data?.data.filter((session: SessionListItem) => {
-    if (!searchInput) return true
-    const q = searchInput.toLowerCase()
-    return (
-      session.entityKey.toLowerCase().includes(q) ||
-      (session.title ?? "").toLowerCase().includes(q) ||
-      (session.agent ?? "").toLowerCase().includes(q)
-    )
-  })
+  const filtered = data?.data
+    .filter((session: SessionListItem) => {
+      if (!searchInput) return true
+      const q = searchInput.toLowerCase()
+      return (
+        session.entityKey.toLowerCase().includes(q) ||
+        (session.title ?? "").toLowerCase().includes(q) ||
+        (session.agent ?? "").toLowerCase().includes(q)
+      )
+    })
+    // Active (working) runs float to the top; everything else sorts by name.
+    // `numeric` keeps issue/PR numbers natural (e.g. #2 before #10).
+    .slice()
+    .sort((a, b) => {
+      const rank = (s: SessionListItem) => (s.status === "working" || s.status === "busy" ? 0 : 1)
+      const byActive = rank(a) - rank(b)
+      if (byActive !== 0) return byActive
+      return a.entityKey.localeCompare(b.entityKey, undefined, { sensitivity: "base", numeric: true })
+    })
 
   const pagination = data?.pagination
   const clearing = clearSessions.isPending
