@@ -21,7 +21,9 @@ import {
   X,
 } from "@phosphor-icons/react"
 import { useEffect, useMemo, useRef, useState } from "react"
+import ReactMarkdown from "react-markdown"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
+import remarkGfm from "remark-gfm"
 import type { MessagePart, SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
 import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
 import { useDestroyContainer, useEvents, useSendPrompt, useSessionDetail } from "@/client/lib/queries"
@@ -130,6 +132,67 @@ function CopyButton({ text }: { text: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Markdown
+// ---------------------------------------------------------------------------
+
+/**
+ * Compact renderers so the agent's markdown (headings, lists, tables, code,
+ * links) reads like formatted prose in the transcript instead of raw `##`/`|`
+ * syntax. No `rehype-raw`, so embedded HTML stays inert (agent output is
+ * untrusted). Tuned for the dense 13px chat column.
+ */
+const MARKDOWN_COMPONENTS: Parameters<typeof ReactMarkdown>[0]["components"] = {
+  p: ({ children }) => <p className="mb-2 whitespace-pre-wrap break-words last:mb-0">{children}</p>,
+  a: ({ children, href }) => (
+    <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
+      {children}
+    </a>
+  ),
+  ul: ({ children }) => <ul className="mb-2 ml-1 list-disc space-y-0.5 pl-4 last:mb-0">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-2 ml-1 list-decimal space-y-0.5 pl-4 last:mb-0">{children}</ol>,
+  li: ({ children }) => <li className="break-words">{children}</li>,
+  h1: ({ children }) => <h1 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h1>,
+  h2: ({ children }) => <h2 className="mb-1 mt-2 text-sm font-semibold first:mt-0">{children}</h2>,
+  h3: ({ children }) => <h3 className="mb-1 mt-2 text-[13px] font-semibold first:mt-0">{children}</h3>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  blockquote: ({ children }) => (
+    <blockquote className="my-1 border-l-2 border-muted-foreground/30 pl-2 text-muted-foreground">
+      {children}
+    </blockquote>
+  ),
+  hr: () => <hr className="my-2 border-border/50" />,
+  pre: ({ children }) => (
+    <pre className="my-2 overflow-x-auto rounded-md bg-muted/60 p-2 text-[11px] leading-relaxed">{children}</pre>
+  ),
+  code: ({ className, children }) => {
+    const isBlock = /language-/.test(className ?? "") || String(children).includes("\n")
+    return isBlock ? (
+      <code className="font-mono">{children}</code>
+    ) : (
+      <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em]">{children}</code>
+    )
+  },
+  table: ({ children }) => (
+    <div className="my-2 overflow-x-auto">
+      <table className="w-full border-collapse text-[12px]">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => <th className="border border-border/60 px-2 py-1 text-left font-semibold">{children}</th>,
+  td: ({ children }) => <td className="border border-border/40 px-2 py-1 align-top">{children}</td>,
+}
+
+/** Render agent-authored markdown as formatted prose. */
+function Markdown({ children }: { children: string }) {
+  return (
+    <div className="text-[13px] leading-relaxed">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
+        {children}
+      </ReactMarkdown>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Chat message components
 // ---------------------------------------------------------------------------
 
@@ -208,6 +271,12 @@ function ChatMessage({ message }: { message: SessionMessage }) {
             }
             if (item.kind === "transient") {
               return <TransientGroup key={i} tools={item.tools} sample={item.sample} />
+            }
+            // A subagent (the `task` tool) is a first-class unit of work, not just
+            // another bash call — give it its own block so operators can see it
+            // spin up and read its result.
+            if (item.toolName === "task") {
+              return <SubagentBlock key={i} status={item.status} args={item.args} result={item.result} />
             }
             return (
               <ToolCallBlock
@@ -346,13 +415,13 @@ function TextPart({ text, reasoning }: { text: string; reasoning: boolean }) {
           Reasoning
         </div>
       )}
-      <pre
-        className={`whitespace-pre-wrap break-words text-[13px] leading-relaxed ${
-          reasoning ? "border-l-2 border-muted-foreground/30 pl-2 text-muted-foreground" : ""
-        }`}
-      >
-        {display}
-      </pre>
+      {reasoning ? (
+        <pre className="whitespace-pre-wrap break-words border-l-2 border-muted-foreground/30 pl-2 text-[13px] leading-relaxed text-muted-foreground">
+          {display}
+        </pre>
+      ) : (
+        <Markdown>{display}</Markdown>
+      )}
       {isLong && (
         <button
           type="button"
@@ -403,6 +472,115 @@ function TransientGroup({ tools, sample }: { tools: string[]; sample: unknown })
             <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all text-[10px] leading-relaxed text-muted-foreground/60">
               {typeof sample === "string" ? sample : JSON.stringify(sample, null, 2)}
             </pre>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Coerce a tool result (string or JSON blob) to displayable text. */
+function resultToText(result: unknown): string {
+  if (result == null) return ""
+  if (typeof result === "string") return result
+  try {
+    return JSON.stringify(result, null, 2)
+  } catch {
+    return String(result)
+  }
+}
+
+/**
+ * A `task` tool call — a subagent (explore / implement / ship) the main agent
+ * spawned. Rendered distinctly from ordinary tools: the description is always
+ * visible, a running subagent shows a live spinner and auto-expands, and its
+ * final report renders as markdown so operators can follow what it did.
+ */
+function SubagentBlock({
+  status,
+  args,
+  result,
+}: {
+  status?: string
+  args?: Record<string, unknown>
+  result?: unknown
+}) {
+  const running = status === "running" || status === "pending" || (status == null && result == null)
+  const [open, setOpen] = useState(running)
+
+  const description =
+    (typeof args?.description === "string" && args.description) ||
+    (typeof args?.subagent_type === "string" && `${args.subagent_type} subagent`) ||
+    "subagent"
+  const kind = typeof args?.subagent_type === "string" ? args.subagent_type : null
+  const prompt = typeof args?.prompt === "string" ? args.prompt : undefined
+  const resultText = resultToText(result)
+  const isError = status === "error"
+
+  return (
+    <div
+      className={`rounded-md border ${isError ? "border-red-500/40 bg-red-500/5" : "border-blue-500/30 bg-blue-500/5 dark:bg-blue-500/10"}`}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] hover:bg-blue-500/10"
+      >
+        <TreeStructure className="size-3.5 shrink-0 text-blue-600 dark:text-blue-400" />
+        <span className="font-semibold text-blue-700 dark:text-blue-300">Subagent</span>
+        {kind && (
+          <span className="rounded bg-blue-500/15 px-1 font-mono text-[10px] text-blue-700 dark:text-blue-300">
+            {kind}
+          </span>
+        )}
+        <span className="min-w-0 truncate text-muted-foreground">{description}</span>
+        {running ? (
+          <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-blue-600 dark:text-blue-400">
+            <ArrowClockwise className="size-3 animate-spin" />
+            running
+          </span>
+        ) : (
+          <span
+            className={`ml-auto shrink-0 ${isError ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}
+          >
+            {isError ? "failed" : "done"}
+          </span>
+        )}
+        <span className="shrink-0">
+          {open ? (
+            <CaretDown className="size-3 text-muted-foreground" />
+          ) : (
+            <CaretRight className="size-3 text-muted-foreground" />
+          )}
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-2 border-t border-blue-500/20 px-2.5 py-2">
+          {prompt && (
+            <div>
+              <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                Task
+              </div>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-muted-foreground">
+                {prompt}
+              </pre>
+            </div>
+          )}
+          {resultText && (
+            <div>
+              <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                Result
+              </div>
+              <div className="max-h-96 overflow-auto">
+                <Markdown>{resultText}</Markdown>
+              </div>
+            </div>
+          )}
+          {running && !resultText && (
+            <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+              <ArrowClockwise className="size-3 animate-spin" />
+              Subagent working…
+            </div>
           )}
         </div>
       )}
@@ -857,7 +1035,6 @@ export default function ContainerDetailPage() {
   // Tool calls are a far more meaningful "how much work happened" signal than
   // cost, which the Flue runtime does not report per message (so it reads 0).
   const totalTools = allMessages.reduce((sum, m) => sum + (m.parts?.filter(isToolPart).length ?? 0), 0)
-  const hasAssistant = allMessages.some((m) => m.info?.role === "assistant")
   const overallStatus =
     detail.status ??
     (() => {
@@ -891,85 +1068,80 @@ export default function ContainerDetailPage() {
 
   return (
     <div className="-m-6 flex h-[calc(100%+3rem)] min-w-0 flex-col overflow-hidden">
-      {/* Header bar */}
+      {/* Header bar — on narrow screens the action buttons drop to their own row
+          below the title/metrics so they don't collide with the metric chips. */}
       <div className="shrink-0 border-b px-4 py-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/containers")}>
-            <ArrowLeft className="size-3.5" />
-            <span className="hidden sm:inline">Back</span>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="md:hidden"
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Show sessions"
-          >
-            <ListBullets className="size-4" />
-          </Button>
-          <Separator orientation="vertical" className="!h-4" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <StatusDot status={overallStatus} />
-              <h1 className="truncate font-mono text-sm font-semibold">
-                {ghUrl ? <GitHubLink href={ghUrl}>{entityKey}</GitHubLink> : entityKey}
-              </h1>
-              {chatRepo && (
-                <Badge variant="secondary" className="shrink-0">
-                  Chat
-                </Badge>
-              )}
-              <span className="shrink-0 text-[11px] text-muted-foreground">{statusLabel(overallStatus)}</span>
-              {streaming && (
-                <span
-                  className="inline-flex shrink-0 items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400"
-                  title="Live updates streaming over SSE"
-                >
-                  <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-                  Live
-                </span>
-              )}
-            </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-              {repoName && <GitHubLink href={repoGitHubUrl(repoName)}>{repoName}</GitHubLink>}
-              <span className="inline-flex items-center gap-1" title="Sessions">
-                <Stack className="size-3" />
-                {sessions.length}
-              </span>
-              <span className="inline-flex items-center gap-1" title="Messages">
-                <ChatText className="size-3" />
-                {totalMessages}
-              </span>
-              <span className="inline-flex items-center gap-1" title="Tool calls">
-                <Wrench className="size-3" />
-                {totalTools}
-              </span>
-              {totalCost > 0 ? (
-                <span className="inline-flex items-center gap-1" title="Model cost reported for this run">
-                  <CurrencyDollar className="size-3" />${totalCost.toFixed(4)}
-                </span>
-              ) : (
-                hasAssistant && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+            <Button variant="ghost" size="sm" className="shrink-0 px-2" onClick={() => navigate("/containers")}>
+              <ArrowLeft className="size-3.5" />
+              <span className="hidden sm:inline">Back</span>
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0 px-2 md:hidden"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Show sessions"
+            >
+              <ListBullets className="size-4" />
+            </Button>
+            <Separator orientation="vertical" className="!h-4" />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <StatusDot status={overallStatus} />
+                <h1 className="truncate font-mono text-sm font-semibold">
+                  {ghUrl ? <GitHubLink href={ghUrl}>{entityKey}</GitHubLink> : entityKey}
+                </h1>
+                {chatRepo && (
+                  <Badge variant="secondary" className="shrink-0">
+                    Chat
+                  </Badge>
+                )}
+                <span className="shrink-0 text-[11px] text-muted-foreground">{statusLabel(overallStatus)}</span>
+                {streaming && (
                   <span
-                    className="inline-flex items-center gap-1 text-muted-foreground/50"
-                    title="The agent runtime (Flue) doesn't report token usage or cost for these runs, so there's no spend to total."
+                    className="inline-flex shrink-0 items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400"
+                    title="Live updates streaming over SSE"
                   >
-                    <CurrencyDollar className="size-3" />
-                    <span className="hidden sm:inline">usage not tracked</span>
-                    <span className="sm:hidden">no cost</span>
+                    <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+                    Live
                   </span>
-                )
-              )}
-              {observedAtIso && (
-                <span className="inline-flex items-center gap-1">
-                  <Clock className="size-3" />
-                  {formatTimeAgo(observedAtIso)}
+                )}
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                {repoName && <GitHubLink href={repoGitHubUrl(repoName)}>{repoName}</GitHubLink>}
+                <span className="inline-flex items-center gap-1" title="Sessions">
+                  <Stack className="size-3" />
+                  {sessions.length}
                 </span>
-              )}
-              {detail.sandboxHint && <span className="hidden text-[10px] sm:inline">{detail.sandboxHint}</span>}
+                <span className="inline-flex items-center gap-1" title="Messages">
+                  <ChatText className="size-3" />
+                  {totalMessages}
+                </span>
+                <span className="inline-flex items-center gap-1" title="Tool calls">
+                  <Wrench className="size-3" />
+                  {totalTools}
+                </span>
+                {/* The Flue runtime doesn't report token usage/cost, so most runs
+                  have nothing to total — show a figure only when one is present
+                  rather than a confusing "usage not tracked" placeholder. */}
+                {totalCost > 0 && (
+                  <span className="inline-flex items-center gap-1" title="Model cost reported for this run">
+                    <CurrencyDollar className="size-3" />${totalCost.toFixed(4)}
+                  </span>
+                )}
+                {observedAtIso && (
+                  <span className="inline-flex items-center gap-1">
+                    <Clock className="size-3" />
+                    {formatTimeAgo(observedAtIso)}
+                  </span>
+                )}
+                {detail.sandboxHint && <span className="hidden text-[10px] sm:inline">{detail.sandboxHint}</span>}
+              </div>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
             <Button variant={showLogs ? "secondary" : "outline"} size="xs" onClick={() => setShowLogs(!showLogs)}>
               <Terminal className="size-3" /> Logs
             </Button>
@@ -1140,11 +1312,6 @@ export default function ContainerDetailPage() {
                   {activeSummary.cost > 0 && (
                     <span className="inline-flex items-center gap-1">
                       <CurrencyDollar className="size-3" />${activeSummary.cost.toFixed(4)}
-                    </span>
-                  )}
-                  {activeSession.tokens && (
-                    <span className="font-mono text-[10px]">
-                      {activeSession.tokens.input ?? 0}in / {activeSession.tokens.output ?? 0}out
                     </span>
                   )}
                 </div>
