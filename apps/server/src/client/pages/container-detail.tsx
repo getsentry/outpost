@@ -8,7 +8,6 @@ import {
   Clock,
   Code,
   Copy,
-  CurrencyDollar,
   ListBullets,
   PaperPlaneTilt,
   Robot,
@@ -682,7 +681,6 @@ function SessionSidebarItem({
   status,
   messageCount,
   agent,
-  cost,
   isActive,
   onClick,
 }: {
@@ -690,7 +688,6 @@ function SessionSidebarItem({
   status: string
   messageCount: number
   agent: string | null
-  cost: number
   isActive: boolean
   onClick: () => void
 }) {
@@ -717,7 +714,6 @@ function SessionSidebarItem({
           <span>
             {messageCount} msg{messageCount !== 1 ? "s" : ""}
           </span>
-          {cost > 0 && <span>${cost.toFixed(4)}</span>}
         </div>
       </div>
     </button>
@@ -964,18 +960,10 @@ export default function ContainerDetailPage() {
   const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
   const activeSummary = summarizeSession(activeSession, serverMessages)
 
-  // Summary. Cost is derived per-session with a message fallback so pending
-  // placeholder sessions (no cost on the session object) still report a total.
-  // When the messages live under a different key than the session id (pending
-  // placeholders), the per-session sum is 0, so fall back to every message.
-  const perSessionCost = sessions.reduce((sum, s) => {
-    const msgs = Array.isArray(messages[s.id]) ? messages[s.id] : []
-    return sum + summarizeSession(s, msgs).cost
-  }, 0)
-  const totalCost = perSessionCost > 0 ? perSessionCost : summarizeSession(sessions[0], allMessages).cost
   const totalMessages = allMessages.length
-  // Tool calls are a far more meaningful "how much work happened" signal than
-  // cost, which the Flue runtime does not report per message (so it reads 0).
+  // Tool calls are the "how much work happened" signal. The Flue runtime never
+  // reports token usage/cost in the history we read, so we don't surface a
+  // cost figure at all rather than show a perpetually-empty one.
   const totalTools = allMessages.reduce((sum, m) => sum + (m.parts?.filter(isToolPart).length ?? 0), 0)
   const overallStatus =
     detail.status ??
@@ -1065,14 +1053,6 @@ export default function ContainerDetailPage() {
                   <Wrench className="size-3" />
                   {totalTools}
                 </span>
-                {/* The Flue runtime doesn't report token usage/cost, so most runs
-                  have nothing to total — show a figure only when one is present
-                  rather than a confusing "usage not tracked" placeholder. */}
-                {totalCost > 0 && (
-                  <span className="inline-flex items-center gap-1" title="Model cost reported for this run">
-                    <CurrencyDollar className="size-3" />${totalCost.toFixed(4)}
-                  </span>
-                )}
                 {observedAtIso && (
                   <span className="inline-flex items-center gap-1">
                     <Clock className="size-3" />
@@ -1168,7 +1148,6 @@ export default function ContainerDetailPage() {
                     status={sessionStatus[s.id]?.type ?? "unknown"}
                     messageCount={sessionMessages.length}
                     agent={itemSummary.agent}
-                    cost={itemSummary.cost}
                     isActive={s.id === effectiveSessionId}
                     onClick={() => {
                       setActiveSessionId(s.id)
@@ -1246,11 +1225,6 @@ export default function ContainerDetailPage() {
                     <span className="inline-flex min-w-0 items-center gap-1">
                       <Code className="size-3 shrink-0" />
                       <span className="truncate">{activeSummary.model}</span>
-                    </span>
-                  )}
-                  {activeSummary.cost > 0 && (
-                    <span className="inline-flex items-center gap-1">
-                      <CurrencyDollar className="size-3" />${activeSummary.cost.toFixed(4)}
                     </span>
                   )}
                 </div>
