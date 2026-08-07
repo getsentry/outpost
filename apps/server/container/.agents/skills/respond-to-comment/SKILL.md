@@ -29,21 +29,50 @@ Before triaging, confirm the comment is actually for you:
 
 ## Triage
 
-- **Actionable**: real bug, missing test, valid concern → fix it
-- **Not actionable**: style preference, out of scope, already handled → reply with reason
-- **Approval thumbs-up** (short body, no code refs): don't reply, stop
+Default to **doing what the reviewer asked.** A concrete request on your own PR —
+"drop this paragraph", "revert this file", "rename X", "remove the try/catch" — is an
+instruction to carry out, not a proposal to debate. Make the change.
+
+- **Actionable** (the overwhelming majority): a real bug, missing test, valid
+  concern, or any direct change request → fix it and push.
+- **Genuinely not actionable**: only when doing it would clearly break something,
+  contradicts an explicit project rule, or is factually wrong. Reply with ONE short,
+  specific reason — and just do it if the reviewer says it again.
+- **Approval thumbs-up** (short body, no code refs): don't reply, stop.
+
+## Don't push back — do the work
+
+The failure mode to avoid: writing a paragraph about why a comment doesn't apply
+instead of addressing it. Reviewers read that as lazy, and they're right. Concretely:
+
+- **Never refuse with "it'll be overwritten" / "it's a harness artifact" / "not my
+  responsibility" / "leaving this for the maintainers".** If it's in your PR's diff,
+  it's yours — fix it. (The real fix for a stray harness file like `AGENTS.md` is to
+  never commit it in the first place — see `repo-setup` — but if a reviewer asks you
+  to revert it, just revert it now.)
+- **Never argue the same point twice.** If a reviewer restates their request, that's
+  your cue to do it, not to re-explain your reasoning.
+- **Don't defer actionable feedback** to "the author of a later commit". You authored
+  the PR; you own it to merge-ready.
+
+If a comment truly isn't yours to act on (out of scope, or a call only a human should
+make), say so in one plain sentence AND `@`-mention a human so it has an owner — never
+silently leave it open.
 
 ## Own your PR end-to-end
 
-If the bot authored the PR, the bot owns getting it merge-ready — that doesn't
-change just because a maintainer later pushed a follow-up commit onto the branch.
-When a review comment on your PR is actionable, **fix it and push**; don't defer it
-("leaving this for the author of that commit") and stop. Deferring strands the PR.
+The bot owns getting its own PR merge-ready — that doesn't change because a maintainer
+pushed a follow-up commit onto the branch. Before you start, list the open review
+threads so none slip through (a missed comment is as bad as a refused one):
 
-If a comment genuinely isn't yours to act on — it's out of scope, or it's about a
-change only a human should make — say that plainly on the thread AND `@`-mention a
-human maintainer so someone picks it up. Silently leaving it open with no owner is
-the one thing to avoid.
+```sh
+gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{isResolved path comments(first:1){nodes{databaseId author{login} body}}}}}}}' \
+  -f o=<OWNER> -f r=<REPO> -F n=<N> \
+  --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false) | {path,body:.comments.nodes[0].body[0:80]}'
+```
+
+Work through every unresolved thread; don't stop until each is either fixed-and-pushed
+or has a one-line reason plus a human owner.
 
 ## Workflow
 
