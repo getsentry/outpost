@@ -10,18 +10,51 @@ import * as Sentry from "@sentry/cloudflare"
 import { and, eq, gt, inArray } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
-import { classifyCiEvent, isCiEvent } from "@/lib/github/actionability"
-import { createGitHubApp } from "@/lib/github/app"
+import { ciStillRunning, classifyCiEvent, isCiEvent } from "@/lib/github/actionability"
+import { createGitHubApp, type GitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
 import type { BaseEnv } from "@/types"
 
 // A CI burst (many workflow_run/check_suite completions for one push) lands
-// within seconds. If an actionable CI event for the same entity is still
-// unprocessed, fold later ones into it: the agent re-derives live CI status via
-// `gh` when it handles that event, so the burst collapses to a single re-check.
+// within seconds and all read as "settled" once the run finishes. Dedupe those
+// terminal completions within this window so the agent wakes once per run.
 const CI_COALESCE_WINDOW_MS = 10 * 60 * 1000
+
+/**
+ * True when the commit's CI still has an unfinished check, so an actionable CI
+ * completion should be held back (a later completion will observe the settled
+ * run). Fail-open: any missing input or API error resolves to `false` ("settled")
+ * so a green PR is never stranded waiting for a promotion webhook that won't come.
+ */
+async function isCiStillRunning(opts: {
+  installationId: number | null
+  repo: string | null
+  headSha: string | null
+  app: GitHubApp
+  logger: { warn: (obj: unknown, msg: string) => void }
+}): Promise<boolean> {
+  const { installationId, repo, headSha, app, logger } = opts
+  if (!installationId || !repo || !headSha) return false
+  const [owner, name] = repo.split("/")
+  if (!owner || !name) return false
+
+  try {
+    const octokit = app.getInstallationOctokit(installationId)
+    const [checkRuns, combined] = await Promise.all([
+      octokit.paginate(octokit.checks.listForRef, { owner, repo: name, ref: headSha, per_page: 100 }),
+      octokit.repos
+        .getCombinedStatusForRef({ owner, repo: name, ref: headSha })
+        .then((r) => r.data)
+        .catch(() => null),
+    ])
+    return ciStillRunning(checkRuns, combined)
+  } catch (err) {
+    logger.warn({ error: formatError(err) }, "ci settle check failed; treating as settled")
+    return false
+  }
+}
 
 const router = new Hono<BaseEnv>().post("/", async (c) => {
   const logger = c.get("logger").child({ ns: "webhook.github" })
@@ -144,26 +177,42 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
 
   // Second gate: drop noisy CI lifecycle events (requested/in_progress, and
   // cancelled/skipped/neutral completions) that Jared would only skip anyway,
-  // and coalesce bursts of actionable CI completions for the same entity.
+  // then hold back actionable completions until the whole CI run has SETTLED so
+  // the agent wakes once, on the terminal green/red state it actually acts on.
   if (!skipReason && isCiEvent(event)) {
     const verdict = classifyCiEvent(event, action, payload)
     if (!verdict.actionable) {
       skipReason = verdict.reason
     } else {
-      const since = new Date(Date.now() - CI_COALESCE_WINDOW_MS)
-      const pending = await db
-        .select({ id: dbSchema.webhookEvents.id })
-        .from(dbSchema.webhookEvents)
-        .where(
-          and(
-            eq(dbSchema.webhookEvents.entityKey, containerKey),
-            inArray(dbSchema.webhookEvents.event, ["check_suite", "workflow_run"]),
-            inArray(dbSchema.webhookEvents.status, ["pending", "dispatched"]),
-            gt(dbSchema.webhookEvents.createdAt, since),
-          ),
-        )
-        .limit(1)
-      if (pending.length > 0) skipReason = "ci_coalesced"
+      // A single workflow finishing is not "CI is done". `mark-pr-ready` waits
+      // for the FULL run to be green (and earlier coalescing dropped that final
+      // webhook, so a passing PR never got promoted / a review never got asked
+      // for). Ask GitHub for the aggregate status of this commit and only wake
+      // the agent once every check has finished.
+      const ciObj = lookup(payload, event) as Record<string, unknown> | null
+      const headSha = lookupString(ciObj ?? {}, "head_sha")
+      const stillRunning = await isCiStillRunning({ installationId, repo, headSha, app, logger })
+      if (stillRunning) {
+        // More completions are coming; the last one will observe a settled run.
+        skipReason = "ci_pending"
+      } else {
+        // Settled: dedupe the burst of terminal completions (they all read
+        // "settled") so only the first wakes the agent for this run.
+        const since = new Date(Date.now() - CI_COALESCE_WINDOW_MS)
+        const pending = await db
+          .select({ id: dbSchema.webhookEvents.id })
+          .from(dbSchema.webhookEvents)
+          .where(
+            and(
+              eq(dbSchema.webhookEvents.entityKey, containerKey),
+              inArray(dbSchema.webhookEvents.event, ["check_suite", "workflow_run"]),
+              inArray(dbSchema.webhookEvents.status, ["pending", "dispatched"]),
+              gt(dbSchema.webhookEvents.createdAt, since),
+            ),
+          )
+          .limit(1)
+        if (pending.length > 0) skipReason = "ci_coalesced"
+      }
     }
   }
 

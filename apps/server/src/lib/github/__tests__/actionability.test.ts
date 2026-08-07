@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { classifyCiEvent, isCiEvent } from "../actionability"
+import { ciStillRunning, classifyCiEvent, isCiEvent } from "../actionability"
 
 const withRun = (event: "workflow_run" | "check_suite", fields: Record<string, unknown>) => ({
   [event]: fields,
@@ -58,5 +58,34 @@ describe("classifyCiEvent", () => {
         withRun("check_suite", { conclusion: "success", pull_requests: [{ number: 7 }] }),
       ),
     ).toEqual({ actionable: true, conclusion: "success" })
+  })
+})
+
+describe("ciStillRunning", () => {
+  it("is running while any check is queued / in progress", () => {
+    for (const status of ["queued", "in_progress", "waiting", "requested", "pending"]) {
+      expect(ciStillRunning([{ status: "completed" }, { status }], null)).toBe(true)
+    }
+  })
+
+  it("is settled when every check has completed", () => {
+    expect(ciStillRunning([{ status: "completed" }, { status: "completed" }], null)).toBe(false)
+  })
+
+  it("treats a pending combined legacy status (with reported statuses) as running", () => {
+    expect(ciStillRunning([{ status: "completed" }], { state: "pending", total_count: 2 })).toBe(true)
+  })
+
+  it("ignores a pending combined status with no reported statuses (unknown SHA default)", () => {
+    expect(ciStillRunning([{ status: "completed" }], { state: "pending", total_count: 0 })).toBe(false)
+  })
+
+  it("is settled on success/failure combined status", () => {
+    expect(ciStillRunning([{ status: "completed" }], { state: "success", total_count: 3 })).toBe(false)
+    expect(ciStillRunning([{ status: "completed" }], { state: "failure", total_count: 3 })).toBe(false)
+  })
+
+  it("is settled (fail-open) when there is no check data at all", () => {
+    expect(ciStillRunning([], null)).toBe(false)
   })
 })

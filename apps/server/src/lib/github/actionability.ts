@@ -12,6 +12,14 @@
 // dispatch, changes nothing about which events the agent acts on — it just
 // stops us from waking the agent (and growing the transcript) for events it
 // would immediately skip.
+//
+// But the agent acts on the AGGREGATE CI state, not a single workflow: `fix-ci`
+// fixes every failing check, and `mark-pr-ready` runs `gh pr checks` and *waits*
+// (does nothing) if any check is still pending — relying on a LATER webhook to
+// wake it once CI is fully green. So the caller pairs this with {@link
+// ciStillRunning}: suppress each completion until CI has SETTLED (every check
+// finished), then wake the agent exactly once. That both collapses the burst and
+// guarantees the terminal green/red signal actually reaches the agent.
 
 import { lookup, lookupString } from "./entity"
 
@@ -52,4 +60,29 @@ export function classifyCiEvent(
   }
 
   return { actionable: true, conclusion: conclusion as "failure" | "success" }
+}
+
+/** Check-run `status` values that mean a check has NOT finished yet. */
+const RUNNING_CHECK_STATUSES = new Set(["queued", "in_progress", "waiting", "requested", "pending"])
+
+/**
+ * Whether a commit's CI is still running, from the aggregate check-runs +
+ * combined legacy status for its head SHA (i.e. what `gh pr checks` reads).
+ *
+ * Returns true ONLY when we can positively see an unfinished check — callers use
+ * that to hold a CI completion back until the whole run settles. Anything
+ * ambiguous (no data) returns false ("settled") so a green PR is never left
+ * un-promoted waiting for a signal that will not come.
+ */
+export function ciStillRunning(
+  checkRuns: Array<{ status?: string | null }>,
+  combined: { state?: string | null; total_count?: number | null } | null,
+): boolean {
+  if (checkRuns.some((r) => typeof r.status === "string" && RUNNING_CHECK_STATUSES.has(r.status))) {
+    return true
+  }
+  // Legacy commit statuses (external CI like CircleCI). `pending` with zero
+  // reported statuses is GitHub's default for an unknown SHA, not a real run.
+  if (combined?.state === "pending" && (combined.total_count ?? 0) > 0) return true
+  return false
 }
