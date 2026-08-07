@@ -134,6 +134,12 @@ export async function ensureSandboxReady(
 ): Promise<void> {
   // Phase 2 thin sandbox: only ensure repo + credentials, no harness process.
   if (opts.thinSandbox) {
+    // A scaled-to-zero / recycling sandbox drops its FIRST exec as
+    // SessionTerminatedError ("shell exited (exit code: 0)"). Absorb that
+    // cold-start hit with a cheap retried ping so it doesn't kill a multi-minute
+    // `git clone` instead — the single biggest source of failed CI/operator turns.
+    await retryTransientSandbox(() => sandbox.exec("mkdir -p /workspace", { cwd: "/" }), 5)
+
     // The sandbox session can terminate mid-exec during a CI burst (many
     // concurrent dispatches) or scale-to-zero, surfacing as SessionTerminatedError
     // / SandboxError 5xx (JARED-J/-F/-8). Every step below is idempotent, so retry
@@ -143,7 +149,15 @@ export async function ensureSandboxReady(
       await writeEnvFile(sandbox, opts)
       await applyGitHubAuth(sandbox, opts)
       await ensureWorkspaceSkills(sandbox)
-    })
+    }, 5)
+
+    // Guard against a "successful" prep that silently dropped work: a mid-exec
+    // reset can let a step return without cloning the repo or copying skills, and
+    // the agent then runs with NO skills and NO gh auth — answering operator turns
+    // with "no GitHub token available" instead of doing the work (getsentry/cli#1371,
+    // spotlight#1343). Fail loudly so the caller marks the turn failed / surfaces a
+    // retry rather than dispatching a crippled agent.
+    await verifyThinSandboxPrepped(sandbox)
     return
   }
 
@@ -394,6 +408,28 @@ async function ensureWorkspaceSkills(sandbox: ReturnType<typeof getSandbox>): Pr
       "([ -f /opt/flue/AGENTS.md ] && cp /opt/flue/AGENTS.md /workspace/repo/AGENTS.md || true)",
     { cwd: "/workspace" },
   )
+}
+
+/**
+ * Assert the three things the Phase 2 agent depends on actually landed after
+ * setup: the cloned repo, a non-empty skills tree, and a GitHub token in the env
+ * file the agent sources. A transient reset can make a setup step "succeed"
+ * without doing its work, leaving the agent skill-less and unauthenticated; this
+ * turns that silent half-prep into a loud, retryable failure. Wrapped in the
+ * transient retry so a reset during the check itself isn't a false negative.
+ */
+async function verifyThinSandboxPrepped(sandbox: ReturnType<typeof getSandbox>): Promise<void> {
+  const check = await retryTransientSandbox(() =>
+    sandbox.exec(
+      "test -d /workspace/repo/.git && " +
+        '[ -n "$(ls -A /workspace/repo/.agents/skills 2>/dev/null)" ] && ' +
+        "grep -q '^export GH_TOKEN=' /tmp/flue-env.sh",
+      { cwd: "/workspace" },
+    ),
+  )
+  if (!check.success) {
+    throw new Error("sandbox prep incomplete: repo, skills, or GitHub auth missing after setup")
+  }
 }
 
 async function ensureSessionReporterRunning(

@@ -805,11 +805,18 @@ const router = new Hono<BaseEnv>()
       /* may already exist */
     }
 
+    // Prep the sandbox (clone + skills + gh auth) BEFORE admitting. If this
+    // silently failed we used to admit anyway, and the agent ran with no skills
+    // and no GitHub auth — answering "no GitHub token available" instead of doing
+    // the work (getsentry/cli#1371, spotlight#1343). Surface the failure so the
+    // operator retries against a warm sandbox rather than talking to a crippled one.
     try {
       const access = await resolveRepoAccess(c.env, entityKey)
-      if (access) await prepEntitySandbox(c.env, entityKey, access, flueNative)
+      if (!access) throw new Error("could not resolve repository access for this entity")
+      await prepEntitySandbox(c.env, entityKey, access, flueNative)
     } catch (err) {
-      logger.warn({ error: formatError(err) }, "operator prompt sandbox prep failed — continuing admit")
+      logger.warn({ error: formatError(err) }, "operator prompt sandbox prep failed")
+      return c.json({ error: "The agent's sandbox isn't ready yet (setup failed). Please try again in a moment." }, 503)
     }
 
     const { conversationUrl, submissionId } = await admitPrompt(c.env, {
