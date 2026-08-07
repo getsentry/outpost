@@ -19,6 +19,26 @@ function describeGitHubError(err: unknown): { status: number | null; message: st
   return { status, message }
 }
 
+/**
+ * Pull repo `full_name`s out of one page of `listReposAccessibleToInstallation`.
+ *
+ * `octokit.paginate` normalizes some pages of this endpoint so the page value is
+ * already the repository array, while others keep the raw `{ repositories }`
+ * envelope. The previous code read `.repositories` unconditionally, so a
+ * normalized page yielded `undefined` entries and crashed on `repo.full_name`
+ * (JARED-K), which the swallowing catch turned into a silently empty picker.
+ * Accept both shapes and drop anything without a usable name.
+ */
+export function collectRepoFullNames(pageData: unknown): string[] {
+  const list = Array.isArray(pageData) ? pageData : ((pageData as { repositories?: unknown[] })?.repositories ?? [])
+  const names: string[] = []
+  for (const entry of list) {
+    const name = (entry as { full_name?: unknown } | null)?.full_name
+    if (typeof name === "string" && name.length > 0) names.push(name)
+  }
+  return names
+}
+
 export type GitHubAppConfig = {
   appId: string
   privateKey: string
@@ -167,12 +187,12 @@ export function createGitHubApp(config: GitHubAppConfig) {
       for (const installation of installations) {
         try {
           const octokit = this.getInstallationOctokit(installation.id)
-          const repositories = await octokit.paginate(
+          const names = await octokit.paginate(
             octokit.apps.listReposAccessibleToInstallation,
             { per_page: 100 },
-            (response) => response.data.repositories,
+            (response) => collectRepoFullNames(response.data),
           )
-          for (const repo of repositories) repos.add(repo.full_name)
+          for (const name of names) repos.add(name)
         } catch (err) {
           // One inaccessible installation shouldn't blank the whole picker — but
           // if EVERY installation errors the picker silently empties (masking an
