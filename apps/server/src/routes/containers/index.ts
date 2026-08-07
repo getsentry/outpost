@@ -17,6 +17,7 @@
 
 import { getSandbox } from "@cloudflare/sandbox"
 import { formatError, type Logger } from "@jared/utils"
+import * as Sentry from "@sentry/cloudflare"
 import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import { Hono } from "hono"
@@ -825,7 +826,11 @@ const router = new Hono<BaseEnv>()
       if (!access) throw new Error("could not resolve repository access for this entity")
       await prepEntitySandbox(c.env, entityKey, access, flueNative)
     } catch (err) {
+      // Surface the reason (repo-access denial vs sandbox clone/verify failure) —
+      // the route only logged before, so the 503 the operator saw had no traceable
+      // cause in Sentry.
       logger.warn({ error: formatError(err) }, "operator prompt sandbox prep failed")
+      Sentry.captureException(err, { tags: { path: "operatorPrompt.prep" } })
       return c.json({ error: "The agent's sandbox isn't ready yet (setup failed). Please try again in a moment." }, 503)
     }
 
