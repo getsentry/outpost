@@ -279,21 +279,44 @@ export default function SessionsPage() {
             </div>
           ) : (
             <>
-              {/* Mobile: stacked cards (the wide table doesn't fit a phone). */}
+              {/* Mobile: stacked cards (the wide table doesn't fit a phone). The
+                  card is a clickable div (not a button) so the entity/repo
+                  GitHub links — anchors that stop propagation — can nest inside
+                  it while the surrounding area still navigates to the detail. */}
               <ul className="divide-y md:hidden">
                 {filtered.map((session: SessionListItem) => {
+                  const ghUrl = entityGitHubUrl(session.entityKey, "issues")
+                  const parsed = parseEntityKey(session.entityKey)
                   const chatRepo = chatEntityRepo(session.entityKey)
+                  const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
+                  const detailHref = `/containers/detail?key=${encodeURIComponent(session.entityKey)}`
+                  const openDetail = () => navigate(detailHref)
 
                   return (
                     <li key={session.entityKey}>
-                      <button
-                        type="button"
-                        className="flex w-full flex-col gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/40"
-                        onClick={() => navigate(`/containers/detail?key=${encodeURIComponent(session.entityKey)}`)}
+                      {/* biome-ignore lint/a11y/useSemanticElements: a <button> can't wrap the
+                          nested GitHub anchors, so this stays a keyboard-operable div */}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        className="flex w-full cursor-pointer flex-col gap-2 px-4 py-3 text-left transition-colors hover:bg-muted/40"
+                        onClick={openDetail}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault()
+                            openDetail()
+                          }
+                        }}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-sm">
-                            <span className="break-all">{session.entityKey}</span>
+                            {ghUrl ? (
+                              <GitHubLink href={ghUrl}>
+                                <span className="break-all">{session.entityKey}</span>
+                              </GitHubLink>
+                            ) : (
+                              <span className="break-all">{session.entityKey}</span>
+                            )}
                             {chatRepo && (
                               <Badge variant="secondary" className="font-sans">
                                 Chat
@@ -302,18 +325,11 @@ export default function SessionsPage() {
                           </div>
                           <StatusIndicator status={session.status} />
                         </div>
-                        {(session.title || session.agent) && (
-                          <div className="space-y-0.5">
-                            {session.title && (
-                              <p className="line-clamp-2 text-xs text-muted-foreground">{session.title}</p>
-                            )}
-                            {session.agent && (
-                              <p className="text-[11px] text-muted-foreground">
-                                {session.agent}
-                                {session.model ? ` · ${session.model}` : ""}
-                              </p>
-                            )}
-                          </div>
+                        {session.title && <p className="line-clamp-2 text-xs text-muted-foreground">{session.title}</p>}
+                        {(session.agent || session.model) && (
+                          <p className="text-[11px] text-muted-foreground">
+                            {[session.agent, session.model].filter(Boolean).join(" · ")}
+                          </p>
                         )}
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                           <span className="inline-flex items-center gap-1">
@@ -324,9 +340,14 @@ export default function SessionsPage() {
                             <ChatsCircle className="size-3" />
                             {session.messageCount} msg{session.messageCount !== 1 ? "s" : ""}
                           </span>
+                          {repoName && (
+                            <GitHubLink href={repoGitHubUrl(repoName)}>
+                              <span className="text-[10px]">{repoName}</span>
+                            </GitHubLink>
+                          )}
                           <span className="ml-auto">{formatTimeAgo(session.updatedAt)}</span>
                         </div>
-                      </button>
+                      </div>
                     </li>
                   )
                 })}
