@@ -875,14 +875,12 @@ export default function ContainerDetailPage() {
     })
   }
 
-  // Shared header actions (Refresh + Destroy) — rendered on both the normal
-  // view and the "not found" view so they never disappear.
+  // Header action(s). No manual "Refresh": the transcript streams over SSE with a
+  // busy-aware fallback poll, so the data stays current on its own. Explicit
+  // retry lives where a stall is actionable — the "sync unavailable" banner, the
+  // empty-state, and the not-found view below.
   const headerActions = (
     <div className="flex items-center gap-1">
-      <Button variant="outline" size="xs" onClick={() => refetch()} disabled={isFetching}>
-        <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
-        Refresh
-      </Button>
       <AlertDialog open={destroyOpen} onOpenChange={setDestroyOpen}>
         <AlertDialogTrigger asChild>
           <Button variant="outline" size="xs" disabled={destroyContainer.isPending}>
@@ -943,7 +941,13 @@ export default function ContainerDetailPage() {
             <ArrowLeft className="size-3.5" />
             Back to agent runs
           </Button>
-          {headerActions}
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="xs" onClick={() => refetch()} disabled={isFetching}>
+              <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+            {headerActions}
+          </div>
         </div>
         <div className="py-12 text-center text-sm text-muted-foreground">
           Agent run not found or still starting up. Try refreshing.
