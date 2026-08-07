@@ -272,8 +272,17 @@ async function ensureRepoCloned(sandbox: ReturnType<typeof getSandbox>, opts: Sa
   // clear the destination immediately before the rename so it can never nest.
   const script = [
     "LOCK=/workspace/.repo-setup.lock",
+    // HELD guards lock ownership: only the process that actually acquired the
+    // lock may release it. Otherwise a process that gives up waiting would
+    // rmdir the lock still held by the peer doing the clone, breaking the mutex.
+    "HELD=0",
     "i=0",
-    'while ! mkdir "$LOCK" 2>/dev/null; do i=$((i+1)); [ "$i" -ge 120 ] && break; sleep 1; done',
+    'while [ "$i" -lt 120 ]; do',
+    '  if mkdir "$LOCK" 2>/dev/null; then HELD=1; break; fi',
+    // A peer finished the clone while we waited — nothing left to do.
+    "  [ -d /workspace/repo/.git ] && break",
+    "  i=$((i+1)); sleep 1",
+    "done",
     "RC=0",
     "if [ ! -d /workspace/repo/.git ]; then",
     "  rm -rf /workspace/repo /workspace/repo-tmp",
@@ -286,7 +295,7 @@ async function ensureRepoCloned(sandbox: ReturnType<typeof getSandbox>, opts: Sa
     "    RC=3",
     "  fi",
     "fi",
-    'rmdir "$LOCK" 2>/dev/null || true',
+    '[ "$HELD" = 1 ] && rmdir "$LOCK" 2>/dev/null; true',
     "exit $RC",
   ].join("\n")
 
