@@ -305,6 +305,21 @@ export function buildPhase1BootstrapScript(opts: SandboxSetupOpts): string {
   ].join("\n")
 }
 
+/**
+ * Whether the repo is actually cloned, checked via a fresh (cheap, retried)
+ * exec. Used to settle a SessionTerminatedError thrown by a clone that may have
+ * already succeeded — a quick `test -d` spins a new session and rarely trips the
+ * same teardown the long clone did. Never throws: unknown ⇒ treat as not cloned.
+ */
+async function repoIsCloned(sandbox: ReturnType<typeof getSandbox>): Promise<boolean> {
+  try {
+    const r = await retryTransientSandbox(() => sandbox.exec("test -d /workspace/repo/.git", { cwd: "/workspace" }), 3)
+    return r.success
+  } catch {
+    return false
+  }
+}
+
 async function ensureRepoCloned(sandbox: ReturnType<typeof getSandbox>, opts: SandboxSetupOpts): Promise<void> {
   if (!opts.repo) return
 
@@ -350,9 +365,21 @@ async function ensureRepoCloned(sandbox: ReturnType<typeof getSandbox>, opts: Sa
     "exit $RC",
   ].join("\n")
 
-  const cloneResult = await sandbox.exec(script, { cwd: "/workspace" })
-  if (!cloneResult.success) {
-    throw new Error(`git clone failed: ${cloneResult.stderr}`)
+  // A *successful* long clone can still surface as SessionTerminatedError
+  // ("shell exited (exit code: 0)"): the sandbox tears the session down as the
+  // multi-minute exec finishes, so the repo is on disk but `exec` throws anyway.
+  // Retrying re-runs the (idempotent) script, which tears the session down
+  // again, so every attempt throws and the dispatch 503s even though the clone
+  // landed (JARED-M). Treat that transient error as *inconclusive* and settle it
+  // against the filesystem — the real source of truth — instead of failing.
+  try {
+    const cloneResult = await sandbox.exec(script, { cwd: "/workspace" })
+    if (!cloneResult.success) {
+      throw new Error(`git clone failed: ${cloneResult.stderr}`)
+    }
+  } catch (err) {
+    if (!isTransientSandboxError(err) || !(await repoIsCloned(sandbox))) throw err
+    // Repo is present — the session-exit was a false alarm on a completed clone.
   }
 
   if (opts.botLogin) {
