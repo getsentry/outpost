@@ -47,6 +47,7 @@ import {
   readFlueHistoryInProcess,
   readFlueUpdatesInProcess,
 } from "@/lib/containers/flue-dispatch"
+import { isFlueHistoryBusy } from "@/lib/containers/flue-session-adapt"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
 import {
@@ -429,7 +430,10 @@ const router = new Hono<BaseEnv>()
     }
     if (purge) {
       try {
-        await db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey))
+        await Promise.all([
+          db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
+          db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
+        ])
       } catch {
         /* best effort */
       }
@@ -996,26 +1000,40 @@ const router = new Hono<BaseEnv>()
       .from(dbSchema.agentSessions)
 
     if (mode === "idle") {
-      // Clear anything that is not actively working: idle/historical display, or
-      // stale busy placeholders that never finished syncing.
-      const idleKeys = rows
-        .filter((row) => {
+      // Decide what to clear. A confidently-idle row (D1 actually saw it go idle)
+      // is safe to drop. A "sync_unavailable" row is AMBIGUOUS: for Phase-2 runs
+      // the D1 blob is a stale placeholder that never updates while the agent
+      // works (the thin sandbox has no reporter), so a long-running *working*
+      // container lands here too — and used to get deleted mid-task. Verify those
+      // against the live Flue Durable Object (the source of truth) and keep
+      // anything it reports as still busy, or anything we can't confirm is idle.
+      const decided = await Promise.all(
+        rows.map(async (row) => {
           const display = deriveDisplayStatus(row.sessionData, row.updatedAt)
-          return (
-            display === "idle" ||
-            display === "historical" ||
-            display === "sync_unavailable" ||
-            isStaleBusy(row.sessionData, row.updatedAt)
-          )
-        })
-        .map((row) => row.entityKey)
+          if (display === "idle" || display === "historical") {
+            return { entityKey: row.entityKey, del: true }
+          }
+          if (display === "sync_unavailable") {
+            const read = await readFlueHistoryInProcess(c.env, row.entityKey)
+            // ok → trust the DO; 404 → nothing running; read error → keep (unsure).
+            const liveIdle = read.ok ? !isFlueHistoryBusy(read.history) : read.notFound
+            return { entityKey: row.entityKey, del: liveIdle }
+          }
+          // working / unknown → never delete.
+          return { entityKey: row.entityKey, del: false }
+        }),
+      )
+      const idleKeys = decided.filter((d) => d.del).map((d) => d.entityKey)
       if (idleKeys.length === 0) {
         return c.json({ ok: true, mode, deleted: 0, destroyed: 0 })
       }
       await Promise.all(
-        idleKeys.map((entityKey) =>
+        idleKeys.flatMap((entityKey) => [
           db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
-        ),
+          // Also drop stored webhook events so a later re-trigger starts with a
+          // clean "Recent events" list instead of resurrecting the old one.
+          db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
+        ]),
       )
       return c.json({ ok: true, mode, deleted: idleKeys.length, destroyed: 0 })
     }
@@ -1030,7 +1048,9 @@ const router = new Hono<BaseEnv>()
     const destroyed = destroyResults.filter((r) => r.status === "fulfilled").length
 
     if (rows.length > 0) {
-      await db.delete(dbSchema.agentSessions)
+      // Clear both the session snapshots and the stored webhook events so a full
+      // wipe leaves no D1 residue to resurface on the next trigger.
+      await Promise.all([db.delete(dbSchema.agentSessions), db.delete(dbSchema.webhookEvents)])
     }
 
     return c.json({ ok: true, mode, deleted: rows.length, destroyed })
@@ -1040,7 +1060,10 @@ const router = new Hono<BaseEnv>()
   .delete("/sessions/:entityKey", async (c) => {
     const db = c.get("db")
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
-    await db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey))
+    await Promise.all([
+      db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
+      db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
+    ])
     return c.json({ ok: true, entityKey })
   })
 
@@ -1105,9 +1128,13 @@ const router = new Hono<BaseEnv>()
     } catch {
       // Container might already be dead — continue with D1 cleanup
     }
-    // Clean up session data from D1
+    // Clean up session data + stored webhook events from D1 so a re-trigger
+    // starts clean (past events used to resurface after a destroy).
     try {
-      await db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey))
+      await Promise.all([
+        db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
+        db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
+      ])
     } catch {
       /* best effort */
     }

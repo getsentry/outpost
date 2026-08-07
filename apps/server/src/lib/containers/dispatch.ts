@@ -97,16 +97,53 @@ export async function applyGitHubAuth(
   )
 }
 
+/**
+ * Sandbox/session hiccups that are safe to retry. When the sandbox scales to
+ * zero or its backing Durable Object resets mid-exec, `sandbox.exec` throws
+ * instead of returning — commonly `Session '...' shell exited (exit code: 0)`
+ * (SessionTerminatedError) or a `HTTP error! status: 5xx` SandboxError. These are
+ * infrastructure, not a failed command; the setup steps that hit them are all
+ * idempotent, so a retry just recreates the session and re-runs them.
+ * (JARED-J: SessionTerminatedError in ensureRepoCloned during CI bursts.)
+ */
+export function isTransientSandboxError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /shell exited|session .*(?:terminat|exit)|SessionTerminated|Durable Object reset|Internal error in Durable Object|Network connection lost|HTTP error! status: 5\d\d|sandbox.*(?:not running|stopped|unavailable)/i.test(
+    msg,
+  )
+}
+
+/** Retry an idempotent sandbox operation across transient session/DO resets. */
+async function retryTransientSandbox<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastErr: unknown
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn()
+    } catch (err) {
+      lastErr = err
+      if (i === attempts - 1 || !isTransientSandboxError(err)) throw err
+      await new Promise((resolve) => setTimeout(resolve, 400 * (i + 1)))
+    }
+  }
+  throw lastErr
+}
+
 export async function ensureSandboxReady(
   sandbox: ReturnType<typeof getSandbox>,
   opts: SandboxSetupOpts,
 ): Promise<void> {
   // Phase 2 thin sandbox: only ensure repo + credentials, no harness process.
   if (opts.thinSandbox) {
-    await ensureRepoCloned(sandbox, opts)
-    await writeEnvFile(sandbox, opts)
-    await applyGitHubAuth(sandbox, opts)
-    await ensureWorkspaceSkills(sandbox)
+    // The sandbox session can terminate mid-exec during a CI burst (many
+    // concurrent dispatches) or scale-to-zero, surfacing as SessionTerminatedError
+    // / SandboxError 5xx (JARED-J/-F/-8). Every step below is idempotent, so retry
+    // the whole setup on those transient hiccups instead of failing the dispatch.
+    await retryTransientSandbox(async () => {
+      await ensureRepoCloned(sandbox, opts)
+      await writeEnvFile(sandbox, opts)
+      await applyGitHubAuth(sandbox, opts)
+      await ensureWorkspaceSkills(sandbox)
+    })
     return
   }
 

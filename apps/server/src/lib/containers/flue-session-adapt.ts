@@ -201,6 +201,20 @@ function extractSettlements(history: Record<string, unknown> | null): AnyRecord[
 }
 
 /**
+ * Authoritative live-busy signal for a raw Flue history snapshot: true when the
+ * agent still has an open (unsettled) submission or a streaming/running part.
+ *
+ * Unlike the D1 `sessionData` heuristics (which go stale for Phase-2 runs — the
+ * thin sandbox has no reporter, so a long-running *working* container looks
+ * "stale busy"), this reads the Durable Object's own settlements, which is the
+ * source of truth. Used to guard destructive actions (Clear Idle) from deleting
+ * a container that is actually mid-task.
+ */
+export function isFlueHistoryBusy(history: Record<string, unknown> | null): boolean {
+  return deriveFlueBusyStatus(extractRawMessages(history), extractSettlements(history))
+}
+
+/**
  * Busy when any submission is still open, or any part is still streaming /
  * waiting on a tool result.
  */
