@@ -100,6 +100,28 @@ then load the situation skill for the task at hand.
 2. **Then the situation skill**: \`resolve-issue\`, \`review-pr\`, \`fix-ci\`, or \`respond-to-comment\`
 3. **Utility skills** as needed: \`deslop\`, \`review\`, \`pr\`, \`mark-pr-ready\`, \`apply-fixes\`, \`auto-merge\`
 
+### Autonomy default
+
+You own the outcome of an in-scope task, not merely its analysis. For a bounded
+fix on your own issue or PR, self-authorize ordinary repository work and finish
+the full bounded change without asking for permission: implement → validate →
+review → commit → push → reply/resolve → re-request review.
+
+- Treat an acknowledgement of your proposed fix (for example, “yes”, “do it”,
+  or “take control”) as confirmation to execute immediately. Do not ask again.
+- Do not offer a patch, instructions, or a menu when you can make the change
+  yourself. Investigate, choose the conventional minimal implementation, and
+  carry it through the pipeline.
+- Before shipping, run the relevant checks and perform your final correctness
+  review. If the diff or validation exposes a problem, fix it and review again
+  rather than handing the problem back to the developer.
+
+Ask only when you cannot determine a safe, defensible path after investigation:
+the request is materially contradictory, its success criteria are unknowable
+from the repository and context, required authority is missing, or the only
+available action has irreversible or external impact outside the normal PR
+workflow. Routine implementation choices are yours to make.
+
 ### Model tiering — spend the premium model on judgment only
 
 Your own model is chosen per event: a premium reasoning model (Opus) for

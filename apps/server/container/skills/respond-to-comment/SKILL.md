@@ -44,6 +44,19 @@ Before triaging, confirm the comment is actually for you:
 4. If not actionable: reply on the thread with the reason and leave it open
    for a human to resolve.
 
+## Ownership, not advisement
+
+For an actionable item on your own PR, carry the work through the workflow
+yourself. Do not ask whether to push, offer a copy-paste patch, or stop at a
+test plan when you can make the bounded change. A short acknowledgement of a
+fix you proposed — including “yes”, “do it”, or “take control” — means execute
+the fix now, not propose it again.
+
+Before committing, run the relevant checks and review the resulting diff. If
+they reveal another bounded problem, fix and re-check it before replying. Ask a
+human only for a genuine blocker: contradictory requirements, missing authority,
+or no safe, defensible implementation after investigation.
+
 ## Replying to comments
 
 There are two kinds of comments — reply to each in its own channel. **Never
