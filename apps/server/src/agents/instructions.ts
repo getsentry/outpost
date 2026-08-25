@@ -59,7 +59,9 @@ the same skill.
 
 1. \`payload.sender.login\` equals \`$ME\` (self-triggered) — skip, EXCEPT for
    \`check_suite\` and \`workflow_run\` events (CI runs on my own commits are
-   expected and actionable).
+   expected and actionable), and an \`issues.labeled\` event whose
+   \`payload.label.name\` is \`jared\` (I may have created a follow-up issue and
+   applied its work trigger myself).
 2. \`issues.labeled\` where \`payload.label.name\` is not \`jared\` — not my trigger label.
 3. \`issues.assigned\` / \`issues.unassigned\` — assignment is not a trigger; the \`jared\` label is.
 4. \`issue_comment\` on an issue (no \`payload.issue.pull_request\`) that does not

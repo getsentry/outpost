@@ -10,7 +10,13 @@ import * as Sentry from "@sentry/cloudflare"
 import { and, eq, gt, inArray } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
-import { ciStillRunning, classifyCiEvent, isCiEvent, isNonActionableIssueEvent } from "@/lib/github/actionability"
+import {
+  ciStillRunning,
+  classifyCiEvent,
+  isCiEvent,
+  isNonActionableIssueEvent,
+  isSelfTriggeredEvent,
+} from "@/lib/github/actionability"
 import { createGitHubApp, type GitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
@@ -162,9 +168,9 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
   // Self-triggered events (the bot reacting to its own comments/reviews/pushes)
   // are never actionable — the in-container router (jared.md skip condition #1)
   // already discards them. Skip here too so we don't wake a container just to
-  // have it skip. Exception: CI events on the bot's own commits ARE actionable
-  // (fix-ci / mark-pr-ready), matching that same router exception.
-  const isSelfTriggered = !!botLogin && sender === botLogin && event !== "check_suite" && event !== "workflow_run"
+  // have it skip. Exceptions: CI events on the bot's own commits, and Jared's
+  // own `jared` label on a follow-up issue, are actionable and match the router.
+  const isSelfTriggered = isSelfTriggeredEvent(event, action, sender, botLogin, lookupString(payload, "label.name"))
 
   let skipReason: string | null = isSelfTriggered
     ? "self_triggered"
