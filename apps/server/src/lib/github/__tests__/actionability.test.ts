@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ciStillRunning, classifyCiEvent, isCiEvent } from "../actionability"
+import { ciStillRunning, classifyCiEvent, isCiEvent, isNonActionableIssueEvent } from "../actionability"
 
 const withRun = (event: "workflow_run" | "check_suite", fields: Record<string, unknown>) => ({
   [event]: fields,
@@ -12,6 +12,15 @@ describe("isCiEvent", () => {
     expect(isCiEvent("issues")).toBe(false)
     expect(isCiEvent("pull_request")).toBe(false)
     expect(isCiEvent("push")).toBe(false)
+  })
+})
+
+describe("isNonActionableIssueEvent", () => {
+  it("drops assignment lifecycle events that Jared's router always skips", () => {
+    expect(isNonActionableIssueEvent("issues", "assigned")).toBe(true)
+    expect(isNonActionableIssueEvent("issues", "unassigned")).toBe(true)
+    expect(isNonActionableIssueEvent("issues", "labeled")).toBe(false)
+    expect(isNonActionableIssueEvent("issue_comment", "created")).toBe(false)
   })
 })
 

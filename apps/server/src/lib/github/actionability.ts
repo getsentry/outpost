@@ -35,6 +35,11 @@ export function isCiEvent(event: string): boolean {
   return event === "check_suite" || event === "workflow_run"
 }
 
+/** Issue assignment changes are informational; the Jared label is the issue-work trigger. */
+export function isNonActionableIssueEvent(event: string, action: string | null): boolean {
+  return event === "issues" && (action === "assigned" || action === "unassigned")
+}
+
 /**
  * Decide whether a `check_suite` / `workflow_run` delivery is worth dispatching.
  * Mirrors Jared's triage skip-condition #6 exactly, so routing is unchanged.

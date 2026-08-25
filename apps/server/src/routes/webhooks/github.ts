@@ -10,7 +10,7 @@ import * as Sentry from "@sentry/cloudflare"
 import { and, eq, gt, inArray } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
-import { ciStillRunning, classifyCiEvent, isCiEvent } from "@/lib/github/actionability"
+import { ciStillRunning, classifyCiEvent, isCiEvent, isNonActionableIssueEvent } from "@/lib/github/actionability"
 import { createGitHubApp, type GitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
@@ -168,11 +168,13 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
 
   let skipReason: string | null = isSelfTriggered
     ? "self_triggered"
-    : !entityKey
-      ? "no_entity"
-      : !(hasLabel || isBotEntity)
-        ? "no_label"
-        : null
+    : isNonActionableIssueEvent(event, action)
+      ? "issue_assignment"
+      : !entityKey
+        ? "no_entity"
+        : !(hasLabel || isBotEntity)
+          ? "no_label"
+          : null
 
   const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
 
