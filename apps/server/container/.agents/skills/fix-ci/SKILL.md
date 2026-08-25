@@ -1,6 +1,6 @@
 ---
 name: fix-ci
-description: Diagnose and fix failing CI on a PR. Capped at 3 attempts. Load repo-setup first.
+description: Diagnose and fix failing CI on a PR. Load repo-setup first.
 license: Apache-2.0
 metadata:
   audience: autonomous-agents
@@ -10,24 +10,39 @@ metadata:
 
 Fix failing CI on a PR the bot authored. Load `repo-setup` first.
 
-## Budget
+## Repeated failures
 
-3 attempts max per PR. Count existing attempts:
+Use `fix-ci: attempt N` comments as a diagnostic trail, not an excuse to stop.
+Count existing attempts:
 
 ```sh
 ATTEMPTS=$(gh api "repos/<owner>/<repo>/issues/<number>/comments" --paginate \
   --jq '[.[] | select(.user.login == "'"$ME"'" and (.body | startswith("fix-ci: attempt")))] | length')
 ```
 
-If >= 3, BLOCKED. Otherwise post a short comment like "fix-ci:
-attempt 2 — looks like a type error in `foo.ts`, investigating"
-before starting work. The `fix-ci:` prefix is required for counting
-but the rest should read naturally.
+Post a short comment like "fix-ci: attempt 2 — looks like a type error in
+`foo.ts`, investigating" before starting work. After three unsuccessful code
+attempts, stop making speculative changes and re-establish the facts: fetch the
+latest default branch, inspect the exact failed job and log again, and either
+identify a new targeted fix or report the concrete external blocker. Do not
+silently abandon, close, or mark the PR ready.
+
+## Evidence before attribution
+
+Never call a failure pre-existing or unrelated without evidence. Record the
+exact failed job, test or error, and log excerpt first. Then compare against the
+latest default branch: either show the same failure on that branch, or reproduce
+it after rebasing the PR onto it. If the latest default branch is green, treat
+the failure as PR-caused until evidence proves otherwise.
+
+Never close a PR or say it is ready while required checks are failing. A flaky
+retry or an infrastructure blocker is not a green result; report its evidence
+and leave the PR open for the next actionable event.
 
 ## Workflow
 
-1. Find failed runs: `gh run list --branch <branch> --status failure`
-2. Read logs: `gh run view <id> --log-failed`
+1. Find failed runs for the PR head: `gh pr checks <number>` and `gh run list --branch <branch> --status failure`.
+2. Read logs: `gh run view <id> --log-failed`. Name the exact failed job and first relevant error in the attempt comment.
 3. Categorize the failure — see `references/failure-taxonomy.md` for
    the full taxonomy and decision tree. Categories: test failure,
    type/lint error, build error, snapshot diff, flaky test, or infra

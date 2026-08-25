@@ -30,4 +30,43 @@ describe("Jared autonomy contract", () => {
       /EXCEPT for[\s\S]*`issues\.labeled` event whose[\s\S]*`payload\.label\.name` is `jared`/,
     )
   })
+
+  it("treats a concrete reviewer request as an instruction rather than a scope debate", () => {
+    const respondToComment = readFileSync(
+      new URL("../../../container/skills/respond-to-comment/SKILL.md", import.meta.url),
+      "utf8",
+    )
+
+    expect(respondToComment).toContain("Default to **doing what the reviewer asked.**")
+    expect(respondToComment).toContain("Never argue the same point twice.")
+    expect(respondToComment).toContain("reviewThreads(first:100,after:$endCursor)")
+    expect(JARED_INSTRUCTIONS).toMatch(/acting on the feedback, not\s+defending your choices/)
+  })
+
+  it("requires evidence before calling CI failures pre-existing or closing a failing PR", () => {
+    const fixCi = readFileSync(new URL("../../../container/skills/fix-ci/SKILL.md", import.meta.url), "utf8")
+
+    expect(fixCi).toContain("Never call a failure pre-existing or unrelated without evidence.")
+    expect(fixCi).toContain("latest default branch")
+    expect(fixCi).toContain("Never close a PR or say it is ready while required checks are failing.")
+  })
+
+  it("does not miss review threads or re-request review before required checks are green", () => {
+    const respondToComment = readFileSync(
+      new URL("../../../container/skills/respond-to-comment/SKILL.md", import.meta.url),
+      "utf8",
+    )
+
+    expect(respondToComment).toContain("gh api graphql --paginate")
+    expect(respondToComment).toContain("gh pr checks <N>")
+    expect(respondToComment).toContain("Do not re-request review or describe the PR as ready")
+  })
+
+  it("keeps the canonical CI specification aligned with evidence-first recovery", () => {
+    const fixCiSpec = readFileSync(new URL("../../../container/skills/fix-ci/SPEC.md", import.meta.url), "utf8")
+
+    expect(fixCiSpec).toMatch(/diagnostic trail,\s+not a hard stop/)
+    expect(fixCiSpec).toContain("latest default branch")
+    expect(fixCiSpec).toContain("Never close or mark the PR ready while required checks are failing")
+  })
 })

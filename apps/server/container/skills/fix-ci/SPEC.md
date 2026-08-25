@@ -2,8 +2,9 @@
 
 ## Intent
 
-Diagnose and fix failing CI on a PR the bot authored, with a hard
-budget of 3 attempts to prevent infinite fix loops.
+Diagnose and fix failing CI on a PR the bot authored until it is green or has a
+concrete, evidenced external blocker. Attempt comments are a diagnostic trail,
+not a hard stop.
 
 ## Scope
 
@@ -20,7 +21,8 @@ budget of 3 attempts to prevent infinite fix loops.
 - Modifying CI configuration (unless the failure is specifically in it)
 - Bumping dependency versions
 - Fixing infrastructure issues (BLOCKED)
-- Fixing failures unrelated to the bot's changes
+- Calling a failure unrelated to the bot's changes without evidence from the
+  latest default branch
 
 ## Invocation
 
@@ -37,20 +39,25 @@ Requires `repo-setup` first.
 
 ### Output
 
-- A fix commit pushed to the branch, or `BLOCKED: <reason>`
+- A fix commit pushed to the branch, or `BLOCKED: <reason>` with the exact
+  failed job and log evidence
 
 ### Side effects
 
-- Posts `fix-ci: attempt N` comments for budget tracking
+- Posts `fix-ci: attempt N` comments for diagnostic tracking
 - Commits and pushes fixes to the PR branch
 - May re-run failed workflows for flaky tests
 
 ## Evaluation criteria
 
-- The 3-attempt budget is respected (counted via comment prefix)
+- Three unsuccessful attempts trigger fact-finding against the latest default
+  branch rather than speculative edits or abandonment
 - Fixes are minimal — don't change more than necessary
 - Flaky tests are re-run rather than "fixed"
 - Infrastructure issues are correctly identified as BLOCKED
+- Failures are called pre-existing or unrelated only after the same failure is
+  evidenced on the latest default branch, or reproduced after rebasing onto it
+- Never close or mark the PR ready while required checks are failing
 - The fix actually resolves the CI failure
 
 ## Maintenance
