@@ -29,9 +29,32 @@ Before triaging, confirm the comment is actually for you:
 
 ## Triage
 
-- **Actionable**: real bug, missing test, valid concern → fix it
-- **Not actionable**: style preference, out of scope, already handled → reply with reason
+Default to **doing what the reviewer asked.** A concrete request on your own PR
+is an instruction to carry out, not a proposal to debate.
+
+- **Actionable**: any direct change request, real bug, missing test, or valid
+  concern → fix it and push.
+- **Genuinely not actionable**: only when the request would clearly break
+  something, contradict an explicit project rule, or is factually wrong. Reply
+  with one short, specific reason; if the reviewer repeats the request, do it.
 - **Approval thumbs-up** (short body, no code refs): don't reply, stop
+
+## Don't push back — do the work
+
+- Never argue the same point twice. A restated request is a cue to act, not to
+  re-explain the original choice.
+- Do not declare a requested change out of scope when the reviewer has
+  explicitly expanded the scope. Investigate and implement the smallest safe
+  path.
+- Before responding to review feedback, enumerate unresolved review threads and
+  work through each one. Do not leave a thread unresolved without either a
+  pushed fix or a one-line reason and a human owner.
+
+```sh
+gh api graphql --paginate -f query='query($o:String!,$r:String!,$n:Int!,$endCursor:String){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100,after:$endCursor){nodes{isResolved path comments(first:1){nodes{databaseId author{login} body}}}pageInfo{hasNextPage endCursor}}}}}' \
+  -f o=<OWNER> -f r=<REPO> -F n=<N> \
+  --jq '.data.repository.pullRequest.reviewThreads.nodes[] | select(.isResolved==false) | {path,body:.comments.nodes[0].body[0:80]}'
+```
 
 ## Workflow
 
@@ -45,8 +68,7 @@ Before triaging, confirm the comment is actually for you:
    ```
 
    Then reply on the thread with the commit SHA, resolve the thread (see below),
-   and leave one 🎉 reaction on the triggering comment. After all fixes,
-   re-request review.
+   and leave one 🎉 reaction on the triggering comment. After all fixes, request review only after required checks are green.
 3. If actionable on someone else's PR: reply with a `suggestion` block
    or description. Don't push.
 4. If not actionable: reply on the thread with the reason and leave it open
@@ -112,14 +134,15 @@ it. Leave won't-fix / not-actionable threads open with an explanatory reply.
 1. Find the thread node id for the comment you addressed:
 
    ```sh
-   THREAD_ID=$(gh api graphql -f query='
-     query($owner: String!, $repo: String!, $pr: Int!) {
-       repository(owner: $owner, name: $repo) {
-         pullRequest(number: $pr) {
-           reviewThreads(first: 100) {
-             nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
-           }
-         }
+    THREAD_ID=$(gh api graphql --paginate -f query='
+      query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $pr) {
+            reviewThreads(first: 100, after: $endCursor) {
+              nodes { id isResolved comments(first: 1) { nodes { databaseId } } }
+              pageInfo { hasNextPage endCursor }
+            }
+          }
        }
      }' -f owner=<OWNER> -f repo=<REPO> -F pr=<N> \
      --jq '.data.repository.pullRequest.reviewThreads.nodes[]
@@ -139,8 +162,15 @@ it. Leave won't-fix / not-actionable threads open with an explanatory reply.
 
 ## Re-requesting review
 
-After pushing fixes for a reviewer's feedback, re-request their review so they
-see the PR is ready again:
+After pushing fixes for a reviewer's feedback, check the required checks:
+
+```sh
+gh pr checks <N> --required
+```
+
+Do not re-request review or describe the PR as ready while required checks are
+pending or failing. Leave it open for the CI-completion webhook to resume the
+work. Only re-request review after required checks are green:
 
 ```sh
 gh api -X POST "repos/<OWNER>/<REPO>/pulls/<N>/requested_reviewers" \
