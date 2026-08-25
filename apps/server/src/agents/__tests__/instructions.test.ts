@@ -62,11 +62,28 @@ describe("Jared autonomy contract", () => {
     expect(respondToComment).toContain("Do not re-request review or describe the PR as ready")
   })
 
+  it("does not bypass the required-check gate after completing review fixes", () => {
+    const respondToComment = readFileSync(
+      new URL("../../../container/skills/respond-to-comment/SKILL.md", import.meta.url),
+      "utf8",
+    )
+
+    expect(respondToComment).toContain("After all fixes, request review only after required checks are green.")
+  })
+
+  it("captures external check output when no GitHub Actions log exists", () => {
+    const fixCi = readFileSync(new URL("../../../container/skills/fix-ci/SKILL.md", import.meta.url), "utf8")
+
+    expect(fixCi).toContain("commits/<SHA>/check-runs")
+    expect(fixCi).toContain("gh run view returns 404")
+  })
+
   it("keeps the canonical CI specification aligned with evidence-first recovery", () => {
     const fixCiSpec = readFileSync(new URL("../../../container/skills/fix-ci/SPEC.md", import.meta.url), "utf8")
 
     expect(fixCiSpec).toMatch(/diagnostic trail,\s+not a hard stop/)
     expect(fixCiSpec).toContain("latest default branch")
+    expect(fixCiSpec).toContain("available log or check output")
     expect(fixCiSpec).toContain("Never close or mark the PR ready while required checks are failing")
   })
 })

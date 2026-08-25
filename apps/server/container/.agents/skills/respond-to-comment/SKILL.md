@@ -68,8 +68,7 @@ gh api graphql --paginate -f query='query($o:String!,$r:String!,$n:Int!,$endCurs
    ```
 
    Then reply on the thread with the commit SHA, resolve the thread (see below),
-   and leave one 🎉 reaction on the triggering comment. After all fixes,
-   re-request review.
+   and leave one 🎉 reaction on the triggering comment. After all fixes, request review only after required checks are green.
 3. If actionable on someone else's PR: reply with a `suggestion` block
    or description. Don't push.
 4. If not actionable: reply on the thread with the reason and leave it open

@@ -40,7 +40,7 @@ Requires `repo-setup` first.
 ### Output
 
 - A fix commit pushed to the branch, or `BLOCKED: <reason>` with the exact
-  failed job and log evidence
+  failed job or check and available log or check output
 
 ### Side effects
 

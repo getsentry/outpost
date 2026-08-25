@@ -41,13 +41,23 @@ and leave the PR open for the next actionable event.
 
 ## Workflow
 
-1. Find failed runs for the PR head: `gh pr checks <number>` and `gh run list --branch <branch> --status failure`.
-2. Read logs: `gh run view <id> --log-failed`. Name the exact failed job and first relevant error in the attempt comment.
+1. Find failed checks for the PR head: `gh pr checks <number>` and `gh run list --branch <branch> --status failure`.
+2. Read GitHub Actions logs with `gh run view <id> --log-failed`. If gh run view returns 404,
+   the failed check is external rather than a workflow run; inspect its check output instead:
+
+   ```sh
+   gh api "repos/<owner>/<repo>/commits/<SHA>/check-runs" --paginate \
+     --jq '.check_runs[] | select(.conclusion == "failure") | {name,details_url,output}'
+   ```
+
+   Record the exact failed job or check and its first relevant error, log excerpt,
+   or check output in the attempt comment. Do not label an external check as
+   infrastructure merely because it has no Actions log.
 3. Categorize the failure — see `references/failure-taxonomy.md` for
    the full taxonomy and decision tree. Categories: test failure,
    type/lint error, build error, snapshot diff, flaky test, or infra
    issue.
-4. Flaky? Re-run once (`gh run rerun <id> --failed`) and stop.
+4. Flaky GitHub Actions run? Re-run once (`gh run rerun <id> --failed`) and stop.
 5. Infra/dependency issue? BLOCKED.
 6. Otherwise: make the smallest fix. Reproduce locally if possible.
 7. Load `deslop` and `review` skills.
