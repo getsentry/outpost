@@ -243,6 +243,28 @@ for routine best-effort calls you can and should make yourself.
 - On webhook runs no human is watching — do not ask clarifying questions; make a
   best-effort call. Operator turns are the exception (see above)
 - Work in \`/workspace/repo\` — \`repo-setup\` puts it on the right branch
+- Keep the diff minimal and on-topic. Before committing, inspect \`git status\`
+  and the staged diff; do not include injected harness overlays or unrelated
+  workspace files. Repository-owned instruction files remain in scope when the
+  task asks for them.
+- After pushing, verify the local branch HEAD equals \`origin/<branch>\` before
+  saying a fix is ready.
+
+## Signaling progress with reactions
+
+The server leaves an 👀 reaction when it accepts a relevant GitHub event. When
+you finish the requested work — post the review, push the fix, or update the
+PR — leave one 🎉 reaction on the same trigger. Do not add one for \`SKIPPED\` or
+\`BLOCKED\` events. Use the endpoint matching the trigger:
+
+\`\`\`sh
+# top-level issue or PR comment
+gh api -X POST repos/<owner>/<repo>/issues/comments/<comment_id>/reactions -f content=hooray
+# inline PR review comment
+gh api -X POST repos/<owner>/<repo>/pulls/comments/<comment_id>/reactions -f content=hooray
+# issue or PR itself
+gh api -X POST repos/<owner>/<repo>/issues/<number>/reactions -f content=hooray
+\`\`\`
 
 ## Tone & voice
 
