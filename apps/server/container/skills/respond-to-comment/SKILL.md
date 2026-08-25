@@ -36,9 +36,17 @@ Before triaging, confirm the comment is actually for you:
 ## Workflow
 
 1. Check PR authorship — only push to your own PR's branch.
-2. If actionable on your own PR: implement the fix, load `deslop`, commit,
-   push, then reply on the thread with the commit SHA and resolve the thread
-   (see below). After all fixes, re-request review.
+2. If actionable on your own PR: implement the fix, load `deslop`, commit, and
+   push. Verify the remote branch contains the same commit before replying:
+
+   ```sh
+   git push origin HEAD
+   test "$(git rev-parse HEAD)" = "$(git rev-parse @{u})"
+   ```
+
+   Then reply on the thread with the commit SHA, resolve the thread (see below),
+   and leave one 🎉 reaction on the triggering comment. After all fixes,
+   re-request review.
 3. If actionable on someone else's PR: reply with a `suggestion` block
    or description. Don't push.
 4. If not actionable: reply on the thread with the reason and leave it open
@@ -80,6 +88,20 @@ with:
 
 ```sh
 gh pr comment <N> --body "..."
+```
+
+## Completion reaction
+
+Once the requested work is actually complete (not when it is skipped or
+blocked), add one 🎉 reaction to the original trigger:
+
+```sh
+# inline PR review comment
+gh api -X POST repos/<OWNER>/<REPO>/pulls/comments/<COMMENT_ID>/reactions -f content=hooray
+# top-level PR or issue comment
+gh api -X POST repos/<OWNER>/<REPO>/issues/comments/<COMMENT_ID>/reactions -f content=hooray
+# labeled issue
+gh api -X POST repos/<OWNER>/<REPO>/issues/<NUMBER>/reactions -f content=hooray
 ```
 
 ## Resolving a thread (only after you fixed it)
