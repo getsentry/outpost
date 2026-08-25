@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { ciStillRunning, classifyCiEvent, isCiEvent } from "../actionability"
+import {
+  ciStillRunning,
+  classifyCiEvent,
+  isCiEvent,
+  isNonActionableIssueEvent,
+  isSelfTriggeredEvent,
+} from "../actionability"
 
 const withRun = (event: "workflow_run" | "check_suite", fields: Record<string, unknown>) => ({
   [event]: fields,
@@ -12,6 +18,38 @@ describe("isCiEvent", () => {
     expect(isCiEvent("issues")).toBe(false)
     expect(isCiEvent("pull_request")).toBe(false)
     expect(isCiEvent("push")).toBe(false)
+  })
+})
+
+describe("isNonActionableIssueEvent", () => {
+  it("drops assignment lifecycle events that Jared's router always skips", () => {
+    expect(isNonActionableIssueEvent("issues", "assigned")).toBe(true)
+    expect(isNonActionableIssueEvent("issues", "unassigned")).toBe(true)
+    expect(isNonActionableIssueEvent("issues", "labeled")).toBe(false)
+    expect(isNonActionableIssueEvent("issue_comment", "created")).toBe(false)
+  })
+})
+
+describe("isSelfTriggeredEvent", () => {
+  it("admits Jared's own jared-label trigger for a newly created follow-up issue", () => {
+    expect(isSelfTriggeredEvent("issues", "labeled", "jared-outpost[bot]", "jared-outpost[bot]", "jared")).toBe(false)
+  })
+
+  it("continues to suppress every other bot-authored non-CI event", () => {
+    expect(isSelfTriggeredEvent("issues", "labeled", "jared-outpost[bot]", "jared-outpost[bot]", "bug")).toBe(true)
+    expect(isSelfTriggeredEvent("issue_comment", "created", "jared-outpost[bot]", "jared-outpost[bot]", null)).toBe(
+      true,
+    )
+    expect(isSelfTriggeredEvent("issues", "labeled", "someone-else", "jared-outpost[bot]", "jared")).toBe(false)
+  })
+
+  it("continues to admit CI on Jared's own commits", () => {
+    expect(isSelfTriggeredEvent("check_suite", "completed", "jared-outpost[bot]", "jared-outpost[bot]", null)).toBe(
+      false,
+    )
+    expect(isSelfTriggeredEvent("workflow_run", "completed", "jared-outpost[bot]", "jared-outpost[bot]", null)).toBe(
+      false,
+    )
   })
 })
 

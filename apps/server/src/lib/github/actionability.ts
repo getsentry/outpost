@@ -21,6 +21,7 @@
 // finished), then wake the agent exactly once. That both collapses the burst and
 // guarantees the terminal green/red signal actually reaches the agent.
 
+import { TRIGGER_LABEL } from "./constants"
 import { lookup, lookupString } from "./entity"
 
 /** GitHub Actions conclusions Jared actually routes on (fix-ci / mark-pr-ready). */
@@ -33,6 +34,28 @@ export type CiActionability =
 /** Whether an event is one of the noisy CI lifecycle types this gate governs. */
 export function isCiEvent(event: string): boolean {
   return event === "check_suite" || event === "workflow_run"
+}
+
+/** Issue assignment changes are informational; the Jared label is the issue-work trigger. */
+export function isNonActionableIssueEvent(event: string, action: string | null): boolean {
+  return event === "issues" && (action === "assigned" || action === "unassigned")
+}
+
+/**
+ * Jared normally ignores its own webhook deliveries to avoid feedback loops.
+ * A follow-up issue is the exception: Jared may create it and apply the
+ * `jared` label in the same action, and that label is its work trigger.
+ */
+export function isSelfTriggeredEvent(
+  event: string,
+  action: string | null,
+  sender: string | null,
+  botLogin: string,
+  labelName: string | null,
+): boolean {
+  if (!botLogin || sender !== botLogin) return false
+  if (event === "check_suite" || event === "workflow_run") return false
+  return !(event === "issues" && action === "labeled" && labelName === TRIGGER_LABEL)
 }
 
 /**

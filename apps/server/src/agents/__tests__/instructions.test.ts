@@ -24,4 +24,10 @@ describe("Jared autonomy contract", () => {
     expect(respondToComment).toMatch(/means execute\s+the fix now, not propose it again/)
     expect(respondToComment).toContain("Don't merge")
   })
+
+  it("treats its own jared-label follow-up as a work trigger", () => {
+    expect(JARED_INSTRUCTIONS).toMatch(
+      /EXCEPT for[\s\S]*`issues\.labeled` event whose[\s\S]*`payload\.label\.name` is `jared`/,
+    )
+  })
 })

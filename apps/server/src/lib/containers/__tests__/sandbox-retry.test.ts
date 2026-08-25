@@ -12,6 +12,7 @@ describe("isTransientSandboxError", () => {
       "SandboxError: HTTP error! status: 500",
       "HTTP error! status: 503",
       "sandbox not running",
+      "Default session initialization was invalidated by a container stop",
     ]) {
       expect(isTransientSandboxError(new Error(msg)), msg).toBe(true)
     }
@@ -23,6 +24,7 @@ describe("isTransientSandboxError", () => {
       "HTTP error! status: 404",
       "HTTP error! status: 403",
       "permission denied",
+      "Default session initialization was invalidated by a container stop due to invalid configuration",
     ]) {
       expect(isTransientSandboxError(new Error(msg)), msg).toBe(false)
     }
