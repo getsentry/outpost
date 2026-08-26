@@ -14,6 +14,8 @@ describe("Jared autonomy contract", () => {
   it("executes acknowledged fixes while retaining its safety boundaries", () => {
     expect(JARED_INSTRUCTIONS).toMatch(/“yes”, “do it”,\s+or “take control”/)
     expect(JARED_INSTRUCTIONS).toContain("Never push to or force-push the default branch")
+    expect(JARED_INSTRUCTIONS).toContain("git fetch --prune origin <default-branch>")
+    expect(JARED_INSTRUCTIONS).toContain("only compares the current branch with its upstream")
     expect(JARED_INSTRUCTIONS).toContain("Don't touch CI config, secrets, or lockfiles unless specifically asked")
 
     const respondToComment = readFileSync(

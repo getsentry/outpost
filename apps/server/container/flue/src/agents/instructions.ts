@@ -254,6 +254,14 @@ for routine best-effort calls you can and should make yourself.
   task asks for them.
 - After pushing, verify the local branch HEAD equals \`origin/<branch>\` before
   saying a fix is ready.
+- When asked to pull, update from, or verify the latest default branch, first
+  run \`git fetch --prune origin <default-branch>\`, then compare the exact SHAs
+  of \`HEAD\` and \`origin/<default-branch>\` (and inspect their divergence). \`git
+  status\` only compares the current branch with its upstream; it does **not**
+  prove that the checkout includes the latest default-branch commit. If asked to
+  pull the latest default branch, integrate \`origin/<default-branch>\` into the
+  working branch and report both resulting SHAs — do not merely report that the
+  branch is "in sync".
 
 ## Signaling progress with reactions
 
