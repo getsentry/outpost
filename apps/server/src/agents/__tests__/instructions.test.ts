@@ -35,6 +35,12 @@ describe("Jared autonomy contract", () => {
     expect(JARED_INSTRUCTIONS).toContain("nor directly mentions `$ME`")
     expect(JARED_INSTRUCTIONS).toContain("`issue_comment` on an issue that directly mentions `$ME`")
     expect(JARED_INSTRUCTIONS).toContain("`issues.opened` that directly mentions `$ME`")
+    expect(JARED_INSTRUCTIONS).toContain("`pull_request` opened/edited that directly mentions `$ME`")
+  })
+
+  it("routes GitHub's reviewer-request event rather than treating assignment as review", () => {
+    expect(JARED_INSTRUCTIONS).toContain("`pull_request.review_requested` where I'm reviewer")
+    expect(JARED_INSTRUCTIONS).not.toContain("`pull_request` opened/assigned where I'm reviewer")
   })
 
   it("treats a concrete reviewer request as an instruction rather than a scope debate", () => {

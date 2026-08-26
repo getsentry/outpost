@@ -46,6 +46,19 @@ describe("deriveGitHubInvolvement", () => {
 
     expect(involvement.mentioned).toBe(false)
   })
+
+  it("does not treat an assignee as a requested reviewer", () => {
+    const involvement = deriveGitHubInvolvement(
+      "pull_request",
+      {
+        pull_request: { number: 42, user: { login: "contributor" }, assignees: [{ login: "jared-outpost[bot]" }] },
+        assignee: { login: "jared-outpost[bot]" },
+      },
+      "jared-outpost[bot]",
+    )
+
+    expect(involvement.reviewer).toBe(false)
+  })
 })
 
 describe("shouldAdmitGitHubEvent", () => {

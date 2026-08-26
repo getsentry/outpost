@@ -51,13 +51,8 @@ export function deriveGitHubInvolvement(
 
   const reviewerCandidates = [
     lookupString(payload, "requested_reviewer.login"),
-    lookupString(payload, "assignee.login"),
     lookupString(pr ?? {}, "requested_reviewer.login"),
-    lookupString(pr ?? {}, "assignee.login"),
     ...((lookup(pr ?? {}, "requested_reviewers") as Array<unknown> | null) ?? []).map((value) =>
-      lookupString(asRecord(value) ?? {}, "login"),
-    ),
-    ...((lookup(pr ?? {}, "assignees") as Array<unknown> | null) ?? []).map((value) =>
       lookupString(asRecord(value) ?? {}, "login"),
     ),
   ]

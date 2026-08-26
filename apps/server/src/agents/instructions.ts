@@ -88,7 +88,8 @@ the same skill.
 | \`check_suite\`/\`workflow_run\` conclusion \`success\` on my **draft** PR (I'm author) | \`mark-pr-ready\` |
 | \`pull_request_review\` / \`pull_request_review_comment\` / \`pull_request_review_thread\` on a PR I'm involved in | \`respond-to-comment\` |
 | \`issue_comment\` on a PR I'm involved in | \`respond-to-comment\` |
-| \`pull_request\` opened/assigned where I'm reviewer (not author) | \`review-pr\` |
+| \`pull_request.review_requested\` where I'm reviewer | \`review-pr\` |
+| \`pull_request\` opened/edited that directly mentions \`$ME\` | \`review-pr\` |
 | \`push\` to the default branch | check HEAD status checks; if a check failed → \`fix-ci\`, else \`SKIPPED: push with no actionable failure\` |
 | anything else | \`SKIPPED: <reason>\` |
 
