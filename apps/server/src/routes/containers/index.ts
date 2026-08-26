@@ -438,6 +438,9 @@ const router = new Hono<BaseEnv>()
         await Promise.all([
           db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
           db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
+          db
+            .delete(dbSchema.githubDiscussionObligations)
+            .where(eq(dbSchema.githubDiscussionObligations.entityKey, entityKey)),
         ])
       } catch {
         /* best effort */
@@ -1049,6 +1052,9 @@ const router = new Hono<BaseEnv>()
           // Also drop stored webhook events so a later re-trigger starts with a
           // clean "Recent events" list instead of resurrecting the old one.
           db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
+          db
+            .delete(dbSchema.githubDiscussionObligations)
+            .where(eq(dbSchema.githubDiscussionObligations.entityKey, entityKey)),
         ]),
       )
       return c.json({ ok: true, mode, deleted: idleKeys.length, destroyed: 0 })
@@ -1066,7 +1072,11 @@ const router = new Hono<BaseEnv>()
     if (rows.length > 0) {
       // Clear both the session snapshots and the stored webhook events so a full
       // wipe leaves no D1 residue to resurface on the next trigger.
-      await Promise.all([db.delete(dbSchema.agentSessions), db.delete(dbSchema.webhookEvents)])
+      await Promise.all([
+        db.delete(dbSchema.agentSessions),
+        db.delete(dbSchema.webhookEvents),
+        db.delete(dbSchema.githubDiscussionObligations),
+      ])
     }
 
     return c.json({ ok: true, mode, deleted: rows.length, destroyed })
@@ -1079,6 +1089,9 @@ const router = new Hono<BaseEnv>()
     await Promise.all([
       db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
       db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
+      db
+        .delete(dbSchema.githubDiscussionObligations)
+        .where(eq(dbSchema.githubDiscussionObligations.entityKey, entityKey)),
     ])
     return c.json({ ok: true, entityKey })
   })
@@ -1150,6 +1163,9 @@ const router = new Hono<BaseEnv>()
       await Promise.all([
         db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
         db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
+        db
+          .delete(dbSchema.githubDiscussionObligations)
+          .where(eq(dbSchema.githubDiscussionObligations.entityKey, entityKey)),
       ])
     } catch {
       /* best effort */

@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
@@ -73,6 +73,46 @@ export const webhookEvents = sqliteTable(
     completedAt: integer("completed_at", { mode: "timestamp" }),
   },
   (table) => [index("idx_webhook_events_entity_status").on(table.entityKey, table.status)],
+)
+
+export const githubDiscussionObligations = sqliteTable(
+  "github_discussion_obligations",
+  {
+    id: text("id").primaryKey(),
+    repo: text("repo").notNull(),
+    prNumber: integer("pr_number").notNull(),
+    entityKey: text("entity_key").notNull(),
+    sourceKind: text("source_kind").notNull(),
+    sourceCommentId: text("source_comment_id").notNull(),
+    replyToCommentId: text("reply_to_comment_id"),
+    author: text("author").notNull(),
+    body: text("body").notNull(),
+    url: text("url"),
+    eventId: text("event_id").notNull(),
+    installationId: integer("installation_id"),
+    status: text("status").notNull().default("open"),
+    outcome: text("outcome"),
+    verifiedAt: integer("verified_at", { mode: "timestamp" }),
+    reminderCount: integer("reminder_count").notNull().default(0),
+    lastRemindedAt: integer("last_reminded_at", { mode: "timestamp" }),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("github_discussion_obligations_repo_source_unique").on(
+      table.repo,
+      table.sourceKind,
+      table.sourceCommentId,
+    ),
+    index("idx_github_discussion_obligations_repo_pr_status_created").on(
+      table.repo,
+      table.prNumber,
+      table.status,
+      table.createdAt,
+    ),
+    index("idx_github_discussion_obligations_status_created").on(table.status, table.createdAt),
+    index("idx_github_discussion_obligations_entity_status").on(table.entityKey, table.status),
+  ],
 )
 
 export const agentSessions = sqliteTable("agent_sessions", {

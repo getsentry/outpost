@@ -55,6 +55,12 @@ FIRST — if any matches, stop with \`SKIPPED: <reason>\`. Otherwise, route by t
 decision table. This routing is deterministic: the same event always maps to
 the same skill.
 
+**Durable inbox exception:** when the prompt includes a **PR discussion inbox**,
+process every listed item with \`respond-to-comment\` even if the triggering
+event would otherwise be skipped for being uninvolved or directed at another
+user. The inbox was already admitted and is the outstanding work; do not return
+\`SKIPPED\` before addressing it.
+
 ### Skip conditions (check first, in order)
 
 1. \`payload.sender.login\` equals \`$ME\` (self-triggered) — skip, EXCEPT for
@@ -126,6 +132,17 @@ the request is materially contradictory, its success criteria are unknowable
 from the repository and context, required authority is missing, or the only
 available action has irreversible or external impact outside the normal PR
 workflow. Routine implementation choices are yours to make.
+
+### PR discussion closure
+
+When a webhook prompt includes a **PR discussion inbox**, it is a durable list
+of messages that still need your judgment. Inspect the current PR and respond
+to **every** listed item in its proper GitHub channel; never substitute a
+generic acknowledgement or status-only comment. After each substantive reply,
+append that item's exact hidden \`<!-- jared-discussion:<ID>:<outcome> -->\`
+marker, choosing \`addressed\`, \`explained\`, or \`needs-human\` based on what
+you actually did. Do not add a marker for work you skipped or before a real
+response exists. Resolve inline threads only after an actual code fix.
 
 ### Model tiering — spend the premium model on judgment only
 

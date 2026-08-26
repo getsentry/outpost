@@ -9,6 +9,7 @@
  * remain per-conversation via Jared's scheduleFollowUp().
  */
 
+import { retryOpenDiscussionObligations } from "./lib/events/discussion-retry.ts"
 import { reconcileStuckDispatched } from "./lib/events/reconcile.ts"
 import { deleteExpiredWebhookEvents } from "./lib/events/retention.ts"
 import type { BaseEnvBindings } from "./types/env/base.ts"
@@ -26,6 +27,15 @@ export default {
     env: BaseEnvBindings["Bindings"],
     _ctx: ExecutionContext,
   ): Promise<void> {
+    let discussionRetries = { retried: 0, needsHuman: 0 }
+    try {
+      discussionRetries = await retryOpenDiscussionObligations(env, controller.scheduledTime)
+    } catch (err) {
+      console.warn("github_discussion_obligations.retry.failed", {
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
+
     const deleted = await deleteExpiredWebhookEvents(env.DB, controller.scheduledTime)
 
     // Intermediate `d:%` sub-statuses (>30m) never reached the agent — a genuine
@@ -61,6 +71,8 @@ export default {
       timedOut: (stuck.meta.changes ?? 0) + reconciled.timedOut,
       reconciledCompleted: reconciled.completed,
       reconciledEntities: reconciled.entities,
+      discussionRetries: discussionRetries.retried,
+      discussionNeedsHuman: discussionRetries.needsHuman,
       actionableRetentionHours: 24,
       skippedRetentionHours: 6,
     })

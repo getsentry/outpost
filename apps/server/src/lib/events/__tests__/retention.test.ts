@@ -29,7 +29,7 @@ describe("webhook event retention", () => {
 
     expect(prepare).toHaveBeenNthCalledWith(
       1,
-      "DELETE FROM webhook_events WHERE status != 'skipped' AND created_at < ?",
+      "DELETE FROM webhook_events WHERE status != 'skipped' AND created_at < ? AND NOT EXISTS (SELECT 1 FROM github_discussion_obligations WHERE event_id = webhook_events.id AND status = 'open')",
     )
     expect(bind).toHaveBeenNthCalledWith(1, webhookEventCutoffSeconds(now, WEBHOOK_EVENT_RETENTION_MS))
     expect(prepare).toHaveBeenNthCalledWith(2, "DELETE FROM webhook_events WHERE status = 'skipped' AND created_at < ?")
