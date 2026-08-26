@@ -21,6 +21,7 @@ import { createGitHubApp, type GitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
+import { deriveGitHubInvolvement, shouldAdmitGitHubEvent } from "@/lib/github/involvement"
 import { acknowledgeGitHubEvent } from "@/lib/github/reactions"
 import type { BaseEnv } from "@/types"
 
@@ -138,20 +139,21 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
 
   // Only dispatch events where:
   // 1. The related issue/PR has the trigger label, OR
-  // 2. The issue/PR was created by the bot (follow-up events on bot's own work)
+  // 2. Jared is involved as author, requested reviewer, or direct mention.
+  // The agent owns the semantic action/skip decision once it receives that
+  // routing context; this outer gate only avoids unrelated event noise.
   let hasLabel = false
-  let isBotEntity = false
+  let isBotCi = false
+  let involvement = { author: false, reviewer: false, mentioned: false }
   if (entityKey) {
     if (botLogin) {
-      const prAuthor = lookupString(payload, "pull_request.user.login")
-      const issueAuthor = lookupString(payload, "issue.user.login")
-      isBotEntity = prAuthor === botLogin || issueAuthor === botLogin
+      involvement = deriveGitHubInvolvement(event, payload, botLogin, action)
 
-      if (!isBotEntity && (event === "check_suite" || event === "workflow_run")) {
+      if (!involvement.author && (event === "check_suite" || event === "workflow_run")) {
         const ciObj = lookup(payload, event) as Record<string, unknown> | null
         const headCommitAuthor = lookupString(ciObj ?? {}, "head_commit.author.name")
         const commitAuthor = lookupString(ciObj ?? {}, "head_commit.committer.name")
-        isBotEntity = sender === botLogin || headCommitAuthor === botLogin || commitAuthor === botLogin
+        isBotCi = sender === botLogin || headCommitAuthor === botLogin || commitAuthor === botLogin
       }
     }
 
@@ -178,7 +180,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
       ? "issue_assignment"
       : !entityKey
         ? "no_entity"
-        : !(hasLabel || isBotEntity)
+        : !(isBotCi || shouldAdmitGitHubEvent({ event, action, hasTriggerLabel: hasLabel, involvement }))
           ? "no_label"
           : null
 

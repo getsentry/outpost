@@ -14,6 +14,8 @@ describe("Jared autonomy contract", () => {
   it("executes acknowledged fixes while retaining its safety boundaries", () => {
     expect(JARED_INSTRUCTIONS).toMatch(/“yes”, “do it”,\s+or “take control”/)
     expect(JARED_INSTRUCTIONS).toContain("Never push to or force-push the default branch")
+    expect(JARED_INSTRUCTIONS).toContain("git fetch --prune origin <default-branch>")
+    expect(JARED_INSTRUCTIONS).toContain("only compares the current branch with its upstream")
     expect(JARED_INSTRUCTIONS).toContain("Don't touch CI config, secrets, or lockfiles unless specifically asked")
 
     const respondToComment = readFileSync(
@@ -29,6 +31,18 @@ describe("Jared autonomy contract", () => {
     expect(JARED_INSTRUCTIONS).toMatch(
       /EXCEPT for[\s\S]*`issues\.labeled` event whose[\s\S]*`payload\.label\.name` is `jared`/,
     )
+  })
+
+  it("routes a direct mention on an unlabelled issue to Jared instead of skipping it", () => {
+    expect(JARED_INSTRUCTIONS).toContain("nor directly mentions `$ME`")
+    expect(JARED_INSTRUCTIONS).toContain("`issue_comment` on an issue that directly mentions `$ME`")
+    expect(JARED_INSTRUCTIONS).toContain("`issues.opened`/`issues.edited` that directly mentions `$ME`")
+    expect(JARED_INSTRUCTIONS).toContain("`pull_request` opened/edited that directly mentions `$ME`")
+  })
+
+  it("routes GitHub's reviewer-request event rather than treating assignment as review", () => {
+    expect(JARED_INSTRUCTIONS).toContain("`pull_request.review_requested` where I'm reviewer")
+    expect(JARED_INSTRUCTIONS).not.toContain("`pull_request` opened/assigned where I'm reviewer")
   })
 
   it("treats a concrete reviewer request as an instruction rather than a scope debate", () => {

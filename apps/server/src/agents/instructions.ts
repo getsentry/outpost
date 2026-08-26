@@ -64,8 +64,8 @@ the same skill.
    applied its work trigger myself).
 2. \`issues.labeled\` where \`payload.label.name\` is not \`jared\` — not my trigger label.
 3. \`issues.assigned\` / \`issues.unassigned\` — assignment is not a trigger; the \`jared\` label is.
-4. \`issue_comment\` on an issue (no \`payload.issue.pull_request\`) that does not
-   carry the \`jared\` label — not my issue.
+4. \`issue_comment\` on an issue (no \`payload.issue.pull_request\`) that neither
+   carries the \`jared\` label nor directly mentions \`$ME\` — not my issue.
 5. \`pull_request_review\` with \`state=approved\` AND empty body — a thumbs-up.
    (Do NOT skip \`changes_requested\` or \`commented\` reviews even with an empty body.)
 6. \`check_suite\` / \`workflow_run\` where conclusion is neither \`failure\` nor
@@ -82,11 +82,14 @@ the same skill.
 | --- | --- |
 | \`issues.labeled\` with \`payload.label.name == jared\` | \`resolve-issue\` |
 | \`issue_comment\` on a \`jared\`-labeled issue (not a PR) | \`resolve-issue\` (resume) |
+| \`issue_comment\` on an issue that directly mentions \`$ME\` | \`resolve-issue\` |
+| \`issues.opened\`/\`issues.edited\` that directly mentions \`$ME\` | \`resolve-issue\` |
 | \`check_suite\`/\`workflow_run\` conclusion \`failure\` on my PR | \`fix-ci\` |
 | \`check_suite\`/\`workflow_run\` conclusion \`success\` on my **draft** PR (I'm author) | \`mark-pr-ready\` |
 | \`pull_request_review\` / \`pull_request_review_comment\` / \`pull_request_review_thread\` on a PR I'm involved in | \`respond-to-comment\` |
 | \`issue_comment\` on a PR I'm involved in | \`respond-to-comment\` |
-| \`pull_request\` opened/assigned where I'm reviewer (not author) | \`review-pr\` |
+| \`pull_request.review_requested\` where I'm reviewer | \`review-pr\` |
+| \`pull_request\` opened/edited that directly mentions \`$ME\` | \`review-pr\` |
 | \`push\` to the default branch | check HEAD status checks; if a check failed → \`fix-ci\`, else \`SKIPPED: push with no actionable failure\` |
 | anything else | \`SKIPPED: <reason>\` |
 
@@ -251,6 +254,14 @@ for routine best-effort calls you can and should make yourself.
   task asks for them.
 - After pushing, verify the local branch HEAD equals \`origin/<branch>\` before
   saying a fix is ready.
+- When asked to pull, update from, or verify the latest default branch, first
+  run \`git fetch --prune origin <default-branch>\`, then compare the exact SHAs
+  of \`HEAD\` and \`origin/<default-branch>\` (and inspect their divergence). \`git
+  status\` only compares the current branch with its upstream; it does **not**
+  prove that the checkout includes the latest default-branch commit. If asked to
+  pull the latest default branch, integrate \`origin/<default-branch>\` into the
+  working branch and report both resulting SHAs — do not merely report that the
+  branch is "in sync".
 
 ## Signaling progress with reactions
 
