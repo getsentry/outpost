@@ -74,6 +74,25 @@ gh api graphql --paginate -f query='query($o:String!,$r:String!,$n:Int!,$endCurs
 4. If not actionable: reply on the thread with the reason and leave it open
    for a human to resolve.
 
+## Durable discussion inbox
+
+The webhook prompt can include a **PR discussion inbox**. Those are durable
+messages that still need a real response, even if they arrived before the
+current event or were compacted out of the conversation history.
+
+- Inspect the live PR and answer **every** inbox item in its correct GitHub
+  channel. Do not send generic acknowledgements, status-only comments, or a
+  canned reply. The response must address that author's actual question.
+- Choose the outcome from the work you did: `addressed` after a fix, `explained`
+  after a considered answer, or `needs-human` after asking the one concrete
+  decision you cannot safely make.
+- After the substantive response, append the exact hidden marker shown for that
+  item: `<!-- jared-discussion:<ID>:<outcome> -->`. GitHub delivers your reply
+  back to Outpost, which verifies this marker and removes only that item from
+  the inbox. Never add a marker before the visible response exists.
+- An inline thread is resolved only after a real code fix. An explanation or
+  `needs-human` response deliberately leaves it open for the reviewer.
+
 ## Ownership, not advisement
 
 For an actionable item on your own PR, carry the work through the workflow

@@ -69,6 +69,19 @@ describe("formatEventPrompt — review guidance", () => {
     expect(out).toContain("Jared is a requested reviewer")
   })
 
+  it("preserves the durable discussion inbox alongside the triggering event", () => {
+    const out = formatEventPrompt({
+      ...baseOpts,
+      event: "issue_comment",
+      payload: JSON.stringify({ issue: { number: 1108, pull_request: {}, user: { login: "alice" } } }),
+      discussionInbox: "## PR discussion inbox — 1 open discussion obligations\n\nCould we rename this flag?",
+    })
+
+    expect(out).toContain("New webhook event: issue_comment.submitted")
+    expect(out).toContain("PR discussion inbox — 1 open discussion obligations")
+    expect(out).toContain("Could we rename this flag?")
+  })
+
   it("truncates long issue bodies", () => {
     const body = "x".repeat(5000)
     const payload = JSON.stringify({ issue: { number: 1, title: "Big", body, user: { login: "a" } } })

@@ -20,7 +20,9 @@ export async function deleteExpiredWebhookEvents(db: D1Database, now = Date.now(
   const skippedCutoff = webhookEventCutoffSeconds(now, SKIPPED_WEBHOOK_EVENT_RETENTION_MS)
 
   const actionable = await db
-    .prepare("DELETE FROM webhook_events WHERE status != 'skipped' AND created_at < ?")
+    .prepare(
+      "DELETE FROM webhook_events WHERE status != 'skipped' AND created_at < ? AND NOT EXISTS (SELECT 1 FROM github_discussion_obligations WHERE event_id = webhook_events.id AND status = 'open')",
+    )
     .bind(actionableCutoff)
     .run()
 

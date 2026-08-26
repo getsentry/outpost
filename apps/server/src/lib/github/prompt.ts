@@ -253,6 +253,8 @@ export function formatEventPrompt(opts: {
    * reads (see `modelForDelivery`) to pick its model. Omit to leave it heavy.
    */
   modelTier?: "light" | "heavy"
+  /** Durable, currently-open PR discussion items that also need a response. */
+  discussionInbox?: string
 }): string {
   const eventLabel = opts.action ? `${opts.event}.${opts.action}` : opts.event
   const data = parsePayload(opts.payload)
@@ -275,5 +277,5 @@ ${routingContext(involvement)}
 ${reviewGuidance(opts.event, data)}
 ## Event context
 
-${context}`
+${context}${opts.discussionInbox ?? ""}`
 }

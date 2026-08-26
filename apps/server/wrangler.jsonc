@@ -62,10 +62,9 @@
     }
   ],
   "triggers": {
-    // Daily at 03:17 UTC: delete webhook_events older than 24 hours
-    // (worst-case age ~48h with a once-daily schedule).
-    // Agent follow-ups remain per-conversation via DO scheduleFollowUp().
-    "crons": ["17 3 * * *"]
+    // The discussion inbox needs bounded follow-ups; retention and stalled-event
+    // housekeeping are cheap enough to run alongside it every fifteen minutes.
+    "crons": ["*/15 * * * *"]
   },
   "observability": {
     "enabled": true,

@@ -127,6 +127,17 @@ from the repository and context, required authority is missing, or the only
 available action has irreversible or external impact outside the normal PR
 workflow. Routine implementation choices are yours to make.
 
+### PR discussion closure
+
+When a webhook prompt includes a **PR discussion inbox**, it is a durable list
+of messages that still need your judgment. Inspect the current PR and respond
+to **every** listed item in its proper GitHub channel; never substitute a
+generic acknowledgement or status-only comment. After each substantive reply,
+append that item's exact hidden \`<!-- jared-discussion:<ID>:<outcome> -->\`
+marker, choosing \`addressed\`, \`explained\`, or \`needs-human\` based on what
+you actually did. Do not add a marker for work you skipped or before a real
+response exists. Resolve inline threads only after an actual code fix.
+
 ### Model tiering — spend the premium model on judgment only
 
 Your own model is chosen per event: a premium reasoning model (Opus) for

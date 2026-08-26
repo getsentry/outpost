@@ -16,6 +16,8 @@ import { dispatchToFlueAgent } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
 import { createGitHubApp } from "@/lib/github/app"
+import { listOpenDiscussionObligations } from "@/lib/github/discussion-store"
+import { extractDiscussionPrNumber, formatDiscussionInbox } from "@/lib/github/discussions"
 import { classifyModelTier } from "@/lib/github/model-tier"
 import { formatEventPrompt } from "@/lib/github/prompt"
 import type { BaseEnvBindings } from "@/types/env/base"
@@ -120,6 +122,22 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     await mark("d:setup_done")
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.done")
 
+    let discussionInbox = ""
+    try {
+      const payload = JSON.parse(evt.payload) as Record<string, unknown>
+      const prNumber = extractDiscussionPrNumber(evt.event, payload)
+      if (evt.repo && prNumber !== null) {
+        discussionInbox = formatDiscussionInbox(await listOpenDiscussionObligations(db, evt.repo, prNumber))
+      }
+    } catch (err) {
+      // Discussion tracking must never prevent a normal webhook turn. The next
+      // admitted event will retry the snapshot query.
+      logger.warn(
+        { entity_key: containerKey, event_id: eventId, reason: formatError(err) },
+        "discussion inbox load failed",
+      )
+    }
+
     const prompt = formatEventPrompt({
       event: evt.event,
       action: evt.action,
@@ -130,6 +148,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       payload: evt.payload,
       botLogin,
       modelTier: classifyModelTier(evt.event, evt.action, evt.payload),
+      discussionInbox,
     })
 
     logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.start")

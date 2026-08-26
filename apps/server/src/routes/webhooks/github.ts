@@ -19,6 +19,16 @@ import {
 } from "@/lib/github/actionability"
 import { createGitHubApp, type GitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
+import {
+  cancelDiscussionObligation,
+  recordDiscussionObligation,
+  verifyDiscussionResponse,
+} from "@/lib/github/discussion-store"
+import {
+  extractDiscussionObligation,
+  extractDiscussionSourceReference,
+  responseEvidenceFromWebhook,
+} from "@/lib/github/discussions"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
 import { deriveGitHubInvolvement, shouldAdmitGitHubEvent } from "@/lib/github/involvement"
@@ -62,6 +72,36 @@ async function isCiStillRunning(opts: {
     logger.warn({ error: formatError(err) }, "ci settle check failed; treating as settled")
     return false
   }
+}
+
+/**
+ * A reviewer can reply directly to one of Jared's inline comments without a
+ * label or another @mention. Fetch that immediate parent so the normal noise
+ * gate never drops a real follow-up merely because Jared is not the PR author.
+ */
+async function isDirectReplyToJared(opts: {
+  event: string
+  action: string | null
+  payload: Record<string, unknown>
+  installationId: number | null
+  repo: string | null
+  botLogin: string
+  app: GitHubApp
+}): Promise<boolean> {
+  const { event, action, payload, installationId, repo, botLogin, app } = opts
+  if (event !== "pull_request_review_comment" || (action !== "created" && action !== "edited")) return false
+  const parentId = lookup(payload, "comment.in_reply_to_id")
+  if ((typeof parentId !== "number" && typeof parentId !== "string") || !installationId || !repo || !botLogin)
+    return false
+  const [owner, name] = repo.split("/")
+  if (!owner || !name) return false
+  const commentId = Number(parentId)
+  if (!Number.isSafeInteger(commentId)) return false
+
+  const parent = await app
+    .getInstallationOctokit(installationId)
+    .pulls.getReviewComment({ owner, repo: name, comment_id: commentId })
+  return parent.data.user?.login?.toLowerCase() === botLogin.toLowerCase()
 }
 
 const router = new Hono<BaseEnv>().post("/", async (c) => {
@@ -184,6 +224,18 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           ? "no_label"
           : null
 
+  if (skipReason === "no_label") {
+    try {
+      if (await isDirectReplyToJared({ event, action, payload, installationId, repo, botLogin, app })) {
+        skipReason = null
+      }
+    } catch (err) {
+      // Fail closed here: a parent lookup outage should not turn every inline
+      // review reply into an unrelated agent wake-up.
+      logger.warn({ error: formatError(err) }, "inline parent lookup failed")
+    }
+  }
+
   const containerKey = entityKey?.key ?? `ephemeral/${deliveryId}`
 
   // Second gate: drop noisy CI lifecycle events (requested/in_progress, and
@@ -254,6 +306,53 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
       return c.json({ ok: true, delivery_id: deliveryId, duplicate: true })
     }
     throw err
+  }
+
+  // A signed webhook for Jared's own reply is the completion receipt. This is
+  // intentionally processed before self-event skipping, so no agent turn is
+  // needed merely to close the durable inbox item.
+  const responseEvidence = responseEvidenceFromWebhook(event, payload, sender, botLogin)
+  if (responseEvidence && repo) {
+    try {
+      await verifyDiscussionResponse(db, repo, responseEvidence)
+    } catch (err) {
+      logger.error({ delivery_id: deliveryId, reason: formatError(err) }, "discussion response verification failed")
+      Sentry.captureException(err)
+    }
+  }
+
+  const removedDiscussion =
+    (event === "issue_comment" || event === "pull_request_review_comment") && action === "deleted"
+      ? extractDiscussionSourceReference(event, payload)
+      : event === "pull_request_review" && action === "dismissed"
+        ? extractDiscussionSourceReference(event, payload)
+        : null
+  if (removedDiscussion && repo) {
+    try {
+      await cancelDiscussionObligation(db, repo, removedDiscussion)
+    } catch (err) {
+      logger.error({ delivery_id: deliveryId, reason: formatError(err) }, "discussion obligation cancellation failed")
+      Sentry.captureException(err)
+    }
+  }
+
+  // Make the PR discussion durable before handing it to the agent. The live
+  // conversation may compact or receive later CI activity; the inbox is the
+  // durable source of every reply Jared still owes.
+  const discussion = botLogin ? extractDiscussionObligation(event, action, payload, botLogin) : null
+  if (!isSkipped && discussion && entityKey && repo) {
+    try {
+      await recordDiscussionObligation(db, {
+        eventId,
+        entityKey: containerKey,
+        repo,
+        installationId,
+        obligation: discussion,
+      })
+    } catch (err) {
+      logger.error({ delivery_id: deliveryId, reason: formatError(err) }, "discussion obligation persistence failed")
+      Sentry.captureException(err)
+    }
   }
 
   if (isSkipped) {
