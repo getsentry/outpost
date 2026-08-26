@@ -4,6 +4,7 @@
 // full GitHub JSON payload, which bloated Flue conversation context on every turn.
 
 import { CHAT_PROMPT_HEADER, CHAT_REQUEST_MARKER } from "@/lib/containers/chat-run"
+import { deriveGitHubInvolvement, type GitHubInvolvement } from "./involvement"
 
 const REVIEW_EVENTS = new Set(["pull_request_review", "pull_request_review_comment", "pull_request_review_thread"])
 
@@ -75,8 +76,17 @@ Workflow:
 - Reply inline on the specific review thread (REST \`pulls/<n>/comments/<comment_id>/replies\`), never \`gh pr comment\`.
 - If a thread is actionable, push a fix, reply on that thread with the commit SHA, then resolve the thread
   (GraphQL \`resolveReviewThread\`). Only resolve threads you actually fixed; leave won't-fix threads open with a reason.
-- After applying fixes, re-request review from the reviewer.
+- After applying fixes, inspect required checks. Only request review after required checks are green;
+  leave the PR open for the CI-completion webhook when checks are pending or failing.
 See the \`respond-to-comment\` skill for the exact commands.`
+}
+
+function routingContext(involvement: GitHubInvolvement): string {
+  const facts: string[] = []
+  if (involvement.author) facts.push("- Jared authored this entity")
+  if (involvement.reviewer) facts.push("- Jared is a requested reviewer")
+  if (involvement.mentioned) facts.push("- Jared is directly mentioned")
+  return facts.length > 0 ? `\nRouting context:\n${facts.join("\n")}\n` : ""
 }
 
 /** Extract curated context lines from a GitHub webhook payload. */
@@ -252,6 +262,7 @@ export function formatEventPrompt(opts: {
   const tierMarker = opts.modelTier ? `\n<!-- jared:model-tier=${opts.modelTier} -->` : ""
 
   const context = extractEventContext(opts.event, opts.payload)
+  const involvement = deriveGitHubInvolvement(opts.event, data, opts.botLogin)
 
   return `New webhook event: ${eventLabel}${tierMarker}
 
@@ -260,6 +271,7 @@ Repository: ${opts.repo ?? "unknown"}
 Entity: ${opts.entityKey}
 Sender: ${opts.sender ?? "unknown"}
 Delivery: ${opts.deliveryId}
+${routingContext(involvement)}
 ${reviewGuidance(opts.event, data)}
 ## Event context
 

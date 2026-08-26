@@ -31,6 +31,12 @@ describe("Jared autonomy contract", () => {
     )
   })
 
+  it("routes a direct mention on an unlabelled issue to Jared instead of skipping it", () => {
+    expect(JARED_INSTRUCTIONS).toContain("nor directly mentions `$ME`")
+    expect(JARED_INSTRUCTIONS).toContain("`issue_comment` on an issue that directly mentions `$ME`")
+    expect(JARED_INSTRUCTIONS).toContain("`issues.opened` that directly mentions `$ME`")
+  })
+
   it("treats a concrete reviewer request as an instruction rather than a scope debate", () => {
     const respondToComment = readFileSync(
       new URL("../../../container/skills/respond-to-comment/SKILL.md", import.meta.url),

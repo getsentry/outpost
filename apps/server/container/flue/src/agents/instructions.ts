@@ -62,8 +62,8 @@ the same skill.
    expected and actionable).
 2. \`issues.labeled\` where \`payload.label.name\` is not \`jared\` — not my trigger label.
 3. \`issues.assigned\` / \`issues.unassigned\` — assignment is not a trigger; the \`jared\` label is.
-4. \`issue_comment\` on an issue (no \`payload.issue.pull_request\`) that does not
-   carry the \`jared\` label — not my issue.
+4. \`issue_comment\` on an issue (no \`payload.issue.pull_request\`) that neither
+   carries the \`jared\` label nor directly mentions \`$ME\` — not my issue.
 5. \`pull_request_review\` with \`state=approved\` AND empty body — a thumbs-up.
    (Do NOT skip \`changes_requested\` or \`commented\` reviews even with an empty body.)
 6. \`check_suite\` / \`workflow_run\` where conclusion is neither \`failure\` nor
@@ -80,6 +80,8 @@ the same skill.
 | --- | --- |
 | \`issues.labeled\` with \`payload.label.name == jared\` | \`resolve-issue\` |
 | \`issue_comment\` on a \`jared\`-labeled issue (not a PR) | \`resolve-issue\` (resume) |
+| \`issue_comment\` on an issue that directly mentions \`$ME\` | \`resolve-issue\` |
+| \`issues.opened\` that directly mentions \`$ME\` | \`resolve-issue\` |
 | \`check_suite\`/\`workflow_run\` conclusion \`failure\` on my PR | \`fix-ci\` |
 | \`check_suite\`/\`workflow_run\` conclusion \`success\` on my **draft** PR (I'm author) | \`mark-pr-ready\` |
 | \`pull_request_review\` / \`pull_request_review_comment\` / \`pull_request_review_thread\` on a PR I'm involved in | \`respond-to-comment\` |

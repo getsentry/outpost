@@ -25,6 +25,7 @@ describe("formatEventPrompt — review guidance", () => {
     expect(out).toContain("Inline comment id: 999")
     expect(out).toContain("File: src/foo.ts")
     expect(out).toContain("resolveReviewThread")
+    expect(out).toContain("Only request review after required checks are green")
     expect(out).toContain("PR #1108: Fix foo")
     expect(out).toContain("please fix")
     // Full raw JSON dump must not appear.
@@ -49,6 +50,23 @@ describe("formatEventPrompt — review guidance", () => {
     expect(out).toContain("This is a PR review event")
     expect(out).toContain("Reply inline on the specific review thread")
     expect(out).toContain("payload unparseable")
+  })
+
+  it("surfaces Jared's reviewer assignment to the router", () => {
+    const payload = JSON.stringify({
+      pull_request: {
+        number: 1108,
+        title: "Fix foo",
+        user: { login: "alice" },
+        requested_reviewers: [{ login: "jared-outpost[bot]" }],
+      },
+      requested_reviewer: { login: "jared-outpost[bot]" },
+    })
+
+    const out = formatEventPrompt({ ...baseOpts, event: "pull_request", action: "review_requested", payload })
+
+    expect(out).toContain("Routing context:")
+    expect(out).toContain("Jared is a requested reviewer")
   })
 
   it("truncates long issue bodies", () => {
