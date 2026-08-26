@@ -262,7 +262,7 @@ export function formatEventPrompt(opts: {
   const tierMarker = opts.modelTier ? `\n<!-- jared:model-tier=${opts.modelTier} -->` : ""
 
   const context = extractEventContext(opts.event, opts.payload)
-  const involvement = deriveGitHubInvolvement(opts.event, data, opts.botLogin)
+  const involvement = deriveGitHubInvolvement(opts.event, data, opts.botLogin, opts.action)
 
   return `New webhook event: ${eventLabel}${tierMarker}
 

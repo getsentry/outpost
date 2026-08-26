@@ -48,15 +48,32 @@ function mentionsBot(text: string | null, botLogin: string): boolean {
   })
 }
 
+function mentionBody(
+  event: string,
+  pr: Record<string, unknown> | null,
+  issue: Record<string, unknown> | null,
+  comment: Record<string, unknown> | null,
+  review: Record<string, unknown> | null,
+): string | null {
+  if (event === "issues") return lookupString(issue ?? {}, "body")
+  if (event === "pull_request") return lookupString(pr ?? {}, "body")
+  if (event === "issue_comment" || event === "pull_request_review_comment") {
+    return lookupString(comment ?? {}, "body")
+  }
+  if (event === "pull_request_review") return lookupString(review ?? {}, "body")
+  return null
+}
+
 /**
  * Extract only the involvement facts that are present in a GitHub webhook.
  * The admission layer uses these facts to decide whether Jared should see an
  * event; the agent still owns the semantic decision to act or skip.
  */
 export function deriveGitHubInvolvement(
-  _event: string,
+  event: string,
   payload: Record<string, unknown>,
   botLogin: string,
+  action: string | null = null,
 ): GitHubInvolvement {
   const pr = asRecord(payload.pull_request)
   const issue = asRecord(payload.issue)
@@ -76,12 +93,12 @@ export function deriveGitHubInvolvement(
   ]
   const reviewer = reviewerCandidates.some((candidate) => sameLogin(candidate, botLogin))
 
-  const mentioned = [
-    lookupString(comment ?? {}, "body"),
-    lookupString(review ?? {}, "body"),
-    lookupString(issue ?? {}, "body"),
-    lookupString(pr ?? {}, "body"),
-  ].some((text) => mentionsBot(text, botLogin))
+  const body = mentionBody(event, pr, issue, comment, review)
+  const previousBody = lookupString(payload, "changes.body.from")
+  const mentioned =
+    action === "edited"
+      ? previousBody !== null && mentionsBot(body, botLogin) && !mentionsBot(previousBody, botLogin)
+      : mentionsBot(body, botLogin)
 
   return { author, reviewer, mentioned }
 }

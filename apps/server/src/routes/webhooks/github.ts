@@ -147,7 +147,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
   let involvement = { author: false, reviewer: false, mentioned: false }
   if (entityKey) {
     if (botLogin) {
-      involvement = deriveGitHubInvolvement(event, payload, botLogin)
+      involvement = deriveGitHubInvolvement(event, payload, botLogin, action)
 
       if (!involvement.author && (event === "check_suite" || event === "workflow_run")) {
         const ciObj = lookup(payload, event) as Record<string, unknown> | null

@@ -59,6 +59,48 @@ describe("deriveGitHubInvolvement", () => {
 
     expect(involvement.reviewer).toBe(false)
   })
+
+  it("does not treat an existing issue-body mention as new on an unrelated edit", () => {
+    const involvement = deriveGitHubInvolvement(
+      "issues",
+      {
+        issue: { number: 42, body: "@jared-outpost[bot] please investigate" },
+        changes: { title: { from: "Old title" } },
+      },
+      "jared-outpost[bot]",
+      "edited",
+    )
+
+    expect(involvement.mentioned).toBe(false)
+  })
+
+  it("recognizes an edited issue body that newly mentions Jared", () => {
+    const involvement = deriveGitHubInvolvement(
+      "issues",
+      {
+        issue: { number: 42, body: "@jared-outpost[bot] please investigate" },
+        changes: { body: { from: "Please investigate" } },
+      },
+      "jared-outpost[bot]",
+      "edited",
+    )
+
+    expect(involvement.mentioned).toBe(true)
+  })
+
+  it("does not inherit an issue-body mention for an unrelated new comment", () => {
+    const involvement = deriveGitHubInvolvement(
+      "issue_comment",
+      {
+        issue: { number: 42, body: "@jared-outpost[bot] please investigate" },
+        comment: { body: "I have more context." },
+      },
+      "jared-outpost[bot]",
+      "created",
+    )
+
+    expect(involvement.mentioned).toBe(false)
+  })
 })
 
 describe("shouldAdmitGitHubEvent", () => {
