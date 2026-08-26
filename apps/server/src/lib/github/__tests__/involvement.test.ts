@@ -65,6 +65,8 @@ describe("shouldAdmitGitHubEvent", () => {
   it("admits an unlabelled PR when Jared is a requested reviewer", () => {
     expect(
       shouldAdmitGitHubEvent({
+        event: "pull_request",
+        action: "review_requested",
         hasTriggerLabel: false,
         involvement: { author: false, reviewer: true, mentioned: false },
       }),
@@ -74,6 +76,8 @@ describe("shouldAdmitGitHubEvent", () => {
   it("admits an unlabelled PR comment that directly mentions Jared", () => {
     expect(
       shouldAdmitGitHubEvent({
+        event: "issue_comment",
+        action: "created",
         hasTriggerLabel: false,
         involvement: { author: false, reviewer: false, mentioned: true },
       }),
@@ -83,8 +87,21 @@ describe("shouldAdmitGitHubEvent", () => {
   it("continues to reject an unlabelled event with no Jared involvement", () => {
     expect(
       shouldAdmitGitHubEvent({
+        event: "issue_comment",
+        action: "created",
         hasTriggerLabel: false,
         involvement: { author: false, reviewer: false, mentioned: false },
+      }),
+    ).toBe(false)
+  })
+
+  it("does not re-admit a persistent PR-body mention on later lifecycle events", () => {
+    expect(
+      shouldAdmitGitHubEvent({
+        event: "pull_request",
+        action: "synchronize",
+        hasTriggerLabel: false,
+        involvement: { author: false, reviewer: false, mentioned: true },
       }),
     ).toBe(false)
   })

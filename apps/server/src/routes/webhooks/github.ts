@@ -180,7 +180,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
       ? "issue_assignment"
       : !entityKey
         ? "no_entity"
-        : !(isBotCi || shouldAdmitGitHubEvent({ hasTriggerLabel: hasLabel, involvement }))
+        : !(isBotCi || shouldAdmitGitHubEvent({ event, action, hasTriggerLabel: hasLabel, involvement }))
           ? "no_label"
           : null
 

@@ -6,8 +6,26 @@ export type GitHubInvolvement = {
   mentioned: boolean
 }
 
-export function shouldAdmitGitHubEvent(opts: { hasTriggerLabel: boolean; involvement: GitHubInvolvement }): boolean {
-  return opts.hasTriggerLabel || opts.involvement.author || opts.involvement.reviewer || opts.involvement.mentioned
+const MENTION_ACTIONS: Record<string, ReadonlySet<string>> = {
+  issues: new Set(["opened", "edited"]),
+  issue_comment: new Set(["created", "edited"]),
+  pull_request: new Set(["opened", "edited"]),
+  pull_request_review: new Set(["submitted", "edited"]),
+  pull_request_review_comment: new Set(["created", "edited"]),
+}
+
+export function shouldAdmitGitHubEvent(opts: {
+  event: string
+  action: string | null
+  hasTriggerLabel: boolean
+  involvement: GitHubInvolvement
+}): boolean {
+  if (opts.hasTriggerLabel || opts.involvement.author) return true
+
+  const requestedReview = opts.event === "pull_request" && opts.action === "review_requested"
+  if (opts.involvement.reviewer && requestedReview) return true
+
+  return opts.involvement.mentioned && MENTION_ACTIONS[opts.event]?.has(opts.action ?? "") === true
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

@@ -34,7 +34,7 @@ describe("Jared autonomy contract", () => {
   it("routes a direct mention on an unlabelled issue to Jared instead of skipping it", () => {
     expect(JARED_INSTRUCTIONS).toContain("nor directly mentions `$ME`")
     expect(JARED_INSTRUCTIONS).toContain("`issue_comment` on an issue that directly mentions `$ME`")
-    expect(JARED_INSTRUCTIONS).toContain("`issues.opened` that directly mentions `$ME`")
+    expect(JARED_INSTRUCTIONS).toContain("`issues.opened`/`issues.edited` that directly mentions `$ME`")
     expect(JARED_INSTRUCTIONS).toContain("`pull_request` opened/edited that directly mentions `$ME`")
   })
 

@@ -83,7 +83,7 @@ the same skill.
 | \`issues.labeled\` with \`payload.label.name == jared\` | \`resolve-issue\` |
 | \`issue_comment\` on a \`jared\`-labeled issue (not a PR) | \`resolve-issue\` (resume) |
 | \`issue_comment\` on an issue that directly mentions \`$ME\` | \`resolve-issue\` |
-| \`issues.opened\` that directly mentions \`$ME\` | \`resolve-issue\` |
+| \`issues.opened\`/\`issues.edited\` that directly mentions \`$ME\` | \`resolve-issue\` |
 | \`check_suite\`/\`workflow_run\` conclusion \`failure\` on my PR | \`fix-ci\` |
 | \`check_suite\`/\`workflow_run\` conclusion \`success\` on my **draft** PR (I'm author) | \`mark-pr-ready\` |
 | \`pull_request_review\` / \`pull_request_review_comment\` / \`pull_request_review_thread\` on a PR I'm involved in | \`respond-to-comment\` |
