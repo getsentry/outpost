@@ -139,6 +139,8 @@ describe("formatDiscussionInbox", () => {
       {
         id: "abc123",
         kind: "top_level",
+        sourceCommentId: "101",
+        replyToCommentId: null,
         author: "BYK",
         body: "Could we rename all sixel flags?",
         url: "https://github.com/getsentry/cli/pull/1484#issuecomment-101",
@@ -146,6 +148,8 @@ describe("formatDiscussionInbox", () => {
       {
         id: "def456",
         kind: "inline",
+        sourceCommentId: "102",
+        replyToCommentId: "99",
         author: "MathurAditya724",
         body: "Jared, what happened to it?",
         url: "https://github.com/getsentry/cli/pull/1484#discussion_r102",
@@ -157,6 +161,7 @@ describe("formatDiscussionInbox", () => {
     expect(inbox).toContain("Jared, what happened to it?")
     expect(inbox).toContain("<!-- jared-discussion:abc123:<outcome> -->")
     expect(inbox).toContain("do not send a generic acknowledgement")
+    expect(inbox).toContain("Reply in this review thread via top-level comment ID: 99")
   })
 })
 
@@ -208,19 +213,29 @@ describe("responseEvidenceFromWebhook", () => {
     expect(evidence).toBeNull()
   })
 
-  it("requires an inline response to be on the obligation's specific comment", () => {
+  it("requires an inline response to be on the obligation's specific review thread", () => {
     const matches = responseMatchesDiscussion(
-      { kind: "inline", prNumber: 1484, sourceCommentId: "102" },
-      { obligationId: "abc123", outcome: "addressed", prNumber: 1484, replyToCommentId: "99" },
+      { kind: "inline", prNumber: 1484, sourceCommentId: "102", replyToCommentId: "99" },
+      { obligationId: "abc123", outcome: "addressed", prNumber: 1484, replyToCommentId: "100" },
     )
 
     expect(matches).toBe(false)
   })
 
-  it("only accepts a response for the same pull request and exact inline parent", () => {
+  it("only accepts a response for the same pull request and exact inline thread", () => {
     const response = { obligationId: "abc123", outcome: "addressed" as const, prNumber: 1484, replyToCommentId: "102" }
 
-    expect(responseMatchesDiscussion({ kind: "inline", prNumber: 1484, sourceCommentId: "102" }, response)).toBe(true)
-    expect(responseMatchesDiscussion({ kind: "inline", prNumber: 1485, sourceCommentId: "102" }, response)).toBe(false)
+    expect(
+      responseMatchesDiscussion(
+        { kind: "inline", prNumber: 1484, sourceCommentId: "103", replyToCommentId: "102" },
+        response,
+      ),
+    ).toBe(true)
+    expect(
+      responseMatchesDiscussion(
+        { kind: "inline", prNumber: 1485, sourceCommentId: "103", replyToCommentId: "102" },
+        response,
+      ),
+    ).toBe(false)
   })
 })

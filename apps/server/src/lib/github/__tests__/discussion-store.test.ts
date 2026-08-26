@@ -31,5 +31,6 @@ describe("makeDiscussionRecord", () => {
       eventId: "delivery-1",
     })
     expect(record.id).toMatch(/^[a-f0-9-]{36}$/)
+    expect(record.lastRemindedAt).toEqual(new Date("2026-08-26T13:31:00Z"))
   })
 })

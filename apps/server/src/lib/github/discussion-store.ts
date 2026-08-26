@@ -40,7 +40,9 @@ export function makeDiscussionRecord(input: DiscussionRecordInput) {
     outcome: null,
     verifiedAt: null,
     reminderCount: 0,
-    lastRemindedAt: null,
+    // The initial webhook already prompted Jared. Do not turn the first cron
+    // after a comment into an immediate duplicate delivery.
+    lastRemindedAt: now,
     createdAt: now,
     updatedAt: now,
   }
@@ -73,7 +75,7 @@ export async function recordDiscussionObligation(db: Db, input: DiscussionRecord
         outcome: null,
         verifiedAt: null,
         reminderCount: 0,
-        lastRemindedAt: null,
+        lastRemindedAt: record.lastRemindedAt,
         updatedAt: record.updatedAt,
       },
     })
@@ -88,6 +90,8 @@ export async function listOpenDiscussionObligations(
     .select({
       id: dbSchema.githubDiscussionObligations.id,
       kind: dbSchema.githubDiscussionObligations.sourceKind,
+      sourceCommentId: dbSchema.githubDiscussionObligations.sourceCommentId,
+      replyToCommentId: dbSchema.githubDiscussionObligations.replyToCommentId,
       author: dbSchema.githubDiscussionObligations.author,
       body: dbSchema.githubDiscussionObligations.body,
       url: dbSchema.githubDiscussionObligations.url,
@@ -155,6 +159,7 @@ export async function verifyDiscussionResponse(
         kind: obligation.sourceKind as DiscussionObligation["kind"],
         prNumber: obligation.prNumber,
         sourceCommentId: obligation.sourceCommentId,
+        replyToCommentId: obligation.replyToCommentId,
       },
       response,
     )

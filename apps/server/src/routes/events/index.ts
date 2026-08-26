@@ -1,6 +1,6 @@
 import { and, desc, eq, like, sql } from "drizzle-orm"
 import { Hono } from "hono"
-import { webhookEvents } from "@/db/schema"
+import { githubDiscussionObligations, webhookEvents } from "@/db/schema"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { isAuthenticated } from "@/middlewares"
 import type { AuthEnv } from "@/types"
@@ -9,7 +9,7 @@ const router = new Hono<AuthEnv>()
   .use(isAuthenticated())
   .delete("/", async (c) => {
     const db = c.get("db")
-    await db.delete(webhookEvents)
+    await Promise.all([db.delete(webhookEvents), db.delete(githubDiscussionObligations)])
     return c.json({ ok: true })
   })
   .get("/grouped", async (c) => {

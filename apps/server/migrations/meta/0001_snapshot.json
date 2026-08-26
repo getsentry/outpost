@@ -279,7 +279,7 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false,
-          "default": "0"
+          "default": 0
         },
         "last_reminded_at": {
           "name": "last_reminded_at",
@@ -312,6 +312,24 @@
             "source_comment_id"
           ],
           "isUnique": true
+        },
+        "idx_github_discussion_obligations_repo_pr_status_created": {
+          "name": "idx_github_discussion_obligations_repo_pr_status_created",
+          "columns": [
+            "repo",
+            "pr_number",
+            "status",
+            "created_at"
+          ],
+          "isUnique": false
+        },
+        "idx_github_discussion_obligations_status_created": {
+          "name": "idx_github_discussion_obligations_status_created",
+          "columns": [
+            "status",
+            "created_at"
+          ],
+          "isUnique": false
         },
         "idx_github_discussion_obligations_entity_status": {
           "name": "idx_github_discussion_obligations_entity_status",

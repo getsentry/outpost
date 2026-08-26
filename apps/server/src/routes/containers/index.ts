@@ -1163,6 +1163,9 @@ const router = new Hono<BaseEnv>()
       await Promise.all([
         db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
         db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
+        db
+          .delete(dbSchema.githubDiscussionObligations)
+          .where(eq(dbSchema.githubDiscussionObligations.entityKey, entityKey)),
       ])
     } catch {
       /* best effort */

@@ -27,7 +27,10 @@ export type DiscussionResponseEvidence = DiscussionResponseMarker & {
   replyToCommentId: string | null
 }
 
-export type OpenDiscussionObligation = Pick<DiscussionObligation, "kind" | "author" | "body" | "url"> & { id: string }
+export type OpenDiscussionObligation = Pick<
+  DiscussionObligation,
+  "kind" | "sourceCommentId" | "replyToCommentId" | "author" | "body" | "url"
+> & { id: string }
 
 export type DiscussionSourceReference = Pick<DiscussionObligation, "kind" | "sourceCommentId">
 
@@ -169,6 +172,11 @@ export function formatDiscussionInbox(obligations: OpenDiscussionObligation[]): 
     .map(
       (obligation, index) => `### ${index + 1}. ${obligation.kind.replace("_", " ")} from ${obligation.author}
 ${obligation.url ? `${obligation.url}\n` : ""}
+${
+  obligation.kind === "inline"
+    ? `Reply in this review thread via top-level comment ID: ${obligation.replyToCommentId ?? obligation.sourceCommentId} (the message above is comment ID: ${obligation.sourceCommentId})\n`
+    : ""
+}
 ${obligation.body}
 
 After your substantive reply, append \`<!-- jared-discussion:${obligation.id}:<outcome> -->\`, where \`<outcome>\` is \`addressed\`, \`explained\`, or \`needs-human\`.`,
@@ -222,11 +230,12 @@ export function responseEvidenceFromWebhook(
   }
 }
 
-/** A receipt must belong to the same PR and, for review threads, reply to it. */
+/** A receipt must belong to the same PR and, for review threads, reply to its root. */
 export function responseMatchesDiscussion(
-  obligation: Pick<DiscussionObligation, "kind" | "prNumber" | "sourceCommentId">,
+  obligation: Pick<DiscussionObligation, "kind" | "prNumber" | "sourceCommentId" | "replyToCommentId">,
   response: DiscussionResponseEvidence,
 ): boolean {
   if (obligation.prNumber !== response.prNumber) return false
-  return obligation.kind !== "inline" || response.replyToCommentId === obligation.sourceCommentId
+  const threadRoot = obligation.replyToCommentId ?? obligation.sourceCommentId
+  return obligation.kind !== "inline" || response.replyToCommentId === threadRoot
 }

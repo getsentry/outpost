@@ -121,8 +121,10 @@ gh api -X POST \
   -f body="Fixed in <SHA>."
 ```
 
-`<COMMENT_ID>` is the review comment's `id` from the event payload (use the
-top-level comment of the thread — the one with `in_reply_to_id` unset).
+`<COMMENT_ID>` must be the top-level comment of the review thread — the one
+with `in_reply_to_id` unset; GitHub does not support replies to replies. For a
+durable inbox item, use the supplied **top-level comment ID**, not the message
+ID shown in parentheses.
 
 **Top-level PR comment** (`issue_comment` on a PR, not tied to a line) — reply
 with:

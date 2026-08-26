@@ -104,6 +104,13 @@ export const githubDiscussionObligations = sqliteTable(
       table.sourceKind,
       table.sourceCommentId,
     ),
+    index("idx_github_discussion_obligations_repo_pr_status_created").on(
+      table.repo,
+      table.prNumber,
+      table.status,
+      table.createdAt,
+    ),
+    index("idx_github_discussion_obligations_status_created").on(table.status, table.createdAt),
     index("idx_github_discussion_obligations_entity_status").on(table.entityKey, table.status),
   ],
 )
