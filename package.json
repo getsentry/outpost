@@ -11,10 +11,21 @@
   "packageManager": "pnpm@10.15.0",
   "pnpm": {
     "overrides": {
-      "undici": ">=7.28.0",
+      "@esbuild-kit/core-utils>esbuild": "0.25.12",
+      "@modelcontextprotocol/sdk>@hono/node-server": "1.19.15",
+      "browserslist": "4.28.7",
+      "body-parser": "2.3.0",
+      "brace-expansion": "5.0.9",
+      "fast-uri": "3.1.6",
+      "ip-address": "10.3.1",
+      "js-yaml@^4.0.0": "4.3.1",
       "next": "16.2.11",
-      "js-yaml@^4.0.0": "4.3.0",
-      "sharp": ">=0.35.0"
+      "postcss": "8.5.25",
+      "postcss-selector-parser": "7.1.3",
+      "qs": "6.16.0",
+      "sharp": ">=0.35.0",
+      "tsx>esbuild": "0.28.1",
+      "undici": ">=7.29.0"
     },
     "patchedDependencies": {
       "@flue/runtime@2.0.1": "patches/@flue__runtime@2.0.1.patch"
