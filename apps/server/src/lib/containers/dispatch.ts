@@ -169,8 +169,12 @@ export async function ensureSandboxReady(
     // Multiple CI webhooks for the same entity execute concurrently. Clone-only
     // locking is not enough: one setup could overwrite /tmp/flue-env.sh after a
     // peer has added GH_TOKEN. Run the complete transaction under one lock.
+    const envSource = `/tmp/flue-env.${crypto.randomUUID()}`
     await retryTransientSandbox(async () => {
-      const result = await sandbox.exec(buildThinSandboxPrepScript(opts), { cwd: "/workspace" })
+      // Keep credentials in a sandbox file rather than embedding them in the
+      // exec command, which may be retained by sandbox-operation telemetry.
+      await sandbox.writeFile(envSource, buildEnvFileContents(opts, opts.installationToken))
+      const result = await sandbox.exec(buildThinSandboxPrepScript(opts, envSource), { cwd: "/workspace" })
       if (!result.success) throw new Error(`thin sandbox prep failed: ${result.stderr}`)
     }, 5)
 
@@ -334,19 +338,17 @@ export function buildPhase1BootstrapScript(opts: SandboxSetupOpts): string {
  * No peer can observe a cloned repo with stale credentials or an env file that
  * has been partially rewritten by another webhook dispatch.
  */
-export function buildThinSandboxPrepScript(opts: SandboxSetupOpts): string {
+export function buildThinSandboxPrepScript(opts: SandboxSetupOpts, envSource = "/tmp/flue-env.pending"): string {
   const repo = opts.repo ?? ""
-  const token = opts.installationToken ?? ""
-  const cloneUrl = token ? `https://x-access-token:${token}@github.com/${repo}.git` : `https://github.com/${repo}.git`
+  const cloneUrl = `https://github.com/${repo}.git`
   const botEmail = opts.botLogin ? `${opts.botLogin}@users.noreply.github.com` : ""
-  const envFile = buildEnvFileContents(opts, token)
 
   return [
     "#!/bin/bash",
     "set -eu",
     `REPO=${shellQuote(repo)}`,
-    `TOKEN=${shellQuote(token)}`,
     `CLONE_URL=${shellQuote(cloneUrl)}`,
+    `ENV_SOURCE=${shellQuote(envSource)}`,
     `BOT_LOGIN=${shellQuote(opts.botLogin)}`,
     `BOT_EMAIL=${shellQuote(botEmail)}`,
     "LOCK=/workspace/.thin-sandbox-prep.lock",
@@ -357,12 +359,21 @@ export function buildThinSandboxPrepScript(opts: SandboxSetupOpts): string {
     "  i=$((i+1)); sleep 1",
     "done",
     'if [ "$HELD" != 1 ]; then echo "sandbox prep lock timed out" >&2; exit 75; fi',
-    'cleanup() { [ "$HELD" = 1 ] && rmdir "$LOCK" 2>/dev/null || true; }',
+    'cleanup() { rm -f "$ENV_SOURCE"; [ "$HELD" = 1 ] && rmdir "$LOCK" 2>/dev/null || true; }',
     "trap cleanup EXIT",
+    "",
+    'test -f "$ENV_SOURCE"',
+    'source "$ENV_SOURCE"',
+    `TOKEN="\${GH_TOKEN:-}"`,
     "",
     'if [ -n "$REPO" ] && [ ! -d /workspace/repo/.git ]; then',
     "  rm -rf /workspace/repo /workspace/repo-tmp",
-    '  git clone --depth 50 "$CLONE_URL" /workspace/repo-tmp',
+    '  if [ -n "$TOKEN" ]; then',
+    "    AUTH_HEADER=\"$(printf 'x-access-token:%s' \"$TOKEN\" | base64 | tr -d '\\n')\"",
+    '    git -c http.extraHeader="AUTHORIZATION: basic $AUTH_HEADER" clone --depth 50 "$CLONE_URL" /workspace/repo-tmp',
+    "  else",
+    '    git clone --depth 50 "$CLONE_URL" /workspace/repo-tmp',
+    "  fi",
     "  rm -rf /workspace/repo",
     "  mv /workspace/repo-tmp /workspace/repo",
     "fi",
@@ -372,10 +383,10 @@ export function buildThinSandboxPrepScript(opts: SandboxSetupOpts): string {
     "fi",
     'if [ -n "$TOKEN" ]; then',
     '  echo "$TOKEN" | gh auth login --with-token',
-    '  [ -d /workspace/repo/.git ] && git -C /workspace/repo remote set-url origin "$CLONE_URL"',
     "fi",
-    `printf '%s' ${shellQuote(envFile)} > /tmp/flue-env.sh.tmp`,
+    'mv "$ENV_SOURCE" /tmp/flue-env.sh.tmp',
     "mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh",
+    "chmod 600 /tmp/flue-env.sh",
     "mkdir -p /workspace/repo/.agents",
     "[ -d /root/.agents/skills ] && cp -R /root/.agents/skills /workspace/repo/.agents/ || true",
     "[ -f /root/AGENTS.md ] && cp /root/AGENTS.md /workspace/repo/AGENTS.md || true",

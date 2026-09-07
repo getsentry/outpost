@@ -30,8 +30,8 @@ export function decideReconciledStatus(read: InProcessHistoryRead, submissionId:
 
 /**
  * Reconcile admitted webhook rows older than `cutoffMs`. Each Flue settlement
- * updates only its matching delivery. Unsettled entries past the cutoff remain a
- * real timeout, whether their history was unavailable or still open.
+ * updates only its matching delivery. Phase 1 has no submission receipt, so it
+ * cannot be settled speculatively and times out visibly at the same cutoff.
  */
 export async function reconcileStuckDispatched(
   env: Env,
@@ -44,7 +44,7 @@ export async function reconcileStuckDispatched(
   const nowSec = Math.floor(scheduledTime / 1000)
 
   const stale = await env.DB.prepare(
-    "SELECT id, entity_key, status FROM webhook_events WHERE status LIKE 'admitted:%' AND dispatched_at IS NOT NULL AND dispatched_at < ? ORDER BY dispatched_at LIMIT ?",
+    "SELECT id, entity_key, status FROM webhook_events WHERE (status IN ('dispatched', 'admitted') OR status LIKE 'admitted:%') AND dispatched_at IS NOT NULL AND dispatched_at < ? ORDER BY dispatched_at LIMIT ?",
   )
     .bind(cutoffSec, maxEntities)
     .all<{ id: string; entity_key: string; status: string }>()
@@ -61,15 +61,18 @@ export async function reconcileStuckDispatched(
   let timedOut = 0
 
   for (const [entityKey, entries] of byEntity) {
-    let read: InProcessHistoryRead
-    try {
-      read = await readFlueHistoryInProcess(env, entityKey)
-    } catch (err) {
-      read = { ok: false, notFound: false, error: err instanceof Error ? err.message : String(err) }
+    let read: InProcessHistoryRead | undefined
+    if (entries.some((entry) => entry.status.startsWith("admitted:"))) {
+      try {
+        read = await readFlueHistoryInProcess(env, entityKey)
+      } catch (err) {
+        read = { ok: false, notFound: false, error: err instanceof Error ? err.message : String(err) }
+      }
     }
     for (const entry of entries) {
       const submissionId = entry.status.slice("admitted:".length)
-      const status = decideReconciledStatus(read, submissionId)
+      const status =
+        read && entry.status.startsWith("admitted:") ? decideReconciledStatus(read, submissionId) : "failed:timeout"
       const res = await env.DB.prepare(
         "UPDATE webhook_events SET status = ?, completed_at = ? WHERE id = ? AND status = ?",
       )

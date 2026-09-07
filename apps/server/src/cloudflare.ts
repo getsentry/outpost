@@ -58,7 +58,7 @@ export default {
       console.warn("webhook_events.reconcile.failed", { error: err instanceof Error ? err.message : String(err) })
       const dispatchedCutoff = Math.floor((controller.scheduledTime - 2 * 60 * 60 * 1000) / 1000)
       const fallback = await env.DB.prepare(
-        "UPDATE webhook_events SET status = 'failed:timeout', completed_at = ? WHERE status LIKE 'admitted:%' AND dispatched_at < ?",
+        "UPDATE webhook_events SET status = 'failed:timeout', completed_at = ? WHERE (status IN ('dispatched', 'admitted') OR status LIKE 'admitted:%') AND dispatched_at < ?",
       )
         .bind(Math.floor(controller.scheduledTime / 1000), dispatchedCutoff)
         .run()

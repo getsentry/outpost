@@ -1,4 +1,4 @@
-import { and, desc, eq, like, sql } from "drizzle-orm"
+import { and, desc, eq, like, or, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import { githubDiscussionObligations, webhookEvents } from "@/db/schema"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
@@ -20,7 +20,7 @@ const router = new Hono<AuthEnv>()
         repo: webhookEvents.repo,
         total: sql<number>`count(*)`,
         pending: sql<number>`sum(case when ${webhookEvents.status} = 'pending' then 1 else 0 end)`,
-        admitted: sql<number>`sum(case when ${webhookEvents.status} like 'admitted%' then 1 else 0 end)`,
+        admitted: sql<number>`sum(case when ${webhookEvents.status} = 'dispatched' or ${webhookEvents.status} like 'admitted%' then 1 else 0 end)`,
         settled: sql<number>`sum(case when ${webhookEvents.status} = 'settled' then 1 else 0 end)`,
         completed: sql<number>`sum(case when ${webhookEvents.status} = 'completed' then 1 else 0 end)`,
         failed: sql<number>`sum(case when ${webhookEvents.status} like 'failed%' then 1 else 0 end)`,
@@ -70,7 +70,7 @@ const router = new Hono<AuthEnv>()
       } else if (status === "d:boot" || status.startsWith("d:")) {
         conditions.push(like(webhookEvents.status, "d:%"))
       } else if (status === "admitted") {
-        conditions.push(like(webhookEvents.status, "admitted%"))
+        conditions.push(or(eq(webhookEvents.status, "dispatched"), like(webhookEvents.status, "admitted%")))
       } else {
         conditions.push(eq(webhookEvents.status, status))
       }
@@ -131,7 +131,7 @@ const router = new Hono<AuthEnv>()
     const now = new Date()
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
 
-    const [totals, recentCount, maintenance] = await Promise.all([
+    const [totals, recentCount] = await Promise.all([
       db
         .select({
           status: webhookEvents.status,
@@ -143,10 +143,15 @@ const router = new Hono<AuthEnv>()
         .select({ count: sql<number>`count(*)` })
         .from(webhookEvents)
         .where(sql`${webhookEvents.createdAt} >= ${Math.floor(oneDayAgo.getTime() / 1000)}`),
-      c.env.DB.prepare(
-        "SELECT cron, scheduled_at, completed_at, outcome FROM maintenance_runs ORDER BY completed_at DESC LIMIT 1",
-      ).first<{ cron: string; scheduled_at: number; completed_at: number; outcome: string }>(),
     ])
+    // A deployment can briefly run newer code before its D1 migration. The
+    // heartbeat is observability only; never make the Events page unavailable
+    // while that migration is being applied.
+    const maintenance = await c.env.DB.prepare(
+      "SELECT cron, scheduled_at, completed_at, outcome FROM maintenance_runs ORDER BY completed_at DESC LIMIT 1",
+    )
+      .first<{ cron: string; scheduled_at: number; completed_at: number; outcome: string }>()
+      .catch(() => null)
 
     let total = 0
     let pending = 0

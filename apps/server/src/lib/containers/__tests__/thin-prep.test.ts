@@ -37,8 +37,16 @@ describe("buildThinSandboxPrepScript", () => {
 
     expect(script).toContain("/tmp/flue-env.sh.tmp")
     expect(script).toContain("mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh")
-    expect(script).toContain("export GH_TOKEN=")
+    expect(script).toContain('source "$ENV_SOURCE"')
     expect(script).not.toContain("grep -v '^export GH_TOKEN='")
+  })
+
+  it("keeps credentials out of the sandbox exec command", () => {
+    const script = buildThinSandboxPrepScript(baseOpts)
+
+    expect(script).not.toContain(baseOpts.installationToken)
+    expect(script).not.toContain(baseOpts.openaiApiKey!)
+    expect(script).toContain('git -c http.extraHeader="AUTHORIZATION: basic $AUTH_HEADER" clone')
   })
 
   it("produces syntactically valid bash", () => {
