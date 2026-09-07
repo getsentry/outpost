@@ -5,6 +5,9 @@ import { getSandbox } from "@cloudflare/sandbox"
 import { type AgentProps, dispatch, useAgentStart, useDelivery, useModel, useSandbox, useSubagent } from "@flue/runtime"
 import { cloudflareSandbox, extend } from "@flue/runtime/cloudflare"
 import * as Sentry from "@sentry/cloudflare"
+import { drizzle } from "drizzle-orm/d1"
+import * as dbSchema from "@/db/schema"
+import { mayRunFollowUp, startAgentGeneration } from "@/lib/agents/lifecycle"
 import { type DoPrepEnv, ensureDoSandboxPrepped } from "@/lib/containers/do-prep"
 import { exploreSubagent } from "./explore.ts"
 import { implementSubagent, workerSubagent } from "./implement.ts"
@@ -14,6 +17,7 @@ import { shipSubagent } from "./ship.ts"
 
 interface Env {
   Sandbox: DurableObjectNamespace
+  DB: D1Database
   SENTRY_DSN?: string
 }
 
@@ -51,11 +55,7 @@ export function Jared({ id }: AgentProps) {
   // first turn so git/gh work. `force` on non-user deliveries also refreshes the
   // ~1h GitHub token for long-delayed follow-ups.
   useAgentStart(async () => {
-    try {
-      await ensureDoSandboxPrepped(env as unknown as DoPrepEnv, id, delivery?.kind !== "user")
-    } catch (err) {
-      console.warn("jared: DO sandbox prep failed", err)
-    }
+    await ensureDoSandboxPrepped(env as unknown as DoPrepEnv, id, delivery?.kind !== "user")
   })
 
   useSubagent(exploreSubagent)
@@ -79,10 +79,17 @@ export const cloudflare = extend({
     class extends Base {
       /** One-shot follow-up (e.g. auto-merge quiet period). */
       async scheduleFollowUp(delaySeconds: number, prompt: string) {
-        await this.schedule(delaySeconds, "runFollowUp", { prompt })
+        const db = drizzle((env as unknown as Env).DB, { schema: dbSchema })
+        const generation = await startAgentGeneration(db, this.name)
+        await this.schedule(delaySeconds, "runFollowUp", { prompt, generation })
       }
 
-      async runFollowUp(payload: { prompt: string }) {
+      async runFollowUp(payload: { prompt: string; generation?: number }) {
+        const db = drizzle((env as unknown as Env).DB, { schema: dbSchema })
+        if (!(await mayRunFollowUp(db, this.name, payload.generation ?? 0))) {
+          console.info("jared: dropped follow-up for destroyed generation", { id: this.name, generation: payload.generation })
+          return
+        }
         await dispatch(Jared, {
           id: this.name,
           message: {

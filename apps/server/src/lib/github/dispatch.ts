@@ -11,6 +11,7 @@ import * as Sentry from "@sentry/cloudflare"
 import { eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
+import { startAgentGeneration } from "@/lib/agents/lifecycle"
 import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
 import { admittedStatus } from "@/lib/events/delivery-status"
 import { dispatchToFlueAgent } from "@/lib/containers/flue-dispatch"
@@ -54,6 +55,7 @@ function isFlueNative(env: Env): boolean {
 export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt: GitHubEventDispatch): Promise<void> {
   const { eventId, containerKey } = evt
   const flueNative = isFlueNative(env)
+  const sandboxId = toAgentInstanceId(containerKey)
 
   const app = createGitHubApp({
     appId: env.GITHUB_APP_ID,
@@ -80,7 +82,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
   }
 
   try {
-    await saveInitialSession(db, containerKey)
+    await Promise.all([startAgentGeneration(db, sandboxId), saveInitialSession(db, containerKey)])
   } catch {
     /* best effort — may conflict with an existing row */
   }
@@ -99,7 +101,6 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
   try {
     logger.info({ entity_key: containerKey, event_id: eventId, flue_native: flueNative }, "dispatch.start")
 
-    const sandboxId = toAgentInstanceId(containerKey)
     const sandbox = getSandbox(env.Sandbox, sandboxId, SANDBOX_OPTS)
 
     await mark("d:boot")

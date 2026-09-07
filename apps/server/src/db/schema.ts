@@ -122,3 +122,11 @@ export const agentSessions = sqliteTable("agent_sessions", {
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 })
+
+/** Durable-run fence for delayed follow-ups after an operator destroys a run. */
+export const agentLifecycle = sqliteTable("agent_lifecycle", {
+  instanceId: text("instance_id").primaryKey(),
+  generation: integer("generation").notNull().default(1),
+  destroyedAt: integer("destroyed_at", { mode: "timestamp" }),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+})
