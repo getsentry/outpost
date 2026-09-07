@@ -9,6 +9,13 @@ import { drizzle } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { mayRunFollowUp, startAgentGeneration } from "@/lib/agents/lifecycle"
 import { type DoPrepEnv, ensureDoSandboxPrepped } from "@/lib/containers/do-prep"
+import { cloudflareSentryOptions } from "@/lib/observability/cloudflare"
+import {
+  classifySandboxPreparationFailure,
+  sandboxPreparationAttributes,
+  workflowCorrelationTags,
+} from "@/lib/observability/sentry"
+import "./sentry.ts"
 import { exploreSubagent } from "./explore.ts"
 import { implementSubagent, workerSubagent } from "./implement.ts"
 import { JARED_INSTRUCTIONS } from "./instructions.ts"
@@ -55,7 +62,28 @@ export function Jared({ id }: AgentProps) {
   // first turn so git/gh work. `force` on non-user deliveries also refreshes the
   // ~1h GitHub token for long-delayed follow-ups.
   useAgentStart(async () => {
-    await ensureDoSandboxPrepped(env as unknown as DoPrepEnv, id, delivery?.kind !== "user")
+    await Sentry.startSpan(
+      {
+        name: "jared.sandbox.prepare",
+        op: "jared.sandbox.prepare",
+        attributes: sandboxPreparationAttributes({
+          source: "durable_object_agent_start",
+          sandboxId: id,
+          entityKey: id,
+          lifecycleStatus: "preparing",
+        }),
+      },
+      async (span) => {
+        try {
+          await ensureDoSandboxPrepped(env as unknown as DoPrepEnv, id, delivery?.kind !== "user")
+          span.setAttribute("jared.sandbox.outcome", "prepared")
+        } catch (error) {
+          span.setAttribute("jared.sandbox.outcome", "failed")
+          span.setAttribute("jared.sandbox.failure_class", classifySandboxPreparationFailure(error))
+          throw error
+        }
+      },
+    )
   })
 
   useSubagent(exploreSubagent)
@@ -81,34 +109,57 @@ export const cloudflare = extend({
       async scheduleFollowUp(delaySeconds: number, prompt: string) {
         const db = drizzle((env as unknown as Env).DB, { schema: dbSchema })
         const generation = await startAgentGeneration(db, this.name)
-        await this.schedule(delaySeconds, "runFollowUp", { prompt, generation })
+        await Sentry.startSpan(
+          {
+            name: "jared.follow_up.schedule",
+            op: "jared.follow_up.schedule",
+            attributes: workflowCorrelationTags({
+              source: "durable_object_schedule",
+              entityKey: this.name,
+              generation,
+              lifecycleStatus: "scheduled",
+            }),
+          },
+          () => this.schedule(delaySeconds, "runFollowUp", { prompt, generation }),
+        )
       }
 
       async runFollowUp(payload: { prompt: string; generation?: number }) {
         const db = drizzle((env as unknown as Env).DB, { schema: dbSchema })
-        if (!(await mayRunFollowUp(db, this.name, payload.generation ?? 0))) {
-          console.info("jared: dropped follow-up for destroyed generation", {
-            id: this.name,
-            generation: payload.generation,
-          })
-          return
-        }
-        await dispatch(Jared, {
-          id: this.name,
-          message: {
-            kind: "signal",
-            type: "schedule",
-            body: payload.prompt,
-            attributes: { scheduledAt: new Date().toISOString() },
+        await Sentry.startSpan(
+          {
+            name: "jared.follow_up.admit",
+            op: "jared.follow_up.admit",
+            attributes: workflowCorrelationTags({
+              source: "durable_object_follow_up",
+              entityKey: this.name,
+              generation: payload.generation,
+              lifecycleStatus: "admitting",
+            }),
           },
-        })
+          async (span) => {
+            if (!(await mayRunFollowUp(db, this.name, payload.generation ?? 0))) {
+              span.setAttribute("jared.lifecycle_status", "dropped")
+              console.info("jared: dropped follow-up for destroyed generation", {
+                id: this.name,
+                generation: payload.generation,
+              })
+              return
+            }
+            await dispatch(Jared, {
+              id: this.name,
+              message: {
+                kind: "signal",
+                type: "schedule",
+                body: payload.prompt,
+                attributes: { scheduledAt: new Date().toISOString() },
+              },
+            })
+            span.setAttribute("jared.lifecycle_status", "admitted")
+          },
+        )
       }
     },
   wrap: (Final) =>
-    Sentry.instrumentDurableObjectWithSentry(
-      (bindings: Env) => ({
-        dsn: bindings.SENTRY_DSN,
-      }),
-      Final,
-    ),
+    Sentry.instrumentDurableObjectWithSentry((bindings: Env) => cloudflareSentryOptions(bindings), Final),
 })

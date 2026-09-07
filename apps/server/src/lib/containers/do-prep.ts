@@ -24,8 +24,6 @@ export type DoPrepEnv = {
   OPENROUTER_API_KEY?: string
   ANTHROPIC_API_KEY?: string
   OPENAI_API_KEY?: string
-  SENTRY_DSN?: string
-  SENTRY_AUTH_TOKEN?: string
   APP_URL?: string
   LORE_GATEWAY_URL?: string
 }
@@ -112,8 +110,6 @@ export async function ensureDoSandboxPrepped(env: DoPrepEnv, instanceId: string,
     openrouterApiKey: env.OPENROUTER_API_KEY,
     anthropicApiKey: env.ANTHROPIC_API_KEY,
     openaiApiKey: env.OPENAI_API_KEY,
-    sentryDsn: env.SENTRY_DSN,
-    sentryAuthToken: env.SENTRY_AUTH_TOKEN,
     appUrl: env.APP_URL,
     thinSandbox: true,
     loreGatewayUrl: env.LORE_GATEWAY_URL,

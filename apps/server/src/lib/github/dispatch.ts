@@ -22,6 +22,11 @@ import { listOpenDiscussionObligations } from "@/lib/github/discussion-store"
 import { extractDiscussionPrNumber, formatDiscussionInbox } from "@/lib/github/discussions"
 import { classifyModelTier } from "@/lib/github/model-tier"
 import { formatEventPrompt } from "@/lib/github/prompt"
+import {
+  classifySandboxPreparationFailure,
+  sandboxPreparationAttributes,
+  workflowCorrelationTags,
+} from "@/lib/observability/sentry"
 import type { BaseEnvBindings } from "@/types/env/base"
 
 type Env = BaseEnvBindings["Bindings"]
@@ -106,21 +111,41 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     await mark("d:boot")
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.start")
     const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
-    await ensureSandboxReady(sandbox, {
-      repo: evt.repo,
-      botLogin,
-      installationToken,
-      openrouterApiKey: env.OPENROUTER_API_KEY,
-      anthropicApiKey: env.ANTHROPIC_API_KEY,
-      openaiApiKey: env.OPENAI_API_KEY,
-      sentryDsn: env.SENTRY_DSN,
-      sentryAuthToken: env.SENTRY_AUTH_TOKEN,
-      entityKey: containerKey,
-      appUrl: env.APP_URL,
-      thinSandbox: flueNative,
-      loreGatewayUrl: env.LORE_GATEWAY_URL,
-      flueInternalToken: (await resolveFlueInternalToken(env)) ?? undefined,
-    })
+    await Sentry.startSpan(
+      {
+        name: "jared.sandbox.prepare",
+        op: "jared.sandbox.prepare",
+        attributes: sandboxPreparationAttributes({
+          source: "worker_dispatch",
+          sandboxId,
+          entityKey: containerKey,
+          eventId,
+          lifecycleStatus: "preparing",
+        }),
+      },
+      async (span) => {
+        try {
+          await ensureSandboxReady(sandbox, {
+            repo: evt.repo,
+            botLogin,
+            installationToken,
+            openrouterApiKey: env.OPENROUTER_API_KEY,
+            anthropicApiKey: env.ANTHROPIC_API_KEY,
+            openaiApiKey: env.OPENAI_API_KEY,
+            entityKey: containerKey,
+            appUrl: env.APP_URL,
+            thinSandbox: flueNative,
+            loreGatewayUrl: env.LORE_GATEWAY_URL,
+            flueInternalToken: (await resolveFlueInternalToken(env)) ?? undefined,
+          })
+          span.setAttribute("jared.sandbox.outcome", "prepared")
+        } catch (error) {
+          span.setAttribute("jared.sandbox.outcome", "failed")
+          span.setAttribute("jared.sandbox.failure_class", classifySandboxPreparationFailure(error))
+          throw error
+        }
+      },
+    )
     await mark("d:setup_done")
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.done")
 
@@ -159,7 +184,25 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     let submissionId: string | undefined
     if (flueNative) {
       // Phase 2: admit into the Flue Durable Object (agent attaches the sandbox itself).
-      const receipt = await dispatchToFlueAgent(env, { entityKey: containerKey, prompt, logger })
+      const receipt = await Sentry.startSpan(
+        {
+          name: "jared.flue.admit",
+          op: "jared.flue.admit",
+          attributes: workflowCorrelationTags({
+            source: "worker_dispatch",
+            entityKey: containerKey,
+            eventId,
+            lifecycleStatus: "admitting",
+            sandboxId,
+          }),
+        },
+        async (span) => {
+          const admitted = await dispatchToFlueAgent(env, { entityKey: containerKey, prompt, logger })
+          if (admitted.submissionId) span.setAttribute("flue.submission.id", admitted.submissionId)
+          span.setAttribute("jared.lifecycle_status", "admitted")
+          return admitted
+        },
+      )
       submissionId = receipt.submissionId
     } else {
       // Phase 1: container-side Flue HTTP admit via background script.
@@ -171,13 +214,27 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     const now = new Date()
     await db
       .update(dbSchema.webhookEvents)
-      .set({ status: admittedStatus(submissionId), dispatchedAt: now })
+      // Keep the returned Flue identifier in its own immutable field. Status
+      // is intentionally mutable (admitted -> settled/failed), so it cannot
+      // safely be used to recover correlation in the Durable Object later.
+      .set({ status: admittedStatus(submissionId), flueSubmissionId: submissionId ?? null, dispatchedAt: now })
       .where(eq(dbSchema.webhookEvents.id, eventId))
 
     logger.info({ entity_key: containerKey, event_id: eventId, submission_id: submissionId }, "event admitted to agent")
   } catch (err) {
     logger.error({ entity_key: containerKey, event_id: eventId, reason: formatError(err) }, "dispatch failed")
-    Sentry.captureException(err)
+    Sentry.withScope((scope) => {
+      scope.setTags(
+        workflowCorrelationTags({
+          source: "worker_dispatch",
+          entityKey: containerKey,
+          eventId,
+          sandboxId,
+          lifecycleStatus: "failed",
+        }),
+      )
+      Sentry.captureException(err)
+    })
     try {
       // Persist a short error snippet into status so failures are visible in D1
       // even if Sentry capture is not wired for this Worker.

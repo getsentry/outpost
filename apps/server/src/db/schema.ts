@@ -68,11 +68,17 @@ export const webhookEvents = sqliteTable(
     installationId: integer("installation_id"),
     payload: text("payload").notNull(),
     status: text("status").notNull().default("pending"),
+    // Immutable correlation anchor for the asynchronous Worker -> Flue handoff.
+    // Lifecycle status deliberately changes after admission; this value does not.
+    flueSubmissionId: text("flue_submission_id"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     dispatchedAt: integer("dispatched_at", { mode: "timestamp" }),
     completedAt: integer("completed_at", { mode: "timestamp" }),
   },
-  (table) => [index("idx_webhook_events_entity_status").on(table.entityKey, table.status)],
+  (table) => [
+    index("idx_webhook_events_entity_status").on(table.entityKey, table.status),
+    uniqueIndex("idx_webhook_events_flue_submission_id").on(table.flueSubmissionId),
+  ],
 )
 
 export const githubDiscussionObligations = sqliteTable(

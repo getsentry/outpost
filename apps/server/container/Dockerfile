@@ -50,8 +50,8 @@ RUN npm install -g n \
  && node --version && pnpm --version
 
 # --- Sentry CLI ---
-# Used for issue/trace debugging inside the sandbox. Auth is injected at runtime
-# via SENTRY_AUTH_TOKEN in /tmp/flue-env.sh (see writeEnvFile).
+# Available for local diagnostics only. The Worker never injects a Sentry auth
+# token or DSN into cloned repositories or sandbox processes.
 #
 # Pin the version so the installer skips its `releases/latest` GitHub API lookup.
 # That call gets rate-limited (HTTP 403) from shared CI/build egress IPs, which

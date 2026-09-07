@@ -19,6 +19,7 @@ import { requestId } from "hono/request-id"
 import { secureHeaders } from "hono/secure-headers"
 import { Jared } from "./agents/jared.ts"
 import { registerLoreOpenRouterProvider } from "./lib/lore/provider.ts"
+import { cloudflareSentryOptions } from "./lib/observability/cloudflare.ts"
 import { auth, base, rateLimit, requireUserOrInternalToken } from "./middlewares"
 import router from "./routes"
 import type { BaseEnvBindings } from "./types/env/base"
@@ -47,6 +48,9 @@ const app = new Hono<BaseEnvBindings>()
         return ""
       },
       credentials: true,
+      // Browser tracing propagation to Jared's API needs these headers to
+      // survive development cross-origin requests as well as production.
+      allowHeaders: ["Content-Type", "Authorization", "sentry-trace", "baggage"],
     }),
     secureHeaders(),
     contextStorage(),
@@ -66,11 +70,7 @@ const app = new Hono<BaseEnvBindings>()
       level: c.env.ENV === "development" ? "debug" : "info",
     })
 
-    if (c.env.ENV === "development") {
-      log.error({ error: formatError(err) }, "unhandled error")
-    } else {
-      Sentry.captureException(err)
-    }
+    if (c.env.ENV === "development") log.error({ error: formatError(err) }, "unhandled error")
 
     if (err instanceof HTTPException) {
       return err.getResponse()
@@ -82,4 +82,4 @@ const app = new Hono<BaseEnvBindings>()
 export type AppType = typeof app
 
 /** Flue's generated Worker entry uses this as the fetch handler. */
-export default Sentry.withSentry((env: BaseEnvBindings["Bindings"]) => ({ dsn: env.SENTRY_DSN }), app)
+export default Sentry.withSentry((env: BaseEnvBindings["Bindings"]) => cloudflareSentryOptions(env), app)

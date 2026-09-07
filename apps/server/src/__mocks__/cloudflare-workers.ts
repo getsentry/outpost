@@ -11,6 +11,9 @@ export class DurableObject {
   }
 }
 
+/** Mutable module binding used by agent modules in unit tests. */
+export const env: Record<string, unknown> = {}
+
 export class WorkerEntrypoint {
   ctx: unknown
   env: unknown
