@@ -49,7 +49,9 @@ function StatsCards() {
       <div className="flex items-center justify-end">
         <div className="flex items-center gap-3">
           <span className="text-xs text-muted-foreground">
-            {stats?.maintenance ? `Scheduler ran ${formatTimeAgo(stats.maintenance.completedAt)}` : "Scheduler has not reported"}
+            {stats?.maintenance
+              ? `Scheduler ran ${formatTimeAgo(stats.maintenance.completedAt)}`
+              : "Scheduler has not reported"}
           </span>
           <LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
         </div>

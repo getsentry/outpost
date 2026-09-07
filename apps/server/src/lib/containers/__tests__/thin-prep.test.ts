@@ -25,7 +25,7 @@ describe("buildThinSandboxPrepScript", () => {
     const script = buildThinSandboxPrepScript(baseOpts)
 
     expect(script).toContain("LOCK=/workspace/.thin-sandbox-prep.lock")
-    expect(script).toContain('trap cleanup EXIT')
+    expect(script).toContain("trap cleanup EXIT")
     expect(script).toContain("git clone --depth 50")
     expect(script).toContain("gh auth login --with-token")
     expect(script).toContain("cp -R /root/.agents/skills")

@@ -87,7 +87,10 @@ export const cloudflare = extend({
       async runFollowUp(payload: { prompt: string; generation?: number }) {
         const db = drizzle((env as unknown as Env).DB, { schema: dbSchema })
         if (!(await mayRunFollowUp(db, this.name, payload.generation ?? 0))) {
-          console.info("jared: dropped follow-up for destroyed generation", { id: this.name, generation: payload.generation })
+          console.info("jared: dropped follow-up for destroyed generation", {
+            id: this.name,
+            generation: payload.generation,
+          })
           return
         }
         await dispatch(Jared, {

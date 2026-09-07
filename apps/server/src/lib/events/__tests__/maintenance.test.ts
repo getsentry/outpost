@@ -8,10 +8,14 @@ describe("recordMaintenanceRun", () => {
     const prepare = vi.fn().mockReturnValue({ bind })
     const scheduledAt = Date.UTC(2026, 8, 7, 6, 0, 0)
 
-    await recordMaintenanceRun(
-      { prepare } as unknown as D1Database,
-      { cron: "*/15 * * * *", scheduledAt, deleted: 9, timedOut: 2, settled: 3, discussionRetries: 1 },
-    )
+    await recordMaintenanceRun({ prepare } as unknown as D1Database, {
+      cron: "*/15 * * * *",
+      scheduledAt,
+      deleted: 9,
+      timedOut: 2,
+      settled: 3,
+      discussionRetries: 1,
+    })
 
     expect(prepare).toHaveBeenCalledWith(
       "INSERT INTO maintenance_runs (id, cron, scheduled_at, completed_at, outcome) VALUES (?, ?, ?, ?, ?)",

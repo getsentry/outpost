@@ -56,7 +56,6 @@ import {
   countSessionMessages,
   demoteBusyStatusesToIdle,
   deriveDisplayStatus,
-  deriveOverallStatus,
   isStaleBusy,
   mergeSessionData,
   SANDBOX_RUNTIME_NOTE,
