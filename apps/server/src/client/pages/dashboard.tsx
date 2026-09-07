@@ -47,7 +47,12 @@ function StatsCards() {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-end">
-        <LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-muted-foreground">
+            {stats?.maintenance ? `Scheduler ran ${formatTimeAgo(stats.maintenance.completedAt)}` : "Scheduler has not reported"}
+          </span>
+          <LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
+        </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {cards.map((card) => (

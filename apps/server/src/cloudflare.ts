@@ -10,6 +10,7 @@
  */
 
 import { retryOpenDiscussionObligations } from "./lib/events/discussion-retry.ts"
+import { recordMaintenanceRun } from "./lib/events/maintenance.ts"
 import { reconcileStuckDispatched } from "./lib/events/reconcile.ts"
 import { deleteExpiredWebhookEvents } from "./lib/events/retention.ts"
 import type { BaseEnvBindings } from "./types/env/base.ts"
@@ -75,5 +76,18 @@ export default {
       actionableRetentionHours: 24,
       skippedRetentionHours: 6,
     })
+
+    try {
+      await recordMaintenanceRun(env.DB, {
+        cron: controller.cron,
+        scheduledAt: controller.scheduledTime,
+        deleted,
+        timedOut: (stuck.meta.changes ?? 0) + reconciled.timedOut,
+        settled: reconciled.settled,
+        discussionRetries: discussionRetries.retried,
+      })
+    } catch (err) {
+      console.warn("maintenance_runs.record.failed", { error: err instanceof Error ? err.message : String(err) })
+    }
   },
 }

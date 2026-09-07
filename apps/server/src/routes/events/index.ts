@@ -131,7 +131,7 @@ const router = new Hono<AuthEnv>()
     const now = new Date()
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
 
-    const [totals, recentCount] = await Promise.all([
+    const [totals, recentCount, maintenance] = await Promise.all([
       db
         .select({
           status: webhookEvents.status,
@@ -143,6 +143,9 @@ const router = new Hono<AuthEnv>()
         .select({ count: sql<number>`count(*)` })
         .from(webhookEvents)
         .where(sql`${webhookEvents.createdAt} >= ${Math.floor(oneDayAgo.getTime() / 1000)}`),
+      c.env.DB.prepare(
+        "SELECT cron, scheduled_at, completed_at, outcome FROM maintenance_runs ORDER BY completed_at DESC LIMIT 1",
+      ).first<{ cron: string; scheduled_at: number; completed_at: number; outcome: string }>(),
     ])
 
     let total = 0
@@ -174,6 +177,14 @@ const router = new Hono<AuthEnv>()
       stuck,
       skipped,
       last24h: recentCount[0]?.count ?? 0,
+      maintenance: maintenance
+        ? {
+            cron: maintenance.cron,
+            scheduledAt: new Date(maintenance.scheduled_at * 1000).toISOString(),
+            completedAt: new Date(maintenance.completed_at * 1000).toISOString(),
+            outcome: maintenance.outcome,
+          }
+        : null,
     })
   })
   .get("/:id", async (c) => {

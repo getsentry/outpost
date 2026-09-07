@@ -102,6 +102,12 @@ export type EventStats = {
   stuck: number
   skipped: number
   last24h: number
+  maintenance: {
+    cron: string
+    scheduledAt: string
+    completedAt: string
+    outcome: string
+  } | null
 }
 
 export type SessionListItem = {

@@ -130,3 +130,12 @@ export const agentLifecycle = sqliteTable("agent_lifecycle", {
   destroyedAt: integer("destroyed_at", { mode: "timestamp" }),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 })
+
+/** Recent cron executions, used to detect a disabled or failing scheduler. */
+export const maintenanceRuns = sqliteTable("maintenance_runs", {
+  id: text("id").primaryKey(),
+  cron: text("cron").notNull(),
+  scheduledAt: integer("scheduled_at", { mode: "timestamp" }).notNull(),
+  completedAt: integer("completed_at", { mode: "timestamp" }).notNull(),
+  outcome: text("outcome").notNull(),
+})
