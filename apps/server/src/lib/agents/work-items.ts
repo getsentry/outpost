@@ -43,6 +43,12 @@ export type AgentWorkRecordInput = {
 /** Human input is operational state, not a transcript. Keep its size bounded. */
 export const MAX_WORK_GOAL_LENGTH = 8_000
 
+/** Bound a resumed turn even if a busy PR receives many long-lived requests. */
+export const MAX_EXECUTION_CONTRACT_LENGTH = 16_000
+
+/** Avoid an unbounded D1 read before the prompt formatter applies its byte cap. */
+export const MAX_OPEN_WORK_ITEMS = 25
+
 type Db = DrizzleD1Database<typeof dbSchema>
 
 export function makeAgentWorkRecord(input: AgentWorkRecordInput) {
@@ -66,22 +72,30 @@ export function makeAgentWorkRecord(input: AgentWorkRecordInput) {
   }
 }
 
-/** Stable source identity shared by webhook admission and GitHub verification. */
-export function githubDiscussionWorkSourceId(kind: string, sourceCommentId: string): string {
+/** Stable source identity shared by GitHub admission and completion evidence. */
+export function githubWorkSourceId(kind: string, sourceCommentId: string): string {
   return `${kind}:${sourceCommentId}`
 }
 
 /**
- * A GitHub redelivery must not reset a task that has already progressed. The
- * unique source key makes admission idempotent while preserving its first goal.
+ * A GitHub redelivery or edit must not reset a task that has already progressed.
+ * The unique source key refreshes the human's latest wording without changing
+ * the stage or completion evidence.
  */
 export async function recordAgentWork(db: Db, input: AgentWorkRecordInput): Promise<void> {
   const record = makeAgentWorkRecord(input)
   await db
     .insert(dbSchema.agentWorkItems)
     .values(record)
-    .onConflictDoNothing({
+    .onConflictDoUpdate({
       target: [dbSchema.agentWorkItems.repo, dbSchema.agentWorkItems.sourceKind, dbSchema.agentWorkItems.sourceId],
+      set: {
+        workKey: record.workKey,
+        entityKey: record.entityKey,
+        goal: record.goal,
+        targetPrNumber: record.targetPrNumber,
+        updatedAt: record.updatedAt,
+      },
     })
 }
 
@@ -108,6 +122,7 @@ export async function listOpenAgentWork(
       ),
     )
     .orderBy(asc(dbSchema.agentWorkItems.createdAt))
+    .limit(MAX_OPEN_WORK_ITEMS)
 
   return rows.map((row) => ({
     id: row.id,
@@ -129,13 +144,13 @@ export async function completeAgentWorkFromGitHubDiscussion(
       and(
         eq(dbSchema.agentWorkItems.repo, opts.repo),
         eq(dbSchema.agentWorkItems.sourceKind, "github"),
-        eq(dbSchema.agentWorkItems.sourceId, githubDiscussionWorkSourceId(opts.kind, opts.sourceCommentId)),
+        eq(dbSchema.agentWorkItems.sourceId, githubWorkSourceId(opts.kind, opts.sourceCommentId)),
         notInArray(dbSchema.agentWorkItems.stage, ["completed", "cancelled"]),
       ),
     )
 }
 
-export async function cancelAgentWorkFromGitHubDiscussion(
+export async function cancelAgentWorkFromGitHubSource(
   db: Db,
   opts: { repo: string; kind: string; sourceCommentId: string; now?: Date },
 ): Promise<void> {
@@ -147,7 +162,7 @@ export async function cancelAgentWorkFromGitHubDiscussion(
       and(
         eq(dbSchema.agentWorkItems.repo, opts.repo),
         eq(dbSchema.agentWorkItems.sourceKind, "github"),
-        eq(dbSchema.agentWorkItems.sourceId, githubDiscussionWorkSourceId(opts.kind, opts.sourceCommentId)),
+        eq(dbSchema.agentWorkItems.sourceId, githubWorkSourceId(opts.kind, opts.sourceCommentId)),
         notInArray(dbSchema.agentWorkItems.stage, ["completed", "cancelled"]),
       ),
     )
@@ -172,17 +187,28 @@ export function canonicalWorkKey(opts: { repo: string; entityKey: string; prNumb
 export function formatExecutionContract(items: ExecutionContractItem[]): string {
   if (items.length === 0) return ""
 
-  const work = items
-    .map((item) => {
-      const target = item.targetPrNumber ? `\n  Target pull request: #${item.targetPrNumber}` : ""
-      return `- Work ${item.id} [${item.stage}]${target}\n  Goal: ${item.goal}`
-    })
-    .join("\n")
+  const header = `## Durable execution contract
 
-  return `## Durable execution contract
+The following human-requested work is still open. Continue it in the listed
+order before treating the event as informational. Do not replace this with a status-only reply: inspect, make the requested change when authorized, validate it, and leave the relevant remote artifact or a concrete blocker.
 
-The following human-requested work is still open. Continue the highest-priority
-applicable item before treating the event as informational. Do not replace this with a status-only reply: inspect, make the requested change when authorized, validate it, and leave the relevant remote artifact or a concrete blocker.
+`
+  const overflowNote = "\n\nAdditional open work remains; finish or unblock the listed work, then reload the contract."
+  const rendered: string[] = []
+  for (const item of items) {
+    const target = item.targetPrNumber ? `\n  Target pull request: #${item.targetPrNumber}` : ""
+    const entry = `- Work ${item.id} [${item.stage}]${target}\n  Goal: ${item.goal}`
+    if (
+      header.length + rendered.join("\n").length + entry.length + overflowNote.length >
+      MAX_EXECUTION_CONTRACT_LENGTH
+    ) {
+      break
+    }
+    rendered.push(entry)
+  }
 
-${work}`
+  const remaining = items.length - rendered.length
+  const overflow = remaining > 0 ? overflowNote : ""
+
+  return `${header}${rendered.join("\n")}${overflow}`
 }

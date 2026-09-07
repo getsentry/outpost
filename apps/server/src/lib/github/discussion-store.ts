@@ -1,7 +1,7 @@
 import { and, asc, eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
-import { cancelAgentWorkFromGitHubDiscussion, completeAgentWorkFromGitHubDiscussion } from "@/lib/agents/work-items"
+import { cancelAgentWorkFromGitHubSource, completeAgentWorkFromGitHubDiscussion } from "@/lib/agents/work-items"
 import {
   type DiscussionObligation,
   type DiscussionResponseEvidence,
@@ -132,7 +132,7 @@ export async function cancelDiscussionObligation(
       ),
     )
 
-  await cancelAgentWorkFromGitHubDiscussion(db, {
+  await cancelAgentWorkFromGitHubSource(db, {
     repo,
     kind: source.kind,
     sourceCommentId: source.sourceCommentId,

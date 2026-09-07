@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { classifyModelTier, isExecutionRequest } from "../model-tier"
+import { classifyModelTier, isDurableExecutionRequest, isExecutionRequest } from "../model-tier"
 
 const json = (o: unknown) => JSON.stringify(o)
 
@@ -7,6 +7,8 @@ describe("classifyModelTier", () => {
   it("recognizes explicit operator work without treating a status question as execution", () => {
     expect(isExecutionRequest("Please investigate the failing CI job and propose a fix.")).toBe(true)
     expect(isExecutionRequest("What is the status of this PR?")).toBe(false)
+    expect(isDurableExecutionRequest("Please fix the failing CI job.")).toBe(true)
+    expect(isDurableExecutionRequest("Please investigate the failing CI job and report the findings.")).toBe(false)
   })
 
   it("marks PR review activity as light (respond-to-comment)", () => {

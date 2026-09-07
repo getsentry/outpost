@@ -33,6 +33,18 @@ describe("Jared autonomy contract", () => {
     )
   })
 
+  it("gives durable human work priority over normal webhook triage", () => {
+    const flueInstructions = readFileSync(
+      new URL("../../../container/flue/src/agents/instructions.ts", import.meta.url),
+      "utf8",
+    )
+
+    expect(JARED_INSTRUCTIONS).toContain("Durable execution exception")
+    expect(JARED_INSTRUCTIONS).toContain("Do not substitute a status-only reply")
+    expect(JARED_INSTRUCTIONS).toContain("Completion needs the relevant remote artifact")
+    expect(flueInstructions).toContain("Durable execution exception")
+  })
+
   it("routes a direct mention on an unlabelled issue to Jared instead of skipping it", () => {
     expect(JARED_INSTRUCTIONS).toContain("nor directly mentions `$ME`")
     expect(JARED_INSTRUCTIONS).toContain("`issue_comment` on an issue that directly mentions `$ME`")

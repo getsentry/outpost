@@ -10,7 +10,12 @@ import * as Sentry from "@sentry/cloudflare"
 import { and, eq, gt, inArray, like, or } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
-import { canonicalWorkKey, githubDiscussionWorkSourceId, recordAgentWork } from "@/lib/agents/work-items"
+import {
+  cancelAgentWorkFromGitHubSource,
+  canonicalWorkKey,
+  githubWorkSourceId,
+  recordAgentWork,
+} from "@/lib/agents/work-items"
 import {
   ciStillRunning,
   classifyCiEvent,
@@ -33,7 +38,7 @@ import {
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
 import { deriveGitHubInvolvement, shouldAdmitGitHubEvent } from "@/lib/github/involvement"
-import { classifyModelTier } from "@/lib/github/model-tier"
+import { isDurableExecutionRequest } from "@/lib/github/model-tier"
 import { acknowledgeGitHubEvent } from "@/lib/github/reactions"
 import type { BaseEnv } from "@/types"
 
@@ -342,6 +347,23 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
     }
   }
 
+  const removedIssueWork =
+    event === "issue_comment" && action === "deleted" && lookup(payload, "issue.pull_request") == null
+      ? lookup(payload, "comment.id")
+      : null
+  if ((typeof removedIssueWork === "string" || typeof removedIssueWork === "number") && repo) {
+    try {
+      await cancelAgentWorkFromGitHubSource(db, {
+        repo,
+        kind: "issue",
+        sourceCommentId: String(removedIssueWork),
+      })
+    } catch (err) {
+      logger.error({ delivery_id: deliveryId, reason: formatError(err) }, "issue work cancellation failed")
+      Sentry.captureException(err)
+    }
+  }
+
   // Make the PR discussion durable before handing it to the agent. The live
   // conversation may compact or receive later CI activity; the inbox is the
   // durable source of every reply Jared still owes.
@@ -362,14 +384,14 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
     // A direct human request to change, review, or continue a PR is work, not
     // merely a discussion reply. Persist it independently of reply-inbox
     // storage: one unavailable table must not let compaction erase the task.
-    if (classifyModelTier(event, action, rawBody) === "heavy") {
+    if (isDurableExecutionRequest(discussion.body)) {
       try {
         await recordAgentWork(db, {
           workKey: canonicalWorkKey({ repo, entityKey: containerKey, prNumber: discussion.prNumber }),
           entityKey: containerKey,
           repo,
           sourceKind: "github",
-          sourceId: githubDiscussionWorkSourceId(discussion.kind, discussion.sourceCommentId),
+          sourceId: githubWorkSourceId(discussion.kind, discussion.sourceCommentId),
           goal: discussion.body,
           targetPrNumber: discussion.prNumber,
         })
@@ -377,6 +399,37 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
         logger.error({ delivery_id: deliveryId, reason: formatError(err) }, "agent work persistence failed")
         Sentry.captureException(err)
       }
+    }
+  }
+
+  // Issue comments do not create PR discussion obligations, but a direct
+  // implementation request must survive the same compaction/retry boundary.
+  // Keep ordinary status questions ephemeral; only explicit work becomes a
+  // durable item.
+  const issueCommentId = event === "issue_comment" ? lookup(payload, "comment.id") : null
+  const issueCommentBody = event === "issue_comment" ? lookupString(payload, "comment.body")?.trim() : null
+  const isPlainIssueComment = event === "issue_comment" && lookup(payload, "issue.pull_request") == null
+  if (
+    !isSkipped &&
+    entityKey &&
+    repo &&
+    isPlainIssueComment &&
+    (typeof issueCommentId === "string" || typeof issueCommentId === "number") &&
+    issueCommentBody &&
+    isDurableExecutionRequest(issueCommentBody)
+  ) {
+    try {
+      await recordAgentWork(db, {
+        workKey: canonicalWorkKey({ repo, entityKey: containerKey }),
+        entityKey: containerKey,
+        repo,
+        sourceKind: "github",
+        sourceId: githubWorkSourceId("issue", String(issueCommentId)),
+        goal: issueCommentBody,
+      })
+    } catch (err) {
+      logger.error({ delivery_id: deliveryId, reason: formatError(err) }, "issue work persistence failed")
+      Sentry.captureException(err)
     }
   }
 

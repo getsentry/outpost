@@ -22,9 +22,20 @@ const REVIEW_EVENTS = new Set(["pull_request_review", "pull_request_review_comme
 const EXECUTION_REQUEST =
   /\b(?:fix|implement|change|update|refactor|resolve|resume|continue|review|take control|commit|push|ship|merge|investigate|analyze|diagnose|plan)\b/i
 
+// A model may need the heavy tier to investigate or plan, but only a request
+// that calls for a concrete repository/GitHub action belongs in the durable
+// completion ledger. Otherwise a one-turn answer would be resurrected as a
+// stale unfinished task on the next delivery.
+const DURABLE_EXECUTION_REQUEST =
+  /\b(?:fix|implement|change|update|refactor|resolve|resume|continue|review|take control|commit|push|ship|merge)\b/i
+
 /** True when a human message asks Jared to perform work rather than report status. */
 export function isExecutionRequest(text: string): boolean {
   return EXECUTION_REQUEST.test(text)
+}
+
+export function isDurableExecutionRequest(text: string): boolean {
+  return DURABLE_EXECUTION_REQUEST.test(text)
 }
 
 function humanRequestText(event: string, payload: Record<string, unknown>): string {

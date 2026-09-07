@@ -64,7 +64,7 @@ import {
   summarizeSession,
 } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
-import { isExecutionRequest } from "@/lib/github/model-tier"
+import { isDurableExecutionRequest } from "@/lib/github/model-tier"
 import { formatChatPrompt } from "@/lib/github/prompt"
 import { isAuthenticated } from "@/middlewares"
 import { requireUserOrInternalToken } from "@/middlewares/flue-auth"
@@ -805,7 +805,7 @@ const router = new Hono<BaseEnv>()
     // Preserve imperative operator work outside the compactable conversation.
     // A status question continues as a normal chat turn and does not create a
     // stale task that a future event would accidentally resume.
-    if (repo && isExecutionRequest(text)) {
+    if (repo && isDurableExecutionRequest(text)) {
       try {
         const workKey = canonicalWorkKey({ repo, entityKey })
         await recordAgentWork(db, {
@@ -910,7 +910,7 @@ const router = new Hono<BaseEnv>()
     await saveInitialSession(db, entityKey)
 
     let executionContract = ""
-    if (isExecutionRequest(text)) {
+    if (isDurableExecutionRequest(text)) {
       try {
         const workKey = canonicalWorkKey({ repo, entityKey })
         await recordAgentWork(db, {

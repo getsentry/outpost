@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   canonicalWorkKey,
   formatExecutionContract,
-  githubDiscussionWorkSourceId,
+  githubWorkSourceId,
   isTerminalWorkStage,
   makeAgentWorkRecord,
 } from "../work-items"
@@ -34,14 +34,30 @@ describe("agent work items", () => {
     expect(contract).toContain("Target pull request: #42")
   })
 
+  it("bounds a busy workstream's reinjected contract without dropping the oldest task", () => {
+    const contract = formatExecutionContract(
+      Array.from({ length: 30 }, (_, index) => ({
+        id: `work-${index}`,
+        goal: "x".repeat(2_000),
+        stage: "queued" as const,
+        targetPrNumber: null,
+      })),
+    )
+
+    expect(contract).toContain("Work work-0")
+    expect(contract).toContain("Additional open work remains")
+    expect(contract.length).toBeLessThanOrEqual(16_000)
+  })
+
   it("does not treat transport progress as completed work", () => {
     expect(isTerminalWorkStage("awaiting_ci")).toBe(false)
     expect(isTerminalWorkStage("completed")).toBe(true)
     expect(isTerminalWorkStage("cancelled")).toBe(true)
   })
 
-  it("uses one stable source identity for a GitHub discussion and its completion receipt", () => {
-    expect(githubDiscussionWorkSourceId("inline", "99")).toBe("inline:99")
+  it("uses one stable source identity for GitHub work and its completion receipt", () => {
+    expect(githubWorkSourceId("inline", "99")).toBe("inline:99")
+    expect(githubWorkSourceId("issue", "100")).toBe("issue:100")
   })
 
   it("stores a bounded human goal and starts new work queued", () => {
