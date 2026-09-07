@@ -24,6 +24,7 @@ import { Hono } from "hono"
 import { streamSSE } from "hono/streaming"
 import * as dbSchema from "@/db/schema"
 import { destroyAgentGeneration } from "@/lib/agents/lifecycle"
+import { canonicalWorkKey, formatExecutionContract, listOpenAgentWork, recordAgentWork } from "@/lib/agents/work-items"
 import {
   CHAT_STARTING_WINDOW_MS,
   createChatEntityKey,
@@ -63,6 +64,7 @@ import {
   summarizeSession,
 } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
+import { isExecutionRequest } from "@/lib/github/model-tier"
 import { formatChatPrompt } from "@/lib/github/prompt"
 import { isAuthenticated } from "@/middlewares"
 import { requireUserOrInternalToken } from "@/middlewares/flue-auth"
@@ -797,6 +799,29 @@ const router = new Hono<BaseEnv>()
 
     const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
     const logger = c.get("logger").child({ ns: "containers.prompt", entity_key: entityKey })
+    const repo = parseOwnerRepo(entityKey)?.slug
+    let executionContract = ""
+
+    // Preserve imperative operator work outside the compactable conversation.
+    // A status question continues as a normal chat turn and does not create a
+    // stale task that a future event would accidentally resume.
+    if (repo && isExecutionRequest(text)) {
+      try {
+        const workKey = canonicalWorkKey({ repo, entityKey })
+        await recordAgentWork(db, {
+          workKey,
+          entityKey,
+          repo,
+          sourceKind: "dashboard",
+          sourceId: crypto.randomUUID(),
+          goal: text,
+        })
+        executionContract = formatExecutionContract(await listOpenAgentWork(db, { workKey, entityKey }))
+      } catch (err) {
+        logger.error({ error: formatError(err) }, "operator work persistence failed")
+        return c.json({ error: "Couldn't save this task safely. Please try again." }, 503)
+      }
+    }
 
     try {
       await saveInitialSession(db, entityKey)
@@ -824,7 +849,7 @@ const router = new Hono<BaseEnv>()
 
     const { conversationUrl, submissionId } = await admitPrompt(c.env, {
       entityKey,
-      prompt: formatOperatorPrompt(text),
+      prompt: formatOperatorPrompt(text, executionContract),
       flueNative,
       logger,
     })
@@ -884,6 +909,25 @@ const router = new Hono<BaseEnv>()
 
     await saveInitialSession(db, entityKey)
 
+    let executionContract = ""
+    if (isExecutionRequest(text)) {
+      try {
+        const workKey = canonicalWorkKey({ repo, entityKey })
+        await recordAgentWork(db, {
+          workKey,
+          entityKey,
+          repo,
+          sourceKind: "dashboard",
+          sourceId: crypto.randomUUID(),
+          goal: text,
+        })
+        executionContract = formatExecutionContract(await listOpenAgentWork(db, { workKey, entityKey }))
+      } catch (err) {
+        logger.error({ error: formatError(err) }, "chat work persistence failed")
+        return c.json({ error: "Couldn't save this task safely. Please try again." }, 503)
+      }
+    }
+
     const user = c.get("user")
     const prompt = formatChatPrompt({
       entityKey,
@@ -891,6 +935,7 @@ const router = new Hono<BaseEnv>()
       botLogin: access.botLogin,
       operator: user?.name ?? user?.email ?? null,
       text,
+      executionContract,
     })
 
     // Cloning into a cold sandbox takes tens of seconds, so hand the run back

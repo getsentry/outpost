@@ -16,6 +16,22 @@ export type ModelTier = "light" | "heavy"
 
 const REVIEW_EVENTS = new Set(["pull_request_review", "pull_request_review_comment", "pull_request_review_thread"])
 
+// Event type alone is too coarse for human comments: “please fix this and
+// update the PR” is an execution request even though it arrived as a comment.
+// Keep this list deliberately high-recall; uncertain requests stay heavy.
+const EXECUTION_REQUEST =
+  /\b(?:fix|implement|change|update|refactor|resolve|resume|continue|review|take control|commit|push|ship|merge|investigate|analyze|diagnose|plan)\b/i
+
+/** True when a human message asks Jared to perform work rather than report status. */
+export function isExecutionRequest(text: string): boolean {
+  return EXECUTION_REQUEST.test(text)
+}
+
+function humanRequestText(event: string, payload: Record<string, unknown>): string {
+  if (event === "pull_request_review") return lookupString(payload, "review.body") ?? ""
+  return lookupString(payload, "comment.body") ?? ""
+}
+
 /**
  * Decide the primary model tier for a webhook event.
  *
@@ -28,6 +44,8 @@ export function classifyModelTier(event: string, _action: string | null, payload
   } catch {
     return "heavy"
   }
+
+  if (isExecutionRequest(humanRequestText(event, data))) return "heavy"
 
   // Review activity → respond-to-comment. Light.
   if (REVIEW_EVENTS.has(event)) return "light"

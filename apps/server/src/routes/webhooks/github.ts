@@ -10,6 +10,7 @@ import * as Sentry from "@sentry/cloudflare"
 import { and, eq, gt, inArray, like, or } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
+import { canonicalWorkKey, githubDiscussionWorkSourceId, recordAgentWork } from "@/lib/agents/work-items"
 import {
   ciStillRunning,
   classifyCiEvent,
@@ -32,6 +33,7 @@ import {
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
 import { deriveGitHubInvolvement, shouldAdmitGitHubEvent } from "@/lib/github/involvement"
+import { classifyModelTier } from "@/lib/github/model-tier"
 import { acknowledgeGitHubEvent } from "@/lib/github/reactions"
 import type { BaseEnv } from "@/types"
 
@@ -356,6 +358,25 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
     } catch (err) {
       logger.error({ delivery_id: deliveryId, reason: formatError(err) }, "discussion obligation persistence failed")
       Sentry.captureException(err)
+    }
+    // A direct human request to change, review, or continue a PR is work, not
+    // merely a discussion reply. Persist it independently of reply-inbox
+    // storage: one unavailable table must not let compaction erase the task.
+    if (classifyModelTier(event, action, rawBody) === "heavy") {
+      try {
+        await recordAgentWork(db, {
+          workKey: canonicalWorkKey({ repo, entityKey: containerKey, prNumber: discussion.prNumber }),
+          entityKey: containerKey,
+          repo,
+          sourceKind: "github",
+          sourceId: githubDiscussionWorkSourceId(discussion.kind, discussion.sourceCommentId),
+          goal: discussion.body,
+          targetPrNumber: discussion.prNumber,
+        })
+      } catch (err) {
+        logger.error({ delivery_id: deliveryId, reason: formatError(err) }, "agent work persistence failed")
+        Sentry.captureException(err)
+      }
     }
   }
 

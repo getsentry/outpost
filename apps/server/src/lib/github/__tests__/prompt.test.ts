@@ -82,6 +82,20 @@ describe("formatEventPrompt — review guidance", () => {
     expect(out).toContain("Could we rename this flag?")
   })
 
+  it("re-injects the active execution contract after conversation compaction", () => {
+    const out = formatEventPrompt({
+      ...baseOpts,
+      event: "issue_comment",
+      payload: JSON.stringify({ issue: { number: 1108, pull_request: {}, user: { login: "alice" } } }),
+      executionContract:
+        "## Active execution contract\n\n- Goal: Fix the review findings.\n- Stage: implementing\n- Target: PR #1108",
+    })
+
+    expect(out).toContain("## Active execution contract")
+    expect(out).toContain("Goal: Fix the review findings.")
+    expect(out).toContain("Target: PR #1108")
+  })
+
   it("truncates long issue bodies", () => {
     const body = "x".repeat(5000)
     const payload = JSON.stringify({ issue: { number: 1, title: "Big", body, user: { login: "a" } } })

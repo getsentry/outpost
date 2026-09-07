@@ -215,6 +215,8 @@ export function formatChatPrompt(opts: {
   botLogin: string
   operator?: string | null
   text: string
+  /** Durable task state for a dashboard-started conversation. */
+  executionContract?: string
 }): string {
   return `${CHAT_PROMPT_HEADER} (dashboard-initiated, no webhook event)
 
@@ -236,7 +238,7 @@ Unlike webhook runs, the operator IS watching and can reply here: ask a short
 clarifying question when the request is genuinely ambiguous, and report results
 in chat. Only open issues, PRs, or comments on GitHub when the request calls for
 it — otherwise answering here is enough.
-${CHAT_REQUEST_MARKER}${opts.text}`
+${CHAT_REQUEST_MARKER}${opts.text}${opts.executionContract ? `\n\n<!-- jared:execution-contract -->\n${opts.executionContract}` : ""}`
 }
 
 export function formatEventPrompt(opts: {
@@ -255,6 +257,8 @@ export function formatEventPrompt(opts: {
   modelTier?: "light" | "heavy"
   /** Durable, currently-open PR discussion items that also need a response. */
   discussionInbox?: string
+  /** Durable task state, injected on every turn so compaction cannot lose it. */
+  executionContract?: string
 }): string {
   const eventLabel = opts.action ? `${opts.event}.${opts.action}` : opts.event
   const data = parsePayload(opts.payload)
@@ -277,5 +281,5 @@ ${routingContext(involvement)}
 ${reviewGuidance(opts.event, data)}
 ## Event context
 
-${context}${opts.discussionInbox ?? ""}`
+${context}${opts.discussionInbox ?? ""}${opts.executionContract ? `\n\n${opts.executionContract}` : ""}`
 }

@@ -24,7 +24,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import remarkGfm from "remark-gfm"
 import type { MessagePart, SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
 import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
-import { useDestroyContainer, useEvents, useSendPrompt, useSessionDetail } from "@/client/lib/queries"
+import { useAgentWork, useDestroyContainer, useEvents, useSendPrompt, useSessionDetail } from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
 import { StatusBadge } from "@/components/status-badge"
 import {
@@ -789,6 +789,7 @@ export default function ContainerDetailPage() {
   // Chat runs are started from the dashboard, so no webhook ever targets them.
   const chatRepo = chatEntityRepo(entityKey)
   const entityEvents = useEvents({ entityKey, limit: 8 }, { enabled: !chatRepo })
+  const agentWork = useAgentWork({ entityKey, limit: 6 })
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   // The session list is a fixed side column on desktop but a slide-over drawer
   // on phones, where a 224px rail would otherwise swallow the screen.
@@ -1160,6 +1161,27 @@ export default function ContainerDetailPage() {
                 <div className="px-2 py-4 text-center text-xs text-muted-foreground">No sessions</div>
               )}
             </div>
+          </div>
+          <div className="max-h-40 shrink-0 overflow-y-auto border-t p-2">
+            <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Durable work
+            </div>
+            {agentWork.isLoading ? (
+              <div className="px-2 text-[10px] text-muted-foreground">Loading…</div>
+            ) : agentWork.isError ? (
+              <div className="px-2 text-[10px] text-destructive">Couldn't load work</div>
+            ) : !agentWork.data?.data.length ? (
+              <div className="px-2 text-[10px] text-muted-foreground">No tracked work</div>
+            ) : (
+              <div className="space-y-1">
+                {agentWork.data.data.map((work) => (
+                  <div key={work.id} className="rounded px-2 py-1.5 text-left hover:bg-muted/50">
+                    <span className="block truncate text-[11px] font-medium">{work.goal}</span>
+                    <span className="text-[10px] text-muted-foreground">{work.stage.replaceAll("_", " ")}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           {!chatRepo && (
             <div className="max-h-48 shrink-0 overflow-y-auto border-t p-2">

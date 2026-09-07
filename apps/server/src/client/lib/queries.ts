@@ -50,6 +50,15 @@ export function useEventsGrouped() {
   })
 }
 
+export function useAgentWork(params: { entityKey?: string; repo?: string; stage?: string; limit?: number } = {}) {
+  return useQuery({
+    queryKey: ["agentWork", params],
+    queryFn: () => api.getAgentWork(params),
+    enabled: !!params.entityKey || !!params.repo,
+    refetchInterval: 10_000,
+  })
+}
+
 export function useResendEvent() {
   const queryClient = useQueryClient()
   return useMutation({

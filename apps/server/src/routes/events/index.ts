@@ -1,6 +1,6 @@
 import { and, desc, eq, like, or, sql } from "drizzle-orm"
 import { Hono } from "hono"
-import { githubDiscussionObligations, webhookEvents } from "@/db/schema"
+import { agentWorkItems, githubDiscussionObligations, webhookEvents } from "@/db/schema"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { isAuthenticated } from "@/middlewares"
 import type { AuthEnv } from "@/types"
@@ -191,6 +191,46 @@ const router = new Hono<AuthEnv>()
           }
         : null,
     })
+  })
+  // Human-requested work is distinct from webhook transport. It remains visible
+  // after a conversation compacts or a container is recycled, so operators can
+  // distinguish a settled delivery from an actually completed task.
+  .get("/work", async (c) => {
+    const db = c.get("db")
+    const entityKey = c.req.query("entityKey")
+    const repo = c.req.query("repo")
+    const stage = c.req.query("stage")
+    const limit = Math.min(100, Math.max(1, Number(c.req.query("limit")) || 25))
+    const conditions = []
+
+    if (entityKey) conditions.push(eq(agentWorkItems.entityKey, entityKey))
+    if (repo) conditions.push(eq(agentWorkItems.repo, repo))
+    if (stage) conditions.push(eq(agentWorkItems.stage, stage))
+
+    const where = conditions.length > 0 ? and(...conditions) : undefined
+    const work = await db
+      .select({
+        id: agentWorkItems.id,
+        workKey: agentWorkItems.workKey,
+        entityKey: agentWorkItems.entityKey,
+        repo: agentWorkItems.repo,
+        sourceKind: agentWorkItems.sourceKind,
+        goal: agentWorkItems.goal,
+        targetPrNumber: agentWorkItems.targetPrNumber,
+        stage: agentWorkItems.stage,
+        artifactUrl: agentWorkItems.artifactUrl,
+        artifactSha: agentWorkItems.artifactSha,
+        blocker: agentWorkItems.blocker,
+        createdAt: agentWorkItems.createdAt,
+        updatedAt: agentWorkItems.updatedAt,
+        completedAt: agentWorkItems.completedAt,
+      })
+      .from(agentWorkItems)
+      .where(where)
+      .orderBy(desc(agentWorkItems.updatedAt))
+      .limit(limit)
+
+    return c.json({ data: work })
   })
   .get("/:id", async (c) => {
     const db = c.get("db")

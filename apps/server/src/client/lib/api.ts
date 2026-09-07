@@ -9,6 +9,23 @@ export type EventsParams = {
   entityKey?: string
 }
 
+export type AgentWorkItem = {
+  id: string
+  workKey: string
+  entityKey: string
+  repo: string
+  sourceKind: string
+  goal: string
+  targetPrNumber: number | null
+  stage: string
+  artifactUrl: string | null
+  artifactSha: string | null
+  blocker: string | null
+  createdAt: string
+  updatedAt: string
+  completedAt: string | null
+}
+
 export type SessionsParams = {
   page?: number
   limit?: number
@@ -171,6 +188,18 @@ export const api = {
     const res = await endpoint.api.events.grouped.$get()
     if (!res.ok) throw new Error(`Failed to fetch grouped events: ${res.status}`)
     return res.json()
+  },
+
+  async getAgentWork(params: { entityKey?: string; repo?: string; stage?: string; limit?: number } = {}) {
+    const qs = new URLSearchParams()
+    if (params.entityKey) qs.set("entityKey", params.entityKey)
+    if (params.repo) qs.set("repo", params.repo)
+    if (params.stage) qs.set("stage", params.stage)
+    if (params.limit != null) qs.set("limit", String(params.limit))
+
+    const res = await fetch(`/api/events/work?${qs.toString()}`)
+    if (!res.ok) throw new Error(`Failed to fetch agent work: ${res.status}`)
+    return res.json() as Promise<{ data: AgentWorkItem[] }>
   },
 
   async getSessions(params: SessionsParams = {}): Promise<{
