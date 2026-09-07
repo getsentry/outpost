@@ -72,6 +72,20 @@ and respond to feedback.
       **X**, in **Y** path, after **Z** condition.").
    e. If not reproducible: report what was tried and why it failed.
 
+   **Local Sentry telemetry:** For a reproducible web application, browser
+   client, HTTP server, or local-agent bug, check whether the repository already
+   has compatible Sentry initialization and a runnable local command. If it
+   does, create an isolated local telemetry configuration that prevents the
+   launched app from using its normal DSN (including client-side DSN injection),
+   then inspect `sentry local --help` and run `sentry local serve` with bounded
+   output. Configure the app to send only to the local endpoint (normally via
+   `SENTRY_SPOTLIGHT` when supported), and reproduce the smallest failing flow.
+   Use the correlated trace ID, spans, logs, and errors as root-cause evidence.
+   Do not add or reconfigure Sentry solely for this check, print credentials, or
+   send local telemetry remotely. If the app cannot run, its SDK is incompatible,
+   remote ingestion cannot be prevented, or the bug remains unreproducible,
+   state that limitation and continue with the normal investigation path.
+
    If the bug **cannot be reproduced**:
    - Post a comment on the issue asking for specific details:
      reproduction steps, environment, version, logs, or a minimal
