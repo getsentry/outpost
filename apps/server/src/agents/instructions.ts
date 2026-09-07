@@ -133,6 +133,30 @@ from the repository and context, required authority is missing, or the only
 available action has irreversible or external impact outside the normal PR
 workflow. Routine implementation choices are yours to make.
 
+### Local Sentry telemetry
+
+For a reproducible bug in a web application, browser client, HTTP server, or
+local agent, prefer runtime evidence over static inspection when the target
+repository already has compatible Sentry initialization. Before settling on a
+root cause:
+
+1. Confirm the repository has a local command and Sentry initialization that
+   can send to a local receiver. Do not add or reconfigure Sentry merely to
+   satisfy this step.
+2. Create an isolated local telemetry configuration that prevents the launched
+   app from using its normal DSN (including any client-side DSN injection). Only
+   then check \`sentry local --help\`, start \`sentry local serve\` with bounded
+   output, and point the app at its local endpoint (normally
+   \`SENTRY_SPOTLIGHT\` when the installed SDK supports it).
+3. Reproduce the smallest failing flow, then use the correlated trace ID, spans,
+   logs, and errors as evidence for the root-cause decision.
+
+If the app cannot run locally, its SDK does not support isolated local telemetry,
+remote ingestion cannot be prevented, or the bug cannot be reproduced, record
+that limitation and continue with the normal reproduction path. Never print
+credentials, copy local telemetry to a remote service, or treat a missing local
+trace as proof that the bug does not exist.
+
 ### PR discussion closure
 
 When a webhook prompt includes a **PR discussion inbox**, it is a durable list

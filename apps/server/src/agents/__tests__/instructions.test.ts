@@ -100,4 +100,31 @@ describe("Jared autonomy contract", () => {
     expect(fixCiSpec).toContain("available log or check output")
     expect(fixCiSpec).toContain("Never close or mark the PR ready while required checks are failing")
   })
+
+  it("uses local Sentry telemetry for compatible reproducible web bugs", () => {
+    const resolveIssue = readFileSync(
+      new URL("../../../container/skills/resolve-issue/SKILL.md", import.meta.url),
+      "utf8",
+    )
+    const flueInstructions = readFileSync(
+      new URL("../../../container/flue/src/agents/instructions.ts", import.meta.url),
+      "utf8",
+    )
+
+    expect(JARED_INSTRUCTIONS).toContain("Local Sentry telemetry")
+    expect(JARED_INSTRUCTIONS).toContain("Sentry initialization")
+    expect(JARED_INSTRUCTIONS).toContain("sentry local")
+    expect(JARED_INSTRUCTIONS).toContain("isolated local telemetry configuration")
+    expect(JARED_INSTRUCTIONS).toContain("normal DSN")
+    expect(resolveIssue).toContain("Local Sentry telemetry")
+    expect(resolveIssue).toContain("Sentry initialization")
+    expect(resolveIssue).toContain("sentry local")
+    expect(resolveIssue).toContain("isolated local telemetry configuration")
+    expect(resolveIssue).toContain("normal DSN")
+    expect(flueInstructions).toContain("### Local Sentry telemetry")
+    expect(flueInstructions).toContain("Sentry initialization")
+    expect(flueInstructions).toContain("sentry local")
+    expect(flueInstructions).toContain("isolated local telemetry configuration")
+    expect(flueInstructions).toContain("normal DSN")
+  })
 })
