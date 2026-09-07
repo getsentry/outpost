@@ -47,18 +47,17 @@ export default {
       .bind(Math.floor(controller.scheduledTime / 1000), stuckCutoff)
       .run()
 
-    // Long-lived `dispatched` rows (>2h) WERE admitted to the agent; reconcile
-    // them against the live Flue DO (idle → completed) instead of blanket-timing
-    // out finished work. Falls back to the old blanket timeout if the live read
-    // path is unavailable, so events can never get wedged in `dispatched`.
-    let reconciled = { entities: 0, completed: 0, timedOut: 0 }
+    // Long-lived admitted rows (>2h) are reconciled against their exact Flue
+    // settlement receipt. This never turns an idle conversation into blanket
+    // delivery success. Unsettled submissions still time out visibly.
+    let reconciled = { entities: 0, settled: 0, timedOut: 0 }
     try {
       reconciled = await reconcileStuckDispatched(env, controller.scheduledTime)
     } catch (err) {
       console.warn("webhook_events.reconcile.failed", { error: err instanceof Error ? err.message : String(err) })
       const dispatchedCutoff = Math.floor((controller.scheduledTime - 2 * 60 * 60 * 1000) / 1000)
       const fallback = await env.DB.prepare(
-        "UPDATE webhook_events SET status = 'failed:timeout', completed_at = ? WHERE status = 'dispatched' AND dispatched_at < ?",
+        "UPDATE webhook_events SET status = 'failed:timeout', completed_at = ? WHERE status LIKE 'admitted:%' AND dispatched_at < ?",
       )
         .bind(Math.floor(controller.scheduledTime / 1000), dispatchedCutoff)
         .run()
@@ -69,7 +68,7 @@ export default {
       cron: controller.cron,
       deleted,
       timedOut: (stuck.meta.changes ?? 0) + reconciled.timedOut,
-      reconciledCompleted: reconciled.completed,
+      reconciledSettled: reconciled.settled,
       reconciledEntities: reconciled.entities,
       discussionRetries: discussionRetries.retried,
       discussionNeedsHuman: discussionRetries.needsHuman,

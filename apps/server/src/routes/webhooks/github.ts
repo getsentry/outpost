@@ -7,7 +7,7 @@
 import { formatError } from "@jared/utils"
 import { verify } from "@octokit/webhooks-methods"
 import * as Sentry from "@sentry/cloudflare"
-import { and, eq, gt, inArray } from "drizzle-orm"
+import { and, eq, gt, inArray, like, or } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
 import {
@@ -269,7 +269,11 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
             and(
               eq(dbSchema.webhookEvents.entityKey, containerKey),
               inArray(dbSchema.webhookEvents.event, ["check_suite", "workflow_run"]),
-              inArray(dbSchema.webhookEvents.status, ["pending", "dispatched"]),
+              or(
+                eq(dbSchema.webhookEvents.status, "pending"),
+                eq(dbSchema.webhookEvents.status, "dispatched"),
+                like(dbSchema.webhookEvents.status, "admitted%"),
+              ),
               gt(dbSchema.webhookEvents.createdAt, since),
             ),
           )

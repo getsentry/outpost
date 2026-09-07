@@ -63,7 +63,6 @@ import {
   summarizeSession,
 } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
-import { markEntityEventsCompleted } from "@/lib/github/dispatch"
 import { formatChatPrompt } from "@/lib/github/prompt"
 import { isAuthenticated } from "@/middlewares"
 import { requireUserOrInternalToken } from "@/middlewares/flue-auth"
@@ -635,10 +634,6 @@ const router = new Hono<BaseEnv>()
         }
         parsed = parseSessionData(mergedRaw)
         updatedAt = new Date()
-        if (deriveOverallStatus(parsed) === "idle") {
-          const observedIdleAt = new Date()
-          c.executionCtx.waitUntil(markEntityEventsCompleted(db, entityKey, { dispatchedBefore: observedIdleAt }))
-        }
       } else {
         syncError = result.error
         // Stale busy + failed sync: show sync_unavailable and demote for Clear Idle.
@@ -660,9 +655,6 @@ const router = new Hono<BaseEnv>()
               const freshData = await collectContainerData(sandbox, entityKey)
               if (freshData) {
                 await saveSession(db, entityKey, freshData)
-                if (deriveOverallStatus(freshData) === "idle") {
-                  await markEntityEventsCompleted(db, entityKey, { dispatchedBefore: new Date() })
-                }
               } else if (isStaleBusy(session.sessionData, session.updatedAt)) {
                 await persistStaleBusyDemotion(db, entityKey)
               }

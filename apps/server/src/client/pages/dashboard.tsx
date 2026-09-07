@@ -39,7 +39,7 @@ function StatsCards() {
   const cards = [
     { label: "Total Events", value: total, icon: Lightning },
     { label: "Pending", value: stats?.pending ?? 0, icon: CircleDashed },
-    { label: "Dispatched", value: stats?.dispatched ?? 0, icon: Hourglass },
+    { label: "Admitted", value: stats?.admitted ?? 0, icon: Hourglass },
     { label: "Stuck", value: stuck, icon: Clock },
     { label: "Completed", value: stats?.completed ?? 0, icon: CheckCircle },
   ]

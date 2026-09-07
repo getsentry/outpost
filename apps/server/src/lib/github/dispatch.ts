@@ -8,10 +8,11 @@
 import { getSandbox } from "@cloudflare/sandbox"
 import { formatError, type Logger } from "@jared/utils"
 import * as Sentry from "@sentry/cloudflare"
-import { and, eq, lte } from "drizzle-orm"
+import { eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
+import { admittedStatus } from "@/lib/events/delivery-status"
 import { dispatchToFlueAgent } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
@@ -154,9 +155,11 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.start")
 
     await mark("d:prompt")
+    let submissionId: string | undefined
     if (flueNative) {
       // Phase 2: admit into the Flue Durable Object (agent attaches the sandbox itself).
-      await dispatchToFlueAgent(env, { entityKey: containerKey, prompt, logger })
+      const receipt = await dispatchToFlueAgent(env, { entityKey: containerKey, prompt, logger })
+      submissionId = receipt.submissionId
     } else {
       // Phase 1: container-side Flue HTTP admit via background script.
       await dispatchPrompt(sandbox, containerKey, prompt, eventId)
@@ -167,10 +170,10 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     const now = new Date()
     await db
       .update(dbSchema.webhookEvents)
-      .set({ status: "dispatched", dispatchedAt: now })
+      .set({ status: admittedStatus(submissionId), dispatchedAt: now })
       .where(eq(dbSchema.webhookEvents.id, eventId))
 
-    logger.info({ entity_key: containerKey, event_id: eventId }, "event dispatched to agent")
+    logger.info({ entity_key: containerKey, event_id: eventId, submission_id: submissionId }, "event admitted to agent")
   } catch (err) {
     logger.error({ entity_key: containerKey, event_id: eventId, reason: formatError(err) }, "dispatch failed")
     Sentry.captureException(err)
@@ -185,34 +188,5 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     } catch {
       /* best effort */
     }
-  }
-}
-
-/**
- * When a conversation goes idle after work, upgrade still-open `dispatched`
- * webhook rows for that entity to `completed` so the Events UI reflects finish.
- *
- * Pass `dispatchedBefore` (wall clock when idle was observed) so a webhook that
- * lands between observation and this update is not falsely completed.
- */
-export async function markEntityEventsCompleted(
-  db: Db,
-  entityKey: string,
-  opts?: { dispatchedBefore?: Date },
-): Promise<void> {
-  try {
-    const conditions = [
-      eq(dbSchema.webhookEvents.entityKey, entityKey),
-      eq(dbSchema.webhookEvents.status, "dispatched"),
-    ]
-    if (opts?.dispatchedBefore) {
-      conditions.push(lte(dbSchema.webhookEvents.dispatchedAt, opts.dispatchedBefore))
-    }
-    await db
-      .update(dbSchema.webhookEvents)
-      .set({ status: "completed", completedAt: new Date() })
-      .where(and(...conditions))
-  } catch {
-    /* best effort */
   }
 }

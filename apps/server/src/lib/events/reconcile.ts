@@ -1,40 +1,37 @@
-// Background reconciliation for webhook events stuck in `dispatched`.
+// Background reconciliation for admitted webhook deliveries.
 //
-// An event flips to `dispatched` the moment it is admitted to the agent, but the
-// ONLY path that upgrades it to `completed` (markEntityEventsCompleted) runs when
-// the dashboard detail page is opened while the agent is idle. Entities nobody
-// opens in the UI — most CI-burst PRs — therefore keep their admitted events in
-// `dispatched` forever, and the daily cron used to blanket-mark anything older
-// than 2h as `failed:timeout`, mislabeling finished work as a failure.
-//
-// This reconciler asks the live Flue Durable Object (the source of truth): if the
-// agent has gone idle, the dispatched work is done → `completed`; only when it is
-// still busy or unreachable do we fall back to the `failed:timeout` semantics so a
-// genuinely wedged run stays visible.
+// A dashboard read cannot establish that a particular webhook delivery was
+// handled: one conversation can receive several submissions in a burst. Flue's
+// settlement receipt is the reliable boundary, so reconciliation maps each
+// admitted delivery to its exact submission id and settles only that row.
 
 import type { InProcessHistoryRead } from "@/lib/containers/flue-dispatch"
 import { readFlueHistoryInProcess } from "@/lib/containers/flue-dispatch"
-import { isFlueHistoryBusy } from "@/lib/containers/flue-session-adapt"
 import type { BaseEnvBindings } from "@/types/env/base"
+import { settledSubmissionIds } from "./delivery-status"
 
 type Env = BaseEnvBindings["Bindings"]
 
-export type ReconcileResult = { entities: number; completed: number; timedOut: number }
+export type ReconcileResult = { entities: number; settled: number; timedOut: number }
 
 /**
- * Decide the terminal status for an entity's stale `dispatched` rows from a live
- * history read. Idle agent → the work finished; anything else (still busy, 404,
- * read error) → keep the timeout so a real stall is not silently hidden.
+ * Return `settled` only when the exact admitted submission has a Flue settlement.
+ * An idle conversation is not evidence for a different submission in the same
+ * conversation, so it intentionally returns null.
  */
-export function decideReconciledStatus(read: InProcessHistoryRead): "completed" | "failed:timeout" {
-  if (read.ok && !isFlueHistoryBusy(read.history)) return "completed"
-  return "failed:timeout"
+export function settledStatusForAdmission(read: InProcessHistoryRead, submissionId: string): "settled" | null {
+  return read.ok && settledSubmissionIds(read.history).has(submissionId) ? "settled" : null
+}
+
+/** Legacy convenience for callers that need a terminal timeout fallback. */
+export function decideReconciledStatus(read: InProcessHistoryRead, submissionId: string): "settled" | "failed:timeout" {
+  return settledStatusForAdmission(read, submissionId) ?? "failed:timeout"
 }
 
 /**
- * Reconcile `dispatched` webhook rows older than `cutoffMs`. Returns per-bucket
- * counts for logging. Best-effort per entity: a failed live read leaves that
- * entity's rows as `failed:timeout` rather than aborting the whole sweep.
+ * Reconcile admitted webhook rows older than `cutoffMs`. Each Flue settlement
+ * updates only its matching delivery. Unsettled entries past the cutoff remain a
+ * real timeout, whether their history was unavailable or still open.
  */
 export async function reconcileStuckDispatched(
   env: Env,
@@ -47,33 +44,42 @@ export async function reconcileStuckDispatched(
   const nowSec = Math.floor(scheduledTime / 1000)
 
   const stale = await env.DB.prepare(
-    "SELECT DISTINCT entity_key FROM webhook_events WHERE status = 'dispatched' AND dispatched_at IS NOT NULL AND dispatched_at < ? LIMIT ?",
+    "SELECT id, entity_key, status FROM webhook_events WHERE status LIKE 'admitted:%' AND dispatched_at IS NOT NULL AND dispatched_at < ? ORDER BY dispatched_at LIMIT ?",
   )
     .bind(cutoffSec, maxEntities)
-    .all<{ entity_key: string }>()
+    .all<{ id: string; entity_key: string; status: string }>()
 
-  const entities = stale.results ?? []
-  let completed = 0
+  const rows = stale.results ?? []
+  const byEntity = new Map<string, Array<{ id: string; status: string }>>()
+  for (const row of rows) {
+    const entries = byEntity.get(row.entity_key) ?? []
+    entries.push({ id: row.id, status: row.status })
+    byEntity.set(row.entity_key, entries)
+  }
+
+  let settled = 0
   let timedOut = 0
 
-  for (const { entity_key: entityKey } of entities) {
+  for (const [entityKey, entries] of byEntity) {
     let read: InProcessHistoryRead
     try {
       read = await readFlueHistoryInProcess(env, entityKey)
     } catch (err) {
       read = { ok: false, notFound: false, error: err instanceof Error ? err.message : String(err) }
     }
-    const status = decideReconciledStatus(read)
-
-    const res = await env.DB.prepare(
-      "UPDATE webhook_events SET status = ?, completed_at = ? WHERE status = 'dispatched' AND dispatched_at IS NOT NULL AND dispatched_at < ? AND entity_key = ?",
-    )
-      .bind(status, nowSec, cutoffSec, entityKey)
-      .run()
-    const changes = res.meta.changes ?? 0
-    if (status === "completed") completed += changes
-    else timedOut += changes
+    for (const entry of entries) {
+      const submissionId = entry.status.slice("admitted:".length)
+      const status = decideReconciledStatus(read, submissionId)
+      const res = await env.DB.prepare(
+        "UPDATE webhook_events SET status = ?, completed_at = ? WHERE id = ? AND status = ?",
+      )
+        .bind(status, nowSec, entry.id, entry.status)
+        .run()
+      const changes = res.meta.changes ?? 0
+      if (status === "settled") settled += changes
+      else timedOut += changes
+    }
   }
 
-  return { entities: entities.length, completed, timedOut }
+  return { entities: byEntity.size, settled, timedOut }
 }
