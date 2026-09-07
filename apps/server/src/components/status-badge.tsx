@@ -6,6 +6,8 @@ const STATUS_STYLES: Record<
 > = {
   pending: { variant: "outline", label: "Pending" },
   dispatched: { variant: "secondary", label: "Dispatched" },
+  admitted: { variant: "secondary", label: "Admitted" },
+  settled: { variant: "outline", label: "Settled" },
   completed: { variant: "default", label: "Completed" },
   failed: { variant: "destructive", label: "Failed" },
   timeout: { variant: "outline", label: "Timeout" },
@@ -20,6 +22,8 @@ export function StatusBadge({ status }: { status: string }) {
       config = { variant: "destructive", label: status === "failed:timeout" ? "Timed out" : "Failed" }
     } else if (status.startsWith("d:")) {
       config = { variant: "outline", label: `Stuck (${status.slice(2)})` }
+    } else if (status.startsWith("admitted:")) {
+      config = STATUS_STYLES.admitted
     } else {
       config = { variant: "outline", label: status }
     }

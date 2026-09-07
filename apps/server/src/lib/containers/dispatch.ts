@@ -65,6 +65,31 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`
 }
 
+function buildEnvFileContents(opts: SandboxSetupOpts, githubToken?: string): string {
+  const envLines: string[] = []
+  const push = (key: string, value: string) => {
+    envLines.push(`export ${key}=${shellQuote(value)}`)
+  }
+
+  if (opts.openrouterApiKey) push("OPENROUTER_API_KEY", opts.openrouterApiKey)
+  if (opts.anthropicApiKey) push("ANTHROPIC_API_KEY", opts.anthropicApiKey)
+  if (opts.openaiApiKey) push("OPENAI_API_KEY", opts.openaiApiKey)
+  if (opts.sentryDsn) push("SENTRY_DSN", opts.sentryDsn)
+  if (opts.sentryAuthToken) push("SENTRY_AUTH_TOKEN", opts.sentryAuthToken)
+  if (githubToken) push("GH_TOKEN", githubToken)
+
+  const loreUrl = opts.loreGatewayUrl ?? "http://127.0.0.1:3207"
+  push("LORE_GATEWAY_URL", loreUrl)
+  push("FLUE_LOG_LEVEL", "debug")
+
+  if (opts.loreGatewayUrl && !/127\.0\.0\.1|localhost/.test(opts.loreGatewayUrl)) {
+    push("OPENAI_BASE_URL", `${loreUrl.replace(/\/$/, "")}/v1`)
+    push("ANTHROPIC_BASE_URL", loreUrl.replace(/\/$/, ""))
+  }
+
+  return `${envLines.join("\n")}\n`
+}
+
 /**
  * (Re)apply GitHub credentials inside the container.
  *
@@ -141,15 +166,16 @@ export async function ensureSandboxReady(
     // `git clone` instead — the single biggest source of failed CI/operator turns.
     await retryTransientSandbox(() => sandbox.exec("mkdir -p /workspace", { cwd: "/" }), 5)
 
-    // The sandbox session can terminate mid-exec during a CI burst (many
-    // concurrent dispatches) or scale-to-zero, surfacing as SessionTerminatedError
-    // / SandboxError 5xx (JARED-J/-F/-8). Every step below is idempotent, so retry
-    // the whole setup on those transient hiccups instead of failing the dispatch.
+    // Multiple CI webhooks for the same entity execute concurrently. Clone-only
+    // locking is not enough: one setup could overwrite /tmp/flue-env.sh after a
+    // peer has added GH_TOKEN. Run the complete transaction under one lock.
+    const envSource = `/tmp/flue-env.${crypto.randomUUID()}`
     await retryTransientSandbox(async () => {
-      await ensureRepoCloned(sandbox, opts)
-      await writeEnvFile(sandbox, opts)
-      await applyGitHubAuth(sandbox, opts)
-      await ensureWorkspaceSkills(sandbox)
+      // Keep credentials in a sandbox file rather than embedding them in the
+      // exec command, which may be retained by sandbox-operation telemetry.
+      await sandbox.writeFile(envSource, buildEnvFileContents(opts, opts.installationToken))
+      const result = await sandbox.exec(buildThinSandboxPrepScript(opts, envSource), { cwd: "/workspace" })
+      if (!result.success) throw new Error(`thin sandbox prep failed: ${result.stderr}`)
     }, 5)
 
     // Guard against a "successful" prep that silently dropped work: a mid-exec
@@ -177,9 +203,10 @@ export async function ensureSandboxReady(
     // Treat as not running.
   }
   if (alreadyRunning) {
-    await applyGitHubAuth(sandbox, opts)
-    // Warm path: refresh env + ensure the session reporter is still alive.
+    // Warm path: write the base env before adding GH_TOKEN so the later auth
+    // refresh cannot be overwritten by an otherwise complete env rewrite.
     await writeEnvFile(sandbox, opts)
+    await applyGitHubAuth(sandbox, opts)
     await ensureSessionReporterRunning(sandbox, {
       entityKey: opts.entityKey,
       appUrl: opts.appUrl,
@@ -307,135 +334,70 @@ export function buildPhase1BootstrapScript(opts: SandboxSetupOpts): string {
 }
 
 /**
- * Whether the repo is actually cloned, checked via a fresh (cheap, retried)
- * exec. Used to settle a SessionTerminatedError thrown by a clone that may have
- * already succeeded — a quick `test -d` spins a new session and rarely trips the
- * same teardown the long clone did. Never throws: unknown ⇒ treat as not cloned.
+ * Build the complete Phase 2 setup as one lock-owned, idempotent transaction.
+ * No peer can observe a cloned repo with stale credentials or an env file that
+ * has been partially rewritten by another webhook dispatch.
  */
-async function repoIsCloned(sandbox: ReturnType<typeof getSandbox>): Promise<boolean> {
-  try {
-    const r = await retryTransientSandbox(() => sandbox.exec("test -d /workspace/repo/.git", { cwd: "/workspace" }), 3)
-    return r.success
-  } catch {
-    return false
-  }
-}
+export function buildThinSandboxPrepScript(opts: SandboxSetupOpts, envSource = "/tmp/flue-env.pending"): string {
+  const repo = opts.repo ?? ""
+  const cloneUrl = `https://github.com/${repo}.git`
+  const botEmail = opts.botLogin ? `${opts.botLogin}@users.noreply.github.com` : ""
 
-async function ensureRepoCloned(sandbox: ReturnType<typeof getSandbox>, opts: SandboxSetupOpts): Promise<void> {
-  if (!opts.repo) return
-
-  const cloneUrl = opts.installationToken
-    ? `https://x-access-token:${opts.installationToken}@github.com/${opts.repo}.git`
-    : `https://github.com/${opts.repo}.git`
-
-  // Concurrency-safe clone. A single entity can receive a burst of webhook
-  // events (CI fan-out fires dozens of workflow_run/check_suite deliveries at
-  // once), so several `dispatchGitHubEvent` calls run `ensureRepoCloned` against
-  // the *same* sandbox filesystem in parallel. Without a lock they race:
-  // clone A into repo-tmp, clone B wipes it, both `mv repo-tmp repo`, and the
-  // second `mv` nests into the now-existing dir → "mv: cannot move ... Directory
-  // not empty" (JARED-H). Serialize with an atomic mkdir mutex, make the whole
-  // thing idempotent (skip if a peer already finished the clone), and always
-  // clear the destination immediately before the rename so it can never nest.
-  const script = [
-    "LOCK=/workspace/.repo-setup.lock",
-    // HELD guards lock ownership: only the process that actually acquired the
-    // lock may release it. Otherwise a process that gives up waiting would
-    // rmdir the lock still held by the peer doing the clone, breaking the mutex.
+  return [
+    "#!/bin/bash",
+    "set -eu",
+    `REPO=${shellQuote(repo)}`,
+    `CLONE_URL=${shellQuote(cloneUrl)}`,
+    `ENV_SOURCE=${shellQuote(envSource)}`,
+    `BOT_LOGIN=${shellQuote(opts.botLogin)}`,
+    `BOT_EMAIL=${shellQuote(botEmail)}`,
+    "LOCK=/workspace/.thin-sandbox-prep.lock",
     "HELD=0",
     "i=0",
     'while [ "$i" -lt 120 ]; do',
     '  if mkdir "$LOCK" 2>/dev/null; then HELD=1; break; fi',
-    // A peer finished the clone while we waited — nothing left to do.
-    "  [ -d /workspace/repo/.git ] && break",
     "  i=$((i+1)); sleep 1",
     "done",
-    "RC=0",
-    "if [ ! -d /workspace/repo/.git ]; then",
+    'if [ "$HELD" != 1 ]; then echo "sandbox prep lock timed out" >&2; exit 75; fi',
+    'cleanup() { rm -f "$ENV_SOURCE"; [ "$HELD" = 1 ] && rmdir "$LOCK" 2>/dev/null || true; }',
+    "trap cleanup EXIT",
+    "",
+    'test -f "$ENV_SOURCE"',
+    'source "$ENV_SOURCE"',
+    `TOKEN="\${GH_TOKEN:-}"`,
+    "",
+    'if [ -n "$REPO" ] && [ ! -d /workspace/repo/.git ]; then',
     "  rm -rf /workspace/repo /workspace/repo-tmp",
-    "  mkdir -p /workspace",
-    `  if git clone --depth 50 ${shellQuote(cloneUrl)} /workspace/repo-tmp; then`,
-    "    rm -rf /workspace/repo",
-    "    mv /workspace/repo-tmp /workspace/repo",
+    '  if [ -n "$TOKEN" ]; then',
+    "    AUTH_HEADER=\"$(printf 'x-access-token:%s' \"$TOKEN\" | base64 | tr -d '\\n')\"",
+    '    git -c http.extraHeader="AUTHORIZATION: basic $AUTH_HEADER" clone --depth 50 "$CLONE_URL" /workspace/repo-tmp',
     "  else",
-    "    rm -rf /workspace/repo-tmp",
-    "    RC=3",
+    '    git clone --depth 50 "$CLONE_URL" /workspace/repo-tmp',
     "  fi",
+    "  rm -rf /workspace/repo",
+    "  mv /workspace/repo-tmp /workspace/repo",
     "fi",
-    '[ "$HELD" = 1 ] && rmdir "$LOCK" 2>/dev/null; true',
-    "exit $RC",
+    'if [ -n "$BOT_LOGIN" ] && [ -d /workspace/repo/.git ]; then',
+    '  git -C /workspace/repo config user.name "$BOT_LOGIN"',
+    '  git -C /workspace/repo config user.email "$BOT_EMAIL"',
+    "fi",
+    'if [ -n "$TOKEN" ]; then',
+    '  echo "$TOKEN" | gh auth login --with-token',
+    "fi",
+    'mv "$ENV_SOURCE" /tmp/flue-env.sh.tmp',
+    "mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh",
+    "chmod 600 /tmp/flue-env.sh",
+    "mkdir -p /workspace/repo/.agents",
+    "[ -d /root/.agents/skills ] && cp -R /root/.agents/skills /workspace/repo/.agents/ || true",
+    "[ -f /root/AGENTS.md ] && cp /root/AGENTS.md /workspace/repo/AGENTS.md || true",
+    "[ -d /opt/flue/.agents/skills ] && cp -R /opt/flue/.agents/skills /workspace/repo/.agents/ || true",
+    "[ -f /opt/flue/AGENTS.md ] && cp /opt/flue/AGENTS.md /workspace/repo/AGENTS.md || true",
+    "test -d /workspace/repo/.git && [ -n \"$(ls -A /workspace/repo/.agents/skills 2>/dev/null)\" ] && grep -q '^export GH_TOKEN=' /tmp/flue-env.sh",
   ].join("\n")
-
-  // A *successful* long clone can still surface as SessionTerminatedError
-  // ("shell exited (exit code: 0)"): the sandbox tears the session down as the
-  // multi-minute exec finishes, so the repo is on disk but `exec` throws anyway.
-  // Retrying re-runs the (idempotent) script, which tears the session down
-  // again, so every attempt throws and the dispatch 503s even though the clone
-  // landed (JARED-M). Treat that transient error as *inconclusive* and settle it
-  // against the filesystem — the real source of truth — instead of failing.
-  try {
-    const cloneResult = await sandbox.exec(script, { cwd: "/workspace" })
-    if (!cloneResult.success) {
-      throw new Error(`git clone failed: ${cloneResult.stderr}`)
-    }
-  } catch (err) {
-    if (!isTransientSandboxError(err) || !(await repoIsCloned(sandbox))) throw err
-    // Repo is present — the session-exit was a false alarm on a completed clone.
-  }
-
-  if (opts.botLogin) {
-    const botEmail = `${opts.botLogin}@users.noreply.github.com`
-    await sandbox.exec(`git config user.name "${opts.botLogin}" && git config user.email "${botEmail}"`, {
-      cwd: "/workspace/repo",
-    })
-  }
 }
 
 async function writeEnvFile(sandbox: ReturnType<typeof getSandbox>, opts: SandboxSetupOpts): Promise<void> {
-  const envLines: string[] = []
-  const push = (key: string, value: string) => {
-    envLines.push(`export ${key}=${shellQuote(value)}`)
-  }
-
-  if (opts.openrouterApiKey) push("OPENROUTER_API_KEY", opts.openrouterApiKey)
-  if (opts.anthropicApiKey) push("ANTHROPIC_API_KEY", opts.anthropicApiKey)
-  if (opts.openaiApiKey) push("OPENAI_API_KEY", opts.openaiApiKey)
-  if (opts.sentryDsn) push("SENTRY_DSN", opts.sentryDsn)
-  if (opts.sentryAuthToken) push("SENTRY_AUTH_TOKEN", opts.sentryAuthToken)
-
-  // Always record the intended Lore URL, but do NOT force OPENAI/ANTHROPIC base
-  // URLs here — maybeEnableLoreBaseUrls() adds those only after a health probe.
-  // Never write the shared FLUE_INTERNAL_TOKEN into the sandbox — mint a
-  // per-entity ingest token for the reporter instead.
-  const loreUrl = opts.loreGatewayUrl ?? "http://127.0.0.1:3207"
-  push("LORE_GATEWAY_URL", loreUrl)
-
-  push("FLUE_LOG_LEVEL", "debug")
-
-  // Phase 2 / external Lore: if the URL is not loopback, enable base URLs now
-  // (standalone gateway is assumed reachable from the DO / container).
-  if (opts.loreGatewayUrl && !/127\.0\.0\.1|localhost/.test(opts.loreGatewayUrl)) {
-    push("OPENAI_BASE_URL", `${loreUrl.replace(/\/$/, "")}/v1`)
-    push("ANTHROPIC_BASE_URL", loreUrl.replace(/\/$/, ""))
-  }
-
-  await sandbox.writeFile("/tmp/flue-env.sh", `${envLines.join("\n")}\n`)
-}
-
-/**
- * Copy Flue workspace skills into the cloned repo AFTER clone.
- * Source of truth is /root/.agents/skills (baked into the image outside the
- * clone target) and optionally /opt/flue for Phase 1 images.
- */
-async function ensureWorkspaceSkills(sandbox: ReturnType<typeof getSandbox>): Promise<void> {
-  await sandbox.exec(
-    "mkdir -p /workspace/repo/.agents && " +
-      "([ -d /root/.agents/skills ] && cp -R /root/.agents/skills /workspace/repo/.agents/ || true) && " +
-      "([ -f /root/AGENTS.md ] && cp /root/AGENTS.md /workspace/repo/AGENTS.md || true) && " +
-      "([ -d /opt/flue/.agents/skills ] && cp -R /opt/flue/.agents/skills /workspace/repo/.agents/ || true) && " +
-      "([ -f /opt/flue/AGENTS.md ] && cp /opt/flue/AGENTS.md /workspace/repo/AGENTS.md || true)",
-    { cwd: "/workspace" },
-  )
+  await sandbox.writeFile("/tmp/flue-env.sh", buildEnvFileContents(opts))
 }
 
 /**

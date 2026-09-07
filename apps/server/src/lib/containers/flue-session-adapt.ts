@@ -4,6 +4,7 @@
 import { toAgentInstanceId } from "./ids"
 
 export const FLUE_AGENT = "jared"
+const MAX_TOOL_OUTPUT_BYTES = 8_000
 
 type AnyRecord = Record<string, unknown>
 
@@ -170,13 +171,25 @@ function normalizeFluePart(raw: unknown): AnyRecord {
       state: {
         status,
         input: part.input,
-        output: flueState === "output-error" ? part.errorText : part.output,
+        output: boundedToolOutput(flueState === "output-error" ? part.errorText : part.output),
       },
     }
   }
 
   // text / reasoning / file / data-* pass through (UI already handles text+reasoning).
   return part
+}
+
+/** Keep tool traces useful without retaining unbounded CLI/API payloads in D1. */
+function boundedToolOutput(output: unknown): unknown {
+  if (typeof output !== "string") return output
+  const encoder = new TextEncoder()
+  const originalBytes = encoder.encode(output).byteLength
+  if (originalBytes <= MAX_TOOL_OUTPUT_BYTES) return output
+
+  let end = Math.min(output.length, MAX_TOOL_OUTPUT_BYTES)
+  while (encoder.encode(output.slice(0, end)).byteLength > MAX_TOOL_OUTPUT_BYTES) end -= 1
+  return { preview: output.slice(0, end), truncated: true, originalBytes }
 }
 
 function extractRawMessages(history: Record<string, unknown> | null): unknown[] {

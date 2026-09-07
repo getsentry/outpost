@@ -147,6 +147,7 @@ export async function verifyDiscussionResponse(
     ),
     columns: {
       id: true,
+      eventId: true,
       sourceKind: true,
       prNumber: true,
       sourceCommentId: true,
@@ -177,4 +178,12 @@ export async function verifyDiscussionResponse(
         eq(dbSchema.githubDiscussionObligations.status, "open"),
       ),
     )
+
+  // A GitHub-delivered, correctly marked reply is the completion evidence for
+  // the incoming discussion delivery. Keep that semantic distinct from Flue's
+  // transport-level `settled` receipt.
+  await db
+    .update(dbSchema.webhookEvents)
+    .set({ status: "completed", completedAt: now })
+    .where(eq(dbSchema.webhookEvents.id, obligation.eventId))
 }

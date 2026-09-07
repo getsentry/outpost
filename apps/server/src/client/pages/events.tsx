@@ -22,7 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
-const STATUS_OPTIONS = ["all", "pending", "dispatched", "completed", "failed", "skipped", "d:boot"] as const
+const STATUS_OPTIONS = ["all", "pending", "admitted", "settled", "completed", "failed", "skipped", "d:boot"] as const
 const PAGE_SIZES = [10, 25, 50] as const
 
 export default function EventsPage() {
@@ -85,7 +85,8 @@ export default function EventsPage() {
   const statusCounts: Record<string, number> = {
     all: stats?.total ?? 0,
     pending: stats?.pending ?? 0,
-    dispatched: stats?.dispatched ?? 0,
+    admitted: stats?.admitted ?? 0,
+    settled: stats?.settled ?? 0,
     completed: stats?.completed ?? 0,
     failed: stats?.failed ?? 0,
     skipped: stats?.skipped ?? 0,
@@ -220,7 +221,8 @@ export default function EventsPage() {
                     <TableHead>Repository</TableHead>
                     <TableHead className="text-right">Total</TableHead>
                     <TableHead className="text-right">Pending</TableHead>
-                    <TableHead className="text-right">Dispatched</TableHead>
+                    <TableHead className="text-right">Admitted</TableHead>
+                    <TableHead className="text-right">Settled</TableHead>
                     <TableHead className="text-right">Completed</TableHead>
                     <TableHead className="text-right">Failed</TableHead>
                     <TableHead className="text-right">Stuck</TableHead>
@@ -249,7 +251,8 @@ export default function EventsPage() {
                       </TableCell>
                       <TableCell className="text-right font-mono">{group.total}</TableCell>
                       <TableCell className="text-right font-mono">{group.pending}</TableCell>
-                      <TableCell className="text-right font-mono">{group.dispatched}</TableCell>
+                      <TableCell className="text-right font-mono">{group.admitted}</TableCell>
+                      <TableCell className="text-right font-mono">{group.settled}</TableCell>
                       <TableCell className="text-right font-mono">{group.completed}</TableCell>
                       <TableCell className="text-right font-mono">{group.failed}</TableCell>
                       <TableCell className="text-right font-mono">{group.stuck}</TableCell>

@@ -95,12 +95,19 @@ export type SessionDetailResponse = {
 export type EventStats = {
   total: number
   pending: number
-  dispatched: number
+  admitted: number
+  settled: number
   completed: number
   failed: number
   stuck: number
   skipped: number
   last24h: number
+  maintenance: {
+    cron: string
+    scheduledAt: string
+    completedAt: string
+    outcome: string
+  } | null
 }
 
 export type SessionListItem = {

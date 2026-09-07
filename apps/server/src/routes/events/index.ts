@@ -1,4 +1,4 @@
-import { and, desc, eq, like, sql } from "drizzle-orm"
+import { and, desc, eq, like, or, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import { githubDiscussionObligations, webhookEvents } from "@/db/schema"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
@@ -20,7 +20,8 @@ const router = new Hono<AuthEnv>()
         repo: webhookEvents.repo,
         total: sql<number>`count(*)`,
         pending: sql<number>`sum(case when ${webhookEvents.status} = 'pending' then 1 else 0 end)`,
-        dispatched: sql<number>`sum(case when ${webhookEvents.status} = 'dispatched' then 1 else 0 end)`,
+        admitted: sql<number>`sum(case when ${webhookEvents.status} = 'dispatched' or ${webhookEvents.status} like 'admitted%' then 1 else 0 end)`,
+        settled: sql<number>`sum(case when ${webhookEvents.status} = 'settled' then 1 else 0 end)`,
         completed: sql<number>`sum(case when ${webhookEvents.status} = 'completed' then 1 else 0 end)`,
         failed: sql<number>`sum(case when ${webhookEvents.status} like 'failed%' then 1 else 0 end)`,
         stuck: sql<number>`sum(case when ${webhookEvents.status} like 'd:%' then 1 else 0 end)`,
@@ -68,6 +69,8 @@ const router = new Hono<AuthEnv>()
         conditions.push(like(webhookEvents.status, "failed%"))
       } else if (status === "d:boot" || status.startsWith("d:")) {
         conditions.push(like(webhookEvents.status, "d:%"))
+      } else if (status === "admitted") {
+        conditions.push(or(eq(webhookEvents.status, "dispatched"), like(webhookEvents.status, "admitted%")))
       } else {
         conditions.push(eq(webhookEvents.status, status))
       }
@@ -141,10 +144,19 @@ const router = new Hono<AuthEnv>()
         .from(webhookEvents)
         .where(sql`${webhookEvents.createdAt} >= ${Math.floor(oneDayAgo.getTime() / 1000)}`),
     ])
+    // A deployment can briefly run newer code before its D1 migration. The
+    // heartbeat is observability only; never make the Events page unavailable
+    // while that migration is being applied.
+    const maintenance = await c.env.DB.prepare(
+      "SELECT cron, scheduled_at, completed_at, outcome FROM maintenance_runs ORDER BY completed_at DESC LIMIT 1",
+    )
+      .first<{ cron: string; scheduled_at: number; completed_at: number; outcome: string }>()
+      .catch(() => null)
 
     let total = 0
     let pending = 0
-    let dispatched = 0
+    let admitted = 0
+    let settled = 0
     let completed = 0
     let failed = 0
     let skipped = 0
@@ -152,7 +164,8 @@ const router = new Hono<AuthEnv>()
     for (const row of totals) {
       total += row.count
       if (row.status === "pending") pending += row.count
-      else if (row.status === "dispatched") dispatched += row.count
+      else if (row.status === "dispatched" || row.status.startsWith("admitted")) admitted += row.count
+      else if (row.status === "settled") settled += row.count
       else if (row.status === "completed") completed += row.count
       else if (row.status === "skipped") skipped += row.count
       else if (row.status.startsWith("failed")) failed += row.count
@@ -162,12 +175,21 @@ const router = new Hono<AuthEnv>()
     return c.json({
       total,
       pending,
-      dispatched,
+      admitted,
+      settled,
       completed,
       failed,
       stuck,
       skipped,
       last24h: recentCount[0]?.count ?? 0,
+      maintenance: maintenance
+        ? {
+            cron: maintenance.cron,
+            scheduledAt: new Date(maintenance.scheduled_at * 1000).toISOString(),
+            completedAt: new Date(maintenance.completed_at * 1000).toISOString(),
+            outcome: maintenance.outcome,
+          }
+        : null,
     })
   })
   .get("/:id", async (c) => {
@@ -211,7 +233,7 @@ const router = new Hono<AuthEnv>()
     }
 
     // Optimistically mark pending so the UI reflects the in-flight resend; the
-    // dispatch helper updates it to dispatched/failed when it completes.
+    // dispatch helper updates it to admitted/failed when it completes.
     await db.update(webhookEvents).set({ status: "pending" }).where(eq(webhookEvents.id, id))
 
     c.executionCtx.waitUntil(

@@ -15,6 +15,20 @@
       "when": 1787753061605,
       "tag": "0001_conscious_runaways",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788761360034,
+      "tag": "0002_agent_lifecycle",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788761548077,
+      "tag": "0003_neat_killmonger",
+      "breakpoints": true
     }
   ]
 }

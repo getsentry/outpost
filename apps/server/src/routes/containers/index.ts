@@ -23,6 +23,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1"
 import { Hono } from "hono"
 import { streamSSE } from "hono/streaming"
 import * as dbSchema from "@/db/schema"
+import { destroyAgentGeneration } from "@/lib/agents/lifecycle"
 import {
   CHAT_STARTING_WINDOW_MS,
   createChatEntityKey,
@@ -55,7 +56,6 @@ import {
   countSessionMessages,
   demoteBusyStatusesToIdle,
   deriveDisplayStatus,
-  deriveOverallStatus,
   isStaleBusy,
   mergeSessionData,
   SANDBOX_RUNTIME_NOTE,
@@ -63,7 +63,6 @@ import {
   summarizeSession,
 } from "@/lib/containers/sessions"
 import { createGitHubApp } from "@/lib/github/app"
-import { markEntityEventsCompleted } from "@/lib/github/dispatch"
 import { formatChatPrompt } from "@/lib/github/prompt"
 import { isAuthenticated } from "@/middlewares"
 import { requireUserOrInternalToken } from "@/middlewares/flue-auth"
@@ -435,6 +434,7 @@ const router = new Hono<BaseEnv>()
     }
     if (purge) {
       try {
+        await destroyAgentGeneration(db, toAgentInstanceId(entityKey))
         await Promise.all([
           db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
           db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
@@ -635,10 +635,6 @@ const router = new Hono<BaseEnv>()
         }
         parsed = parseSessionData(mergedRaw)
         updatedAt = new Date()
-        if (deriveOverallStatus(parsed) === "idle") {
-          const observedIdleAt = new Date()
-          c.executionCtx.waitUntil(markEntityEventsCompleted(db, entityKey, { dispatchedBefore: observedIdleAt }))
-        }
       } else {
         syncError = result.error
         // Stale busy + failed sync: show sync_unavailable and demote for Clear Idle.
@@ -660,9 +656,6 @@ const router = new Hono<BaseEnv>()
               const freshData = await collectContainerData(sandbox, entityKey)
               if (freshData) {
                 await saveSession(db, entityKey, freshData)
-                if (deriveOverallStatus(freshData) === "idle") {
-                  await markEntityEventsCompleted(db, entityKey, { dispatchedBefore: new Date() })
-                }
               } else if (isStaleBusy(session.sessionData, session.updatedAt)) {
                 await persistStaleBusyDemotion(db, entityKey)
               }
@@ -1048,6 +1041,7 @@ const router = new Hono<BaseEnv>()
       }
       await Promise.all(
         idleKeys.flatMap((entityKey) => [
+          destroyAgentGeneration(db, toAgentInstanceId(entityKey)),
           db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
           // Also drop stored webhook events so a later re-trigger starts with a
           // clean "Recent events" list instead of resurrecting the old one.
@@ -1073,6 +1067,7 @@ const router = new Hono<BaseEnv>()
       // Clear both the session snapshots and the stored webhook events so a full
       // wipe leaves no D1 residue to resurface on the next trigger.
       await Promise.all([
+        ...rows.map((row) => destroyAgentGeneration(db, toAgentInstanceId(row.entityKey))),
         db.delete(dbSchema.agentSessions),
         db.delete(dbSchema.webhookEvents),
         db.delete(dbSchema.githubDiscussionObligations),
@@ -1087,6 +1082,7 @@ const router = new Hono<BaseEnv>()
     const db = c.get("db")
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
     await Promise.all([
+      destroyAgentGeneration(db, toAgentInstanceId(entityKey)),
       db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
       db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
       db
@@ -1151,6 +1147,7 @@ const router = new Hono<BaseEnv>()
   .post("/:entityKey/destroy", async (c) => {
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
     const db = c.get("db")
+    await destroyAgentGeneration(db, toAgentInstanceId(entityKey))
     const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
     try {
       await sandbox.destroy()
