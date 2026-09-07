@@ -323,8 +323,6 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           openrouterApiKey: envBindings.OPENROUTER_API_KEY,
           anthropicApiKey: envBindings.ANTHROPIC_API_KEY,
           openaiApiKey: envBindings.OPENAI_API_KEY,
-          sentryDsn: envBindings.SENTRY_DSN,
-          sentryAuthToken: envBindings.SENTRY_AUTH_TOKEN,
           entityKey: containerKey,
           appUrl: envBindings.APP_URL,
           thinSandbox: flueNative,

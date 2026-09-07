@@ -290,8 +290,6 @@ async function prepEntitySandbox(
     openrouterApiKey: env.OPENROUTER_API_KEY,
     anthropicApiKey: env.ANTHROPIC_API_KEY,
     openaiApiKey: env.OPENAI_API_KEY,
-    sentryDsn: env.SENTRY_DSN,
-    sentryAuthToken: env.SENTRY_AUTH_TOKEN,
     appUrl: env.APP_URL,
     thinSandbox: flueNative,
     loreGatewayUrl: env.LORE_GATEWAY_URL,

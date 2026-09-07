@@ -17,8 +17,11 @@ export type BaseEnvBindings = {
     GOOGLE_CLIENT_ID: string
     GOOGLE_CLIENT_SECRET: string
     SENTRY_DSN?: string
-    // Sentry CLI auth for the agent sandbox (issue/trace debugging)
-    SENTRY_AUTH_TOKEN?: string
+    SENTRY_ENVIRONMENT?: string
+    SENTRY_RELEASE?: string
+    SENTRY_TRACES_SAMPLE_RATE?: string
+    SENTRY_AI_RECORD_INPUTS?: string
+    SENTRY_AI_RECORD_OUTPUTS?: string
     // Agent API keys - For local testing
     ANTHROPIC_API_KEY?: string
     OPENAI_API_KEY?: string

@@ -43,9 +43,6 @@ export type SandboxSetupOpts = {
   openrouterApiKey?: string
   anthropicApiKey?: string
   openaiApiKey?: string
-  sentryDsn?: string
-  /** Auth token for the in-sandbox `sentry` CLI (issue/trace debugging). */
-  sentryAuthToken?: string
   entityKey: string
   /** Public base URL of this Worker, so the in-container reporter can POST session data back. */
   appUrl?: string
@@ -74,8 +71,6 @@ function buildEnvFileContents(opts: SandboxSetupOpts, githubToken?: string): str
   if (opts.openrouterApiKey) push("OPENROUTER_API_KEY", opts.openrouterApiKey)
   if (opts.anthropicApiKey) push("ANTHROPIC_API_KEY", opts.anthropicApiKey)
   if (opts.openaiApiKey) push("OPENAI_API_KEY", opts.openaiApiKey)
-  if (opts.sentryDsn) push("SENTRY_DSN", opts.sentryDsn)
-  if (opts.sentryAuthToken) push("SENTRY_AUTH_TOKEN", opts.sentryAuthToken)
   if (githubToken) push("GH_TOKEN", githubToken)
 
   const loreUrl = opts.loreGatewayUrl ?? "http://127.0.0.1:3207"

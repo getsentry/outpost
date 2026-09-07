@@ -1,11 +1,24 @@
 import * as Sentry from "@sentry/react"
+import { browserSentryOptions } from "./sentry-config"
 
 Sentry.init({
-  dsn: import.meta.env.VITE_SENTRY_DSN,
-  environment: import.meta.env.MODE,
-  enabled: !!import.meta.env.VITE_SENTRY_DSN,
+  ...browserSentryOptions(import.meta.env),
   integrations: [Sentry.browserTracingIntegration(), Sentry.replayIntegration()],
-  tracesSampleRate: 0.1,
-  replaysOnErrorSampleRate: 1.0,
-  replaysSessionSampleRate: 0,
+  beforeBreadcrumb: () => null,
+  beforeSend: (event) => ({
+    ...event,
+    request: undefined,
+    breadcrumbs: undefined,
+    message: event.message ? "[redacted]" : undefined,
+    exception: event.exception
+      ? {
+          ...event.exception,
+          values: event.exception.values?.map((value) => ({
+            type: value.type,
+            value: "[redacted]",
+            mechanism: value.mechanism,
+          })),
+        }
+      : undefined,
+  }),
 })

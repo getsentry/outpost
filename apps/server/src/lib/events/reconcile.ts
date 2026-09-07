@@ -5,8 +5,10 @@
 // settlement receipt is the reliable boundary, so reconciliation maps each
 // admitted delivery to its exact submission id and settles only that row.
 
+import * as Sentry from "@sentry/cloudflare"
 import type { InProcessHistoryRead } from "@/lib/containers/flue-dispatch"
 import { readFlueHistoryInProcess } from "@/lib/containers/flue-dispatch"
+import { workflowCorrelationTags } from "@/lib/observability/sentry"
 import type { BaseEnvBindings } from "@/types/env/base"
 import { settledSubmissionIds } from "./delivery-status"
 
@@ -73,11 +75,28 @@ export async function reconcileStuckDispatched(
       const submissionId = entry.status.slice("admitted:".length)
       const status =
         read && entry.status.startsWith("admitted:") ? decideReconciledStatus(read, submissionId) : "failed:timeout"
-      const res = await env.DB.prepare(
-        "UPDATE webhook_events SET status = ?, completed_at = ? WHERE id = ? AND status = ?",
+      const res = await Sentry.startSpan(
+        {
+          name: "jared.flue.reconcile",
+          op: "jared.flue.reconcile",
+          attributes: workflowCorrelationTags({
+            source: "reconciliation",
+            submissionId: entry.status.startsWith("admitted:") ? submissionId : undefined,
+            entityKey,
+            eventId: entry.id,
+            lifecycleStatus: status,
+          }),
+        },
+        async (span) => {
+          const update = await env.DB.prepare(
+            "UPDATE webhook_events SET status = ?, completed_at = ? WHERE id = ? AND status = ?",
+          )
+            .bind(status, nowSec, entry.id, entry.status)
+            .run()
+          span.setAttribute("jared.reconcile.updated", update.meta.changes ?? 0)
+          return update
+        },
       )
-        .bind(status, nowSec, entry.id, entry.status)
-        .run()
       const changes = res.meta.changes ?? 0
       if (status === "settled") settled += changes
       else timedOut += changes
