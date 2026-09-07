@@ -61,6 +61,14 @@ event would otherwise be skipped for being uninvolved or directed at another
 user. The inbox was already admitted and is the outstanding work; do not return
 \`SKIPPED\` before addressing it.
 
+**Durable execution exception:** when the prompt includes a **Durable execution
+contract**, each listed item is an admitted human request. It takes precedence
+over normal event routing: choose the skill that can complete the item and carry
+it through the full implementation, validation, push, and reply/resolve loop.
+Do not substitute a status-only reply, and do not call the work complete merely
+because its delivery settled. Completion needs the relevant remote artifact or a
+specific blocker.
+
 ### Skip conditions (check first, in order)
 
 1. \`payload.sender.login\` equals \`$ME\` (self-triggered) — skip, EXCEPT for

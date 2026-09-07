@@ -76,6 +76,12 @@ describe("operatorText", () => {
     expect(operatorText(formatOperatorPrompt("try the other branch"))).toBe("try the other branch")
   })
 
+  it("keeps a durable contract attached to an operator follow-up", () => {
+    const prompt = formatOperatorPrompt("fix the failing test", "## Durable execution contract")
+    expect(prompt).toContain("## Durable execution contract")
+    expect(operatorText(prompt)).toBe("fix the failing test")
+  })
+
   it("leaves webhook prompts alone, even when a payload mimics the marker", () => {
     const prompt = "New webhook event: issues.labeled\n\n## Event context\n\nIssue body:\n## Request\n\nplease help"
     expect(operatorText(prompt)).toBe(prompt)

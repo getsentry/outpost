@@ -12,6 +12,7 @@ import { eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { startAgentGeneration } from "@/lib/agents/lifecycle"
+import { canonicalWorkKey, formatExecutionContract, listOpenAgentWork } from "@/lib/agents/work-items"
 import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
 import { dispatchToFlueAgent } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
@@ -150,18 +151,27 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.done")
 
     let discussionInbox = ""
+    let executionContract = ""
     try {
       const payload = JSON.parse(evt.payload) as Record<string, unknown>
       const prNumber = extractDiscussionPrNumber(evt.event, payload)
       if (evt.repo && prNumber !== null) {
         discussionInbox = formatDiscussionInbox(await listOpenDiscussionObligations(db, evt.repo, prNumber))
       }
+      if (evt.repo) {
+        executionContract = formatExecutionContract(
+          await listOpenAgentWork(db, {
+            workKey: canonicalWorkKey({ repo: evt.repo, entityKey: containerKey, prNumber }),
+            entityKey: containerKey,
+          }),
+        )
+      }
     } catch (err) {
-      // Discussion tracking must never prevent a normal webhook turn. The next
-      // admitted event will retry the snapshot query.
+      // Durable inbox/task tracking must never prevent a normal webhook turn.
+      // The next admitted event will retry the snapshot query.
       logger.warn(
         { entity_key: containerKey, event_id: eventId, reason: formatError(err) },
-        "discussion inbox load failed",
+        "durable execution state load failed",
       )
     }
 
@@ -176,6 +186,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       botLogin,
       modelTier: classifyModelTier(evt.event, evt.action, evt.payload),
       discussionInbox,
+      executionContract,
     })
 
     logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.start")

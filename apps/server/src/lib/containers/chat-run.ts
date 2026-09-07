@@ -39,9 +39,17 @@ export const CHAT_PROMPT_HEADER = "New operator chat"
 /** Separates the chat-run framing header from what the operator actually typed. */
 export const CHAT_REQUEST_MARKER = "\n## Request\n\n"
 
+/** Delimits Worker-added durable state so transcript rendering can hide it. */
+export const EXECUTION_CONTRACT_MARKER = "\n\n<!-- jared:execution-contract -->\n"
+
 /** Wrap free-form operator text admitted into a live conversation. */
-export function formatOperatorPrompt(text: string): string {
-  return `${OPERATOR_PROMPT_PREFIX}${text}`
+export function formatOperatorPrompt(text: string, executionContract = ""): string {
+  return `${OPERATOR_PROMPT_PREFIX}${text}${executionContract ? `${EXECUTION_CONTRACT_MARKER}${executionContract}` : ""}`
+}
+
+function stripExecutionContract(text: string): string {
+  const marker = text.indexOf(EXECUTION_CONTRACT_MARKER)
+  return marker === -1 ? text : text.slice(0, marker)
 }
 
 /**
@@ -50,12 +58,13 @@ export function formatOperatorPrompt(text: string): string {
  * prompt unchanged when it carries no operator framing (e.g. webhook events).
  */
 export function operatorText(prompt: string): string {
-  if (prompt.startsWith(OPERATOR_PROMPT_PREFIX)) return prompt.slice(OPERATOR_PROMPT_PREFIX.length)
+  if (prompt.startsWith(OPERATOR_PROMPT_PREFIX))
+    return stripExecutionContract(prompt.slice(OPERATOR_PROMPT_PREFIX.length))
   if (prompt.startsWith(CHAT_PROMPT_HEADER)) {
     // Anchored on the header so a webhook payload that happens to contain the
     // marker can't get its message body truncated.
     const request = prompt.indexOf(CHAT_REQUEST_MARKER)
-    if (request !== -1) return prompt.slice(request + CHAT_REQUEST_MARKER.length)
+    if (request !== -1) return stripExecutionContract(prompt.slice(request + CHAT_REQUEST_MARKER.length))
   }
   return prompt
 }

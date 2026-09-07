@@ -121,6 +121,37 @@ export const githubDiscussionObligations = sqliteTable(
   ],
 )
 
+/**
+ * Compact durable state for a human request that must survive sandbox reuse and
+ * Flue conversation compaction. This deliberately stores goals and external
+ * evidence, never a second copy of model transcripts or webhook payloads.
+ */
+export const agentWorkItems = sqliteTable(
+  "agent_work_items",
+  {
+    id: text("id").primaryKey(),
+    workKey: text("work_key").notNull(),
+    entityKey: text("entity_key").notNull(),
+    repo: text("repo").notNull(),
+    sourceKind: text("source_kind").notNull(),
+    sourceId: text("source_id").notNull(),
+    goal: text("goal").notNull(),
+    targetPrNumber: integer("target_pr_number"),
+    stage: text("stage").notNull().default("queued"),
+    artifactUrl: text("artifact_url"),
+    artifactSha: text("artifact_sha"),
+    blocker: text("blocker"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+    completedAt: integer("completed_at", { mode: "timestamp" }),
+  },
+  (table) => [
+    uniqueIndex("agent_work_items_repo_source_unique").on(table.repo, table.sourceKind, table.sourceId),
+    index("idx_agent_work_items_work_stage_updated").on(table.workKey, table.stage, table.updatedAt),
+    index("idx_agent_work_items_entity_stage_updated").on(table.entityKey, table.stage, table.updatedAt),
+  ],
+)
+
 export const agentSessions = sqliteTable("agent_sessions", {
   entityKey: text("entity_key").primaryKey(),
   sessionId: text("session_id"),

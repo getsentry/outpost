@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
+import { cancelAgentWorkFromGitHubSource, completeAgentWorkFromGitHubDiscussion } from "@/lib/agents/work-items"
 import {
   type DiscussionObligation,
   type DiscussionResponseEvidence,
@@ -130,6 +131,13 @@ export async function cancelDiscussionObligation(
         eq(dbSchema.githubDiscussionObligations.status, "open"),
       ),
     )
+
+  await cancelAgentWorkFromGitHubSource(db, {
+    repo,
+    kind: source.kind,
+    sourceCommentId: source.sourceCommentId,
+    now,
+  })
 }
 
 /** Mark a row closed only after GitHub has delivered Jared's marked reply. */
@@ -186,4 +194,11 @@ export async function verifyDiscussionResponse(
     .update(dbSchema.webhookEvents)
     .set({ status: "completed", completedAt: now })
     .where(eq(dbSchema.webhookEvents.id, obligation.eventId))
+
+  await completeAgentWorkFromGitHubDiscussion(db, {
+    repo,
+    kind: obligation.sourceKind,
+    sourceCommentId: obligation.sourceCommentId,
+    now,
+  })
 }
