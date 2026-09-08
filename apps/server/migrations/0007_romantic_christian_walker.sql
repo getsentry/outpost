@@ -1,0 +1,1 @@
+ALTER TABLE `scheduled_jobs` ADD `armed_revision` integer;

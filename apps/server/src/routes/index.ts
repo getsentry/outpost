@@ -6,6 +6,7 @@ import containersRouter from "./containers"
 import devRouter from "./dev"
 import eventsRouter from "./events"
 import profileRouter from "./profile"
+import schedulesRouter from "./schedules"
 import webhooksRouter from "./webhooks"
 
 const apiRouter = new Hono<AuthEnv>()
@@ -32,6 +33,7 @@ const apiRouter = new Hono<AuthEnv>()
   .route("/containers", containersRouter)
   .route("/dev", devRouter)
   .route("/profile", profileRouter)
+  .route("/schedules", schedulesRouter)
 
 const router = new Hono<AuthEnv>().get("/health", (c) => c.json({ status: "ok" })).route("/api", apiRouter)
 

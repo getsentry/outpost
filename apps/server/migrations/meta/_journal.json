@@ -43,6 +43,20 @@
       "when": 1788779488374,
       "tag": "0005_fluffy_baron_strucker",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788863453620,
+      "tag": "0006_sad_dragon_lord",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788863801646,
+      "tag": "0007_romantic_christian_walker",
+      "breakpoints": true
     }
   ]
 }

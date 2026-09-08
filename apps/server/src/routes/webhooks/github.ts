@@ -7,7 +7,7 @@
 import { formatError } from "@jared/utils"
 import { verify } from "@octokit/webhooks-methods"
 import * as Sentry from "@sentry/cloudflare"
-import { and, eq, gt, inArray, like, or } from "drizzle-orm"
+import { and, eq, gt, inArray, isNull, like, or } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
 import {
@@ -40,6 +40,7 @@ import { extractEntityKey, lookup, lookupString } from "@/lib/github/entity"
 import { deriveGitHubInvolvement, shouldAdmitGitHubEvent } from "@/lib/github/involvement"
 import { isDurableExecutionRequest } from "@/lib/github/model-tier"
 import { acknowledgeGitHubEvent } from "@/lib/github/reactions"
+import { extractScheduledRunMarker } from "@/lib/schedules/run-key"
 import type { BaseEnv } from "@/types"
 
 // A CI burst (many workflow_run/check_suite completions for one push) lands
@@ -148,6 +149,36 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
   const installationId = (payload.installation as { id?: number } | undefined)?.id ?? null
   const sender = lookupString(payload, "sender.login")
   const repo = lookupString(payload, "repository.full_name")
+
+  // A scheduled agent run may create a PR or issue without a human webhook
+  // source. Its hidden marker is display metadata only; it never changes the
+  // normal admission/authorization gates below.
+  if (repo && (event === "pull_request" || event === "issues")) {
+    const artifact = event === "pull_request" ? lookup(payload, "pull_request") : lookup(payload, "issue")
+    const body = lookupString(artifact as Record<string, unknown>, "body")
+    const runId = extractScheduledRunMarker(body)
+    const url = lookupString(artifact as Record<string, unknown>, "html_url")
+    if (runId && url) {
+      try {
+        await db
+          .update(dbSchema.scheduledJobRuns)
+          .set({
+            artifactUrl: url,
+            artifactKind: event === "pull_request" ? "pull_request" : "issue",
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(dbSchema.scheduledJobRuns.id, runId),
+              eq(dbSchema.scheduledJobRuns.repo, repo),
+              isNull(dbSchema.scheduledJobRuns.artifactUrl),
+            ),
+          )
+      } catch (err) {
+        logger.warn({ error: formatError(err), run_id: runId }, "scheduled artifact link failed")
+      }
+    }
+  }
 
   let entityKey = null
   let botLogin = ""

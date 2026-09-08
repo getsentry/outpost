@@ -15,6 +15,7 @@ import { recordMaintenanceRun } from "./lib/events/maintenance.ts"
 import { reconcileStuckDispatched } from "./lib/events/reconcile.ts"
 import { deleteExpiredWebhookEvents } from "./lib/events/retention.ts"
 import { cloudflareSentryOptions } from "./lib/observability/cloudflare.ts"
+import type { ScheduleArm } from "./lib/schedules/runner.ts"
 import type { BaseEnvBindings } from "./types/env/base.ts"
 
 // ContainerProxy is a WorkerEntrypoint the Sandbox DO reaches via
@@ -23,6 +24,7 @@ import type { BaseEnvBindings } from "./types/env/base.ts"
 // container fails to start with "ctx.exports.ContainerProxy is undefined".
 export { ContainerProxy } from "@cloudflare/sandbox"
 export { Sandbox } from "./lib/containers/sandbox.ts"
+export { ScheduleRunner } from "./lib/schedules/runner.ts"
 
 const handlers = {
   async scheduled(
@@ -99,6 +101,25 @@ const handlers = {
           })
         } catch (_err) {
           console.warn("maintenance_runs.record.failed", { failure_class: "contained" })
+        }
+        // Schedule configuration is authoritative in D1. Re-arm only schedules
+        // whose runner never confirmed the current revision; avoid disturbing
+        // healthy runner monitor alarms.
+        try {
+          const unarmed = await env.DB.prepare(
+            "SELECT id, revision, next_due_at FROM scheduled_jobs WHERE enabled = 1 AND archived_at IS NULL AND next_due_at IS NOT NULL AND (armed_revision IS NULL OR armed_revision != revision) LIMIT 100",
+          ).all<{ id: string; revision: number; next_due_at: number }>()
+          await Promise.all(
+            (unarmed.results ?? []).map((job) =>
+              env.ScheduleRunner.get(env.ScheduleRunner.idFromName(job.id)).arm({
+                scheduleId: job.id,
+                revision: job.revision,
+                nextDueAt: job.next_due_at,
+              } satisfies ScheduleArm),
+            ),
+          )
+        } catch (_err) {
+          console.warn("scheduled_jobs.rearm.failed", { failure_class: "contained" })
         }
         span.setAttribute("jared.lifecycle_status", "completed")
         span.setAttribute("jared.maintenance.deleted", deleted)

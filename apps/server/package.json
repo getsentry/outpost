@@ -29,6 +29,7 @@
     "@hono/structured-logger": "^0.1.0",
     "@jared/utils": "workspace:*",
     "@jared/validations": "workspace:*",
+    "@js-temporal/polyfill": "^0.5.1",
     "@octokit/auth-app": "^8.2.0",
     "@octokit/rest": "^22.0.1",
     "@octokit/webhooks-methods": "^6.0.0",
