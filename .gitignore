@@ -1,6 +1,8 @@
 .env
 .env.*
 !.env.example
+.dev.vars
+.dev.vars.*
 
 node_modules/
 dist/

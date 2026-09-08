@@ -85,8 +85,8 @@ docs/
 pnpm install
 
 # Set up environment variables
-cp apps/server/.env.example apps/server/.dev.vars
-# Edit .dev.vars with your API keys and GitHub App credentials
+cp apps/server/.env.example apps/server/.env
+# Edit .env with your API keys and GitHub App credentials
 
 # Run D1 migrations
 pnpm -F @jared/server db:migrate:dev
