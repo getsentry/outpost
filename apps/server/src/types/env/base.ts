@@ -9,8 +9,7 @@ export type BaseEnvBindings = {
     CF_VERSION_METADATA: { id: string }
     DB: D1Database
     RATE_LIMITER: RateLimit
-    // The following environment variables are defined in the .dev.vars file
-    // This is just for development purposes
+    // Local development values are loaded from apps/server/.env.
     ENV: "development" | "production"
     BETTER_AUTH_SECRET: string
     APP_URL: string
