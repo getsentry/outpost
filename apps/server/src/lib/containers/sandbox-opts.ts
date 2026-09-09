@@ -11,4 +11,7 @@
 export const SANDBOX_SLEEP_AFTER = "10m" as const
 
 /** Shared getSandbox() options for every Outpost call site. */
-export const SANDBOX_OPTS = { normalizeId: true, sleepAfter: SANDBOX_SLEEP_AFTER }
+// Prep scripts use `set -e`; default sessions are persistent shells, so a failed
+// command can terminate the shared shell and mask stderr as SessionTerminatedError.
+// Run implicit operations sessionlessly to keep each command isolated.
+export const SANDBOX_OPTS = { normalizeId: true, sleepAfter: SANDBOX_SLEEP_AFTER, enableDefaultSession: false }
