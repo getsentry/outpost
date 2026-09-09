@@ -44,6 +44,17 @@ import { chatEntityRepo } from "@/lib/containers/chat-run"
 
 const PAGE_SIZES = [10, 25, 50] as const
 
+function activitySourceLabel(source: NonNullable<SessionListItem["activityPreview"]>["source"]): string {
+  switch (source) {
+    case "github":
+      return "GitHub"
+    case "operator":
+      return "Operator"
+    default:
+      return "Message"
+  }
+}
+
 function StatusIndicator({ status }: { status: string }) {
   const config: Record<string, { bg: string; dot: string; label: string }> = {
     working: {
@@ -336,8 +347,9 @@ export default function SessionsPage() {
                         {session.activityPreview && (
                           <p className="line-clamp-2 text-xs text-muted-foreground">
                             <span className="font-medium text-foreground">
-                              {session.activityPreview.source === "github" ? "GitHub" : "Operator"}
+                              {activitySourceLabel(session.activityPreview.source)}
                               {session.activityPreview.eventLabel ? ` · ${session.activityPreview.eventLabel}` : ""}
+                              {session.activityPreview.sender ? ` · ${session.activityPreview.sender}` : ""}
                             </span>
                             {session.activityPreview.summary ? ` · ${session.activityPreview.summary}` : ""}
                           </p>
@@ -437,6 +449,11 @@ export default function SessionsPage() {
                                   {session.activityPreview.eventLabel && (
                                     <span className="truncate font-mono text-[10px] text-muted-foreground">
                                       {session.activityPreview.eventLabel}
+                                    </span>
+                                  )}
+                                  {session.activityPreview.sender && (
+                                    <span className="truncate text-[10px] text-muted-foreground">
+                                      {session.activityPreview.sender}
                                     </span>
                                   )}
                                 </div>

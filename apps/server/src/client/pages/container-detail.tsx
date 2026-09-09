@@ -50,6 +50,8 @@ import {
   type InboundMessage,
   summarizeRunActivity,
   type TranscriptGroup,
+  transcriptMessageCreatedAt,
+  transcriptMessageRole,
 } from "@/lib/containers/transcript-presentation"
 
 // ---------------------------------------------------------------------------
@@ -209,6 +211,10 @@ function Markdown({ children }: { children: string }) {
 // ---------------------------------------------------------------------------
 
 function GitHubInboundCard({ inbound }: { inbound: Extract<InboundMessage, { source: "github" }> }) {
+  const entityUrl =
+    inbound.entityKey && inbound.entityKind
+      ? entityGitHubUrl(inbound.entityKey, inbound.entityKind === "pull" ? "pull_request" : "issues")
+      : null
   return (
     <div className="rounded-md border border-violet-500/25 bg-violet-500/5 px-3 py-2.5">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
@@ -222,6 +228,12 @@ function GitHubInboundCard({ inbound }: { inbound: Extract<InboundMessage, { sou
         <div className="mt-1.5 space-y-1 text-[13px] leading-relaxed">
           {inbound.subject && <p className="font-medium">{inbound.subject}</p>}
           {inbound.excerpt && <p className="text-muted-foreground">{inbound.excerpt}</p>}
+        </div>
+      )}
+      {(inbound.repo || entityUrl) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          {inbound.repo && <GitHubLink href={repoGitHubUrl(inbound.repo)}>{inbound.repo}</GitHubLink>}
+          {entityUrl && <GitHubLink href={entityUrl}>Open {inbound.entityKind}</GitHubLink>}
         </div>
       )}
       <details className="mt-2 text-[11px] text-muted-foreground">
@@ -260,9 +272,10 @@ function SkippedActivityGroup({ group }: { group: Extract<TranscriptGroup, { kin
 }
 
 function ChatMessage({ message }: { message: SessionMessage }) {
-  const role = message.info?.role ?? "unknown"
+  const role = transcriptMessageRole(message)
   const parts = message.parts ?? []
-  const time = message.info?.createdAt ? formatTime(message.info.createdAt) : null
+  const createdAt = transcriptMessageCreatedAt(message)
+  const time = createdAt ? formatTime(createdAt) : null
 
   const isAssistant = role === "assistant"
   const isUser = role === "user"
@@ -271,7 +284,11 @@ function ChatMessage({ message }: { message: SessionMessage }) {
   const items = useMemo(() => toRenderItems(parts), [parts])
   const answer = isAssistant ? assistantVisibleText(message) : ""
   const traceItems = isAssistant ? items.filter((item) => item.kind !== "text" || item.reasoning) : []
-  const copyText = isAssistant ? answer : inbound?.source === "operator" ? inbound.text : ""
+  const copyText = isAssistant
+    ? answer
+    : inbound?.source === "operator" || inbound?.source === "unknown"
+      ? inbound.text
+      : ""
 
   const hasVisibleContent = items.length > 0
   // Assistant messages may still be streaming (no parts yet). Show a working
@@ -315,9 +332,11 @@ function ChatMessage({ message }: { message: SessionMessage }) {
               ? "Assistant"
               : inbound?.source === "github"
                 ? "GitHub"
-                : role === "user"
-                  ? "Operator"
-                  : role}
+                : inbound?.source === "unknown"
+                  ? "Message"
+                  : role === "user"
+                    ? "Operator"
+                    : role}
           </span>
           {time && <span className="text-[10px] tabular-nums text-muted-foreground/60">{time}</span>}
         </div>
@@ -325,6 +344,7 @@ function ChatMessage({ message }: { message: SessionMessage }) {
         <div className="space-y-1.5">
           {inbound?.source === "github" && <GitHubInboundCard inbound={inbound} />}
           {inbound?.source === "operator" && <Markdown>{inbound.text}</Markdown>}
+          {inbound?.source === "unknown" && <Markdown>{inbound.text}</Markdown>}
           {isAssistant && answer && <Markdown>{answer}</Markdown>}
           {isAssistant && traceItems.length > 0 && (
             <details className="rounded-md border border-border/50 bg-muted/10 px-2.5 py-1.5 text-[11px] text-muted-foreground">

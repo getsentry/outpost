@@ -44,6 +44,9 @@ describe("classifyModelTier", () => {
     expect(classifyModelTier("workflow_run", "completed", json({ workflow_run: { conclusion: "success" } }))).toBe(
       "light",
     )
+    expect(classifyModelTier("check_suite", "requested", json({ check_suite: { conclusion: "success" } }))).toBe(
+      "heavy",
+    )
     // failure → fix-ci (heavy)
     expect(classifyModelTier("check_suite", "completed", json({ check_suite: { conclusion: "failure" } }))).toBe(
       "heavy",

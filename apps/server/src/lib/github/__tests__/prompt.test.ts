@@ -38,12 +38,20 @@ describe("formatEventPrompt — review guidance", () => {
       event: "issue_comment",
       action: "created",
       payload: JSON.stringify({
-        issue: { number: 1108, title: "Make the transcript readable" },
+        issue: {
+          number: 1108,
+          title: "Make the transcript readable",
+        },
         comment: { body: "Please keep the GitHub event visible in chat." },
       }),
     })
 
-    expect(out).toContain("<!-- jared:transcript-v1=")
+    const encoded = /<!-- jared:transcript-v1=([^\s]+) -->/.exec(out)?.[1]
+    expect(encoded).toBeTruthy()
+    expect(JSON.parse(decodeURIComponent(encoded ?? ""))).toMatchObject({
+      v: 1,
+      entityKind: "issue",
+    })
     expect(out).toContain("Bot identity: jared-outpost[bot]")
   })
 

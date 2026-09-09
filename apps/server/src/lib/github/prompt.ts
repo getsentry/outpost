@@ -113,6 +113,7 @@ function transcriptEnvelope(
       sender: opts.sender,
       repo: opts.repo,
       entityKey: opts.entityKey,
+      entityKind: data.pull_request ? "pull" : data.issue ? "issue" : null,
       subject,
       excerpt: excerpt ? truncate(excerpt, 360).replace(/\s+/g, " ").trim() : null,
     }),

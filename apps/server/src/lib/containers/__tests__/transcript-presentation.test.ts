@@ -39,6 +39,17 @@ describe("classifyInboundMessage", () => {
       text: "Try the alternate branch",
     })
   })
+
+  it("does not include durable agent context in a legacy card excerpt", () => {
+    const inbound = classifyInboundMessage(
+      `${githubPrompt}\n\n## PR discussion inbox — 1 open discussion obligation\n\nPrivate reviewer context`,
+    )
+
+    expect(inbound).toMatchObject({
+      source: "github",
+      excerpt: "Deployment finished successfully.",
+    })
+  })
 })
 
 describe("groupTranscriptMessages", () => {
@@ -60,6 +71,15 @@ describe("groupTranscriptMessages", () => {
 
     expect(groups.map((group) => group.kind)).toEqual(["skipped-activity", "inbound", "assistant"])
     expect(groups[0]).toMatchObject({ count: 2, labels: ["issue_comment.created"] })
+  })
+
+  it("preserves legacy messages that store role at the top level", () => {
+    const groups = groupTranscriptMessages([
+      { role: "user", parts: [{ type: "text", text: "Operator guidance:\n\nCheck the release." }] },
+      { role: "assistant", parts: [{ type: "text", text: "Release checked." }] },
+    ])
+
+    expect(groups.map((group) => group.kind)).toEqual(["inbound", "assistant"])
   })
 })
 
@@ -108,5 +128,23 @@ describe("summarizeRunActivity", () => {
     )
 
     expect(summary.summary).toBe("Newest update")
+  })
+
+  it("shows the current inbound work while a run is still working", () => {
+    const summary = summarizeRunActivity(
+      [
+        {
+          info: { role: "assistant", createdAt: "2026-01-01T00:00:00.000Z" },
+          parts: [{ type: "text", text: "Previous work is complete." }],
+        },
+        {
+          info: { role: "user", createdAt: "2026-01-01T01:00:00.000Z" },
+          parts: [{ type: "text", text: "Operator guidance:\n\nUpdate the release notes." }],
+        },
+      ],
+      "working",
+    )
+
+    expect(summary).toMatchObject({ state: "working", summary: "Update the release notes." })
   })
 })

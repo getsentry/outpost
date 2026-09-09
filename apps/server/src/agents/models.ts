@@ -2,10 +2,10 @@
  * Shared model IDs for the Jared multi-agent roster.
  *
  * Tiering goal: spend the premium model only on heavy judgment (planning,
- * go/no-go on real code changes). Everything else runs on balanced-cost
- * models — a cheap primary for lightweight situations (comment replies,
- * approvals), a cheap reader for survey, a dedicated coder for implementation,
- * and a fast, cheap model for mechanical git/gh shipping.
+ * go/no-go on real code changes). Conversation-facing GitHub work stays on the
+ * premium primary; the balanced-cost primary is reserved for successful,
+ * completed CI events. Other specialist models remain available for survey,
+ * implementation, and mechanical git/gh shipping.
  *
  * All IDs are OpenRouter-style (`openrouter/<provider>/<model>`) and every slug
  * below is validated against OpenRouter's live model list.
@@ -17,9 +17,9 @@ export const Models = {
    */
   triage: "openrouter/anthropic/claude-opus-4.8",
   /**
-   * Light primary — same router/handler role for lightweight situations
-   * (respond-to-comment, approval reviews, mark-pr-ready) where Opus is
-   * overkill. Strong, cheap, 1M context.
+   * Light primary — same router/handler role for successful terminal CI
+   * completion, where a mechanical mark-ready path does not need Opus.
+   * Strong, cheap, 1M context.
    */
   triageLight: "openrouter/x-ai/grok-4.3",
   /** Implementation after a precise plan is ready — a dedicated coding model. */

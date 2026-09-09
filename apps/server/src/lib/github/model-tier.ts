@@ -29,7 +29,7 @@ export function isDurableExecutionRequest(text: string): boolean {
  *
  * `payload` is the raw webhook JSON string (as stored / dispatched).
  */
-export function classifyModelTier(event: string, _action: string | null, payload: string): ModelTier {
+export function classifyModelTier(event: string, action: string | null, payload: string): ModelTier {
   let data: Record<string, unknown> = {}
   try {
     data = JSON.parse(payload) as Record<string, unknown>
@@ -41,7 +41,7 @@ export function classifyModelTier(event: string, _action: string | null, payload
   // (heavy). Anything else is skipped anyway — default heavy is harmless.
   if (event === "check_suite" || event === "workflow_run") {
     const conclusion = lookupString(data, `${event}.conclusion`)
-    return conclusion === "success" ? "light" : "heavy"
+    return action === "completed" && conclusion === "success" ? "light" : "heavy"
   }
 
   // issues.* (resolve-issue), pull_request opened/assigned (review-pr), and

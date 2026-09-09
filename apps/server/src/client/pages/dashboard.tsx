@@ -1,5 +1,5 @@
 import { ArrowRight, CheckCircle, CircleDashed, Clock, Hourglass, Warning } from "@phosphor-icons/react"
-import { useNavigate } from "react-router-dom"
+import { Link, useNavigate } from "react-router-dom"
 import { formatTimeAgo, repoGitHubUrl } from "@/client/lib/format"
 import { useEventStats, useEvents } from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
@@ -11,7 +11,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 function StatsCards() {
-  const navigate = useNavigate()
   const { data: stats, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useEventStats()
 
   if (isLoading) {
@@ -92,10 +91,9 @@ function StatsCards() {
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {queues.map((queue) => (
-          <button
+          <Link
             key={queue.label}
-            type="button"
-            onClick={() => navigate(`/events?status=${encodeURIComponent(queue.status)}`)}
+            to={`/events?status=${encodeURIComponent(queue.status)}`}
             className="rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Card className="h-full transition-colors hover:bg-muted/40">
@@ -110,7 +108,7 @@ function StatsCards() {
                 <p className="mt-1 text-[11px] text-muted-foreground">{queue.description}</p>
               </CardContent>
             </Card>
-          </button>
+          </Link>
         ))}
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-xs text-muted-foreground">

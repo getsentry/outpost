@@ -1,7 +1,21 @@
 import { operatorText } from "./chat-run"
 
 type MessagePart = { type?: string; text?: string; tool?: string; toolName?: string; state?: unknown }
-export type TranscriptMessage = { info?: { role?: string; createdAt?: string }; parts?: MessagePart[] }
+export type TranscriptMessage = {
+  info?: { role?: string; createdAt?: string }
+  role?: string
+  createdAt?: string
+  parts?: MessagePart[]
+}
+
+/** Old Flue snapshots stored role/time at the top level; current ones use info. */
+export function transcriptMessageRole(message: TranscriptMessage): string {
+  return message.info?.role ?? message.role ?? "unknown"
+}
+
+export function transcriptMessageCreatedAt(message: TranscriptMessage): string | undefined {
+  return message.info?.createdAt ?? message.createdAt
+}
 
 export type InboundMessage =
   | { source: "operator"; text: string }
@@ -11,6 +25,7 @@ export type InboundMessage =
       sender: string | null
       repo: string | null
       entityKey: string | null
+      entityKind: "issue" | "pull" | null
       subject: string | null
       excerpt: string | null
       automated: boolean
@@ -47,7 +62,10 @@ function shortText(text: string, max = 180): string {
 }
 
 function contextExcerpt(text: string): string | null {
-  const section = /\n(?:Comment|Review):\n([\s\S]*?)(?=\n(?:Check suite|Workflow run):|$)/.exec(text)?.[1]
+  const section =
+    /\n(?:Comment|Review):\n([\s\S]*?)(?=\n(?:Check suite|Workflow run):|\n\n(?:## PR discussion inbox|<!-- jared:execution-contract -->)|$)/.exec(
+      text,
+    )?.[1]
   if (!section) return null
   const prose = section
     .split("\n")
@@ -77,6 +95,7 @@ export function classifyInboundMessage(text: string): InboundMessage {
           sender,
           repo: typeof value.repo === "string" ? value.repo : null,
           entityKey: typeof value.entityKey === "string" ? value.entityKey : null,
+          entityKind: value.entityKind === "issue" || value.entityKind === "pull" ? value.entityKind : null,
           subject: typeof value.subject === "string" ? value.subject : null,
           excerpt: typeof value.excerpt === "string" ? value.excerpt : null,
           automated: sender?.endsWith("[bot]") ?? false,
@@ -99,6 +118,7 @@ export function classifyInboundMessage(text: string): InboundMessage {
     sender,
     repo: lineValue(text, "Repository"),
     entityKey: lineValue(text, "Entity"),
+    entityKind: /^PR #\d+:/m.test(text) ? "pull" : /^Issue #\d+:/m.test(text) ? "issue" : null,
     subject,
     excerpt: contextExcerpt(text),
     automated: sender?.endsWith("[bot]") ?? false,
@@ -124,8 +144,8 @@ export function groupTranscriptMessages(messages: TranscriptMessage[]): Transcri
   const groups: TranscriptGroup[] = []
   for (let index = 0; index < messages.length; index += 1) {
     const message = messages[index]
-    if (message.info?.role !== "user") {
-      if (message.info?.role === "assistant") {
+    if (transcriptMessageRole(message) !== "user") {
+      if (transcriptMessageRole(message) === "assistant") {
         groups.push({ kind: "assistant", message, skipped: isSkippedAssistantMessage(message) })
       }
       continue
@@ -136,7 +156,8 @@ export function groupTranscriptMessages(messages: TranscriptMessage[]): Transcri
     if (
       inbound.source === "github" &&
       inbound.automated &&
-      next?.info?.role === "assistant" &&
+      next &&
+      transcriptMessageRole(next) === "assistant" &&
       isSkippedAssistantMessage(next)
     ) {
       const entries = [{ inbound, user: message, assistant: next }]
@@ -144,7 +165,13 @@ export function groupTranscriptMessages(messages: TranscriptMessage[]): Transcri
       while (index + 2 < messages.length) {
         const candidateUser = messages[index + 1]
         const candidateAssistant = messages[index + 2]
-        if (candidateUser?.info?.role !== "user" || candidateAssistant?.info?.role !== "assistant") break
+        if (
+          !candidateUser ||
+          !candidateAssistant ||
+          transcriptMessageRole(candidateUser) !== "user" ||
+          transcriptMessageRole(candidateAssistant) !== "assistant"
+        )
+          break
         const candidateInbound = classifyInboundMessage(
           (candidateUser.parts ?? []).map((part) => part.text ?? "").join(""),
         )
@@ -174,32 +201,34 @@ export function groupTranscriptMessages(messages: TranscriptMessage[]): Transcri
 /** Small, non-reasoning preview for the agent-run list and live summary. */
 export function summarizeRunActivity(messages: TranscriptMessage[], status: string): ActivityPreview {
   const chronological = [...messages].sort((a, b) => {
-    const aTime = a.info?.createdAt ? new Date(a.info.createdAt).getTime() : 0
-    const bTime = b.info?.createdAt ? new Date(b.info.createdAt).getTime() : 0
+    const aCreatedAt = transcriptMessageCreatedAt(a)
+    const bCreatedAt = transcriptMessageCreatedAt(b)
+    const aTime = aCreatedAt ? new Date(aCreatedAt).getTime() : 0
+    const bTime = bCreatedAt ? new Date(bCreatedAt).getTime() : 0
     return aTime - bTime
   })
-  const inbound = [...chronological].reverse().find((message) => message.info?.role === "user")
+  const inbound = [...chronological].reverse().find((message) => transcriptMessageRole(message) === "user")
   const input = inbound
     ? classifyInboundMessage((inbound.parts ?? []).map((part) => part.text ?? "").join(""))
     : { source: "unknown" as const, text: "" }
-  const latestAssistant = [...chronological].reverse().find((message) => message.info?.role === "assistant")
+  const latestAssistant = [...chronological].reverse().find((message) => transcriptMessageRole(message) === "assistant")
   const answer = latestAssistant ? assistantVisibleText(latestAssistant) : ""
+  const working = status === "working" || status === "busy"
+  const inputSummary =
+    input.source === "operator"
+      ? shortText(input.text)
+      : input.source === "github"
+        ? (input.excerpt ?? input.subject)
+        : shortText(input.text)
 
   return {
     source: input.source,
-    state:
-      status === "working" || status === "busy"
-        ? "working"
-        : latestAssistant && isSkippedAssistantMessage(latestAssistant)
-          ? "skipped"
-          : "updated",
-    summary: answer
-      ? shortText(answer)
-      : input.source === "operator"
-        ? shortText(input.text)
-        : input.source === "github"
-          ? (input.excerpt ?? input.subject)
-          : null,
+    state: working ? "working" : latestAssistant && isSkippedAssistantMessage(latestAssistant) ? "skipped" : "updated",
+    summary: working
+      ? (inputSummary ?? (answer ? shortText(answer) : null))
+      : answer
+        ? shortText(answer)
+        : inputSummary,
     ...(input.source === "github" ? { eventLabel: input.label, sender: input.sender } : {}),
   }
 }
