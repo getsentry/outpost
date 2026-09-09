@@ -44,6 +44,17 @@ import { chatEntityRepo } from "@/lib/containers/chat-run"
 
 const PAGE_SIZES = [10, 25, 50] as const
 
+function activitySourceLabel(source: NonNullable<SessionListItem["activityPreview"]>["source"]): string {
+  switch (source) {
+    case "github":
+      return "GitHub"
+    case "operator":
+      return "Operator"
+    default:
+      return "Message"
+  }
+}
+
 function StatusIndicator({ status }: { status: string }) {
   const config: Record<string, { bg: string; dot: string; label: string }> = {
     working: {
@@ -126,14 +137,14 @@ export default function SessionsPage() {
         (session.agent ?? "").toLowerCase().includes(q)
       )
     })
-    // Active (working) runs float to the top; everything else sorts by name.
-    // `numeric` keeps issue/PR numbers natural (e.g. #2 before #10).
+    // Active runs float to the top; after that, newest activity is the useful
+    // navigation order rather than an arbitrary entity-key sort.
     .slice()
     .sort((a, b) => {
       const rank = (s: SessionListItem) => (s.status === "working" || s.status === "busy" ? 0 : 1)
       const byActive = rank(a) - rank(b)
       if (byActive !== 0) return byActive
-      return a.entityKey.localeCompare(b.entityKey, undefined, { sensitivity: "base", numeric: true })
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     })
 
   const pagination = data?.pagination
@@ -224,6 +235,7 @@ export default function SessionsPage() {
           <input
             type="text"
             placeholder="Search by entity, title, or agent..."
+            aria-label="Search agent runs"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="h-7 w-full border border-input bg-background pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
@@ -232,6 +244,7 @@ export default function SessionsPage() {
             <button
               type="button"
               onClick={() => setSearchInput("")}
+              aria-label="Clear agent-run search"
               className="absolute right-2 text-muted-foreground hover:text-foreground"
             >
               <X className="size-3" />
@@ -331,6 +344,16 @@ export default function SessionsPage() {
                             {[session.agent, session.model].filter(Boolean).join(" · ")}
                           </p>
                         )}
+                        {session.activityPreview && (
+                          <p className="line-clamp-2 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">
+                              {activitySourceLabel(session.activityPreview.source)}
+                              {session.activityPreview.eventLabel ? ` · ${session.activityPreview.eventLabel}` : ""}
+                              {session.activityPreview.sender ? ` · ${session.activityPreview.sender}` : ""}
+                            </span>
+                            {session.activityPreview.summary ? ` · ${session.activityPreview.summary}` : ""}
+                          </p>
+                        )}
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                           <span className="inline-flex items-center gap-1">
                             <Stack className="size-3" />
@@ -359,6 +382,7 @@ export default function SessionsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="min-w-[240px]">Entity</TableHead>
+                      <TableHead className="min-w-[220px]">Latest activity</TableHead>
                       <TableHead className="min-w-[140px]">Agent</TableHead>
                       <TableHead className="w-[90px] text-center">Status</TableHead>
                       <TableHead className="w-[80px] text-center">
@@ -408,6 +432,40 @@ export default function SessionsPage() {
                                 </div>
                               )}
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            {session.activityPreview ? (
+                              <div className="space-y-0.5 text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  <Badge variant="secondary" className="text-[10px]">
+                                    {session.activityPreview.state === "working"
+                                      ? "Working"
+                                      : session.activityPreview.state === "skipped"
+                                        ? "No action"
+                                        : session.activityPreview.source === "github"
+                                          ? "GitHub"
+                                          : "Operator"}
+                                  </Badge>
+                                  {session.activityPreview.eventLabel && (
+                                    <span className="truncate font-mono text-[10px] text-muted-foreground">
+                                      {session.activityPreview.eventLabel}
+                                    </span>
+                                  )}
+                                  {session.activityPreview.sender && (
+                                    <span className="truncate text-[10px] text-muted-foreground">
+                                      {session.activityPreview.sender}
+                                    </span>
+                                  )}
+                                </div>
+                                {session.activityPreview.summary && (
+                                  <p className="line-clamp-2 text-muted-foreground">
+                                    {session.activityPreview.summary}
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">No transcript preview</span>
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="space-y-0.5">

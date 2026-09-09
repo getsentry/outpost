@@ -32,8 +32,8 @@ interface Env {
  * Jared — primary GitHub coding agent.
  *
  * Owns triage, planning, and go/no-go review. The primary model is chosen per
- * event: heavy (Opus) for code-producing situations, a cheaper model (grok) for
- * lightweight ones (comment replies, approvals). Delegates:
+ * event: heavy (Opus) for all GitHub conversation work, with the cheaper Grok
+ * tier reserved for completed successful CI. Delegates:
  *   explore   → gpt-5-mini      (read-only survey)
  *   implement → kimi-k2.7-code  (apply plan + tests)
  *   ship      → xAI grok-build  (commit / push / draft PR)

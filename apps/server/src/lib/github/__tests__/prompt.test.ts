@@ -32,6 +32,29 @@ describe("formatEventPrompt — review guidance", () => {
     expect(out).not.toContain("```json")
   })
 
+  it("emits a versioned transcript envelope separate from the agent-only prompt framing", () => {
+    const out = formatEventPrompt({
+      ...baseOpts,
+      event: "issue_comment",
+      action: "created",
+      payload: JSON.stringify({
+        issue: {
+          number: 1108,
+          title: "Make the transcript readable",
+        },
+        comment: { body: "Please keep the GitHub event visible in chat." },
+      }),
+    })
+
+    const encoded = /<!-- jared:transcript-v1=([^\s]+) -->/.exec(out)?.[1]
+    expect(encoded).toBeTruthy()
+    expect(JSON.parse(decodeURIComponent(encoded ?? ""))).toMatchObject({
+      v: 1,
+      entityKind: "issue",
+    })
+    expect(out).toContain("Bot identity: jared-outpost[bot]")
+  })
+
   it("does not add review guidance for non-review events", () => {
     const payload = JSON.stringify({
       check_suite: { conclusion: "success", status: "completed", head_sha: "abc123", head_branch: "main" },

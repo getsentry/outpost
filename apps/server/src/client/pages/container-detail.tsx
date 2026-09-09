@@ -43,6 +43,16 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { chatEntityRepo, operatorText } from "@/lib/containers/chat-run"
+import {
+  assistantVisibleText,
+  classifyInboundMessage,
+  groupTranscriptMessages,
+  type InboundMessage,
+  summarizeRunActivity,
+  type TranscriptGroup,
+  transcriptMessageCreatedAt,
+  transcriptMessageRole,
+} from "@/lib/containers/transcript-presentation"
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -73,6 +83,12 @@ function statusLabel(status: string): string {
     default:
       return "Offline"
   }
+}
+
+function modelLabel(model: string): string {
+  if (model.includes("claude-opus-4.8")) return "Claude Opus 4.8"
+  if (model.includes("grok-4.3")) return "Grok 4.3"
+  return model.replace(/^openrouter\//, "")
 }
 
 /**
@@ -194,29 +210,85 @@ function Markdown({ children }: { children: string }) {
 // Chat message components
 // ---------------------------------------------------------------------------
 
+function GitHubInboundCard({ inbound }: { inbound: Extract<InboundMessage, { source: "github" }> }) {
+  const entityUrl =
+    inbound.entityKey && inbound.entityKind
+      ? entityGitHubUrl(inbound.entityKey, inbound.entityKind === "pull" ? "pull_request" : "issues")
+      : null
+  return (
+    <div className="rounded-md border border-violet-500/25 bg-violet-500/5 px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+        <span className="font-semibold text-violet-700 dark:text-violet-300">GitHub event</span>
+        <Badge variant="secondary" className="font-mono text-[10px]">
+          {inbound.label}
+        </Badge>
+        {inbound.sender && <span className="text-muted-foreground">from {inbound.sender}</span>}
+      </div>
+      {(inbound.subject || inbound.excerpt) && (
+        <div className="mt-1.5 space-y-1 text-[13px] leading-relaxed">
+          {inbound.subject && <p className="font-medium">{inbound.subject}</p>}
+          {inbound.excerpt && <p className="text-muted-foreground">{inbound.excerpt}</p>}
+        </div>
+      )}
+      {(inbound.repo || entityUrl) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          {inbound.repo && <GitHubLink href={repoGitHubUrl(inbound.repo)}>{inbound.repo}</GitHubLink>}
+          {entityUrl && <GitHubLink href={entityUrl}>Open {inbound.entityKind}</GitHubLink>}
+        </div>
+      )}
+      <details className="mt-2 text-[11px] text-muted-foreground">
+        <summary className="cursor-pointer font-medium hover:text-foreground">Context sent to agent</summary>
+        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono text-[10px] leading-relaxed">
+          {inbound.raw}
+        </pre>
+      </details>
+    </div>
+  )
+}
+
+function SkippedActivityGroup({ group }: { group: Extract<TranscriptGroup, { kind: "skipped-activity" }> }) {
+  return (
+    <details className="border-y border-border/30 bg-muted/20 px-4 py-2 text-xs text-muted-foreground">
+      <summary className="cursor-pointer font-medium hover:text-foreground">
+        {group.count} automated update{group.count === 1 ? "" : "s"} skipped — {group.labels.join(", ")}
+      </summary>
+      <div className="mt-2 space-y-2">
+        {group.entries.map((entry, index) => (
+          <div key={index} className="rounded border border-border/40 bg-background/60 px-2 py-1.5">
+            <span className="font-medium">{entry.inbound.label}</span>
+            {entry.inbound.sender && <span> · {entry.inbound.sender}</span>}
+            <p className="mt-0.5">{assistantVisibleText(entry.assistant)}</p>
+            <details className="mt-1 text-[10px] text-muted-foreground">
+              <summary className="cursor-pointer font-medium hover:text-foreground">Context sent to agent</summary>
+              <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/50 p-2 font-mono leading-relaxed">
+                {entry.inbound.raw}
+              </pre>
+            </details>
+          </div>
+        ))}
+      </div>
+    </details>
+  )
+}
+
 function ChatMessage({ message }: { message: SessionMessage }) {
-  const role = message.info?.role ?? "unknown"
+  const role = transcriptMessageRole(message)
   const parts = message.parts ?? []
-  const time = message.info?.createdAt ? formatTime(message.info.createdAt) : null
+  const createdAt = transcriptMessageCreatedAt(message)
+  const time = createdAt ? formatTime(createdAt) : null
 
   const isAssistant = role === "assistant"
   const isUser = role === "user"
 
-  // Operator messages are framed for the agent before dispatch; show the words
-  // the human actually typed.
-  const displayText = (text: string) => (isUser ? operatorText(text) : text)
-
-  // Render parts IN ORDER so the agent's narrative reads correctly: a line of
-  // reasoning/text sits right next to the tool call it describes, instead of all
-  // prose being hoisted above a wall of tool calls.
+  const inbound = isUser ? classifyInboundMessage(parts.map((part) => part.text ?? "").join("")) : null
   const items = useMemo(() => toRenderItems(parts), [parts])
-
-  // Concatenated visible prose for the copy button (text + reasoning only).
-  const copyText = items
-    .filter((it) => it.kind === "text")
-    .map((it) => displayText(it.text))
-    .join("\n\n")
-    .trim()
+  const answer = isAssistant ? assistantVisibleText(message) : ""
+  const traceItems = isAssistant ? items.filter((item) => item.kind !== "text" || item.reasoning) : []
+  const copyText = isAssistant
+    ? answer
+    : inbound?.source === "operator" || inbound?.source === "unknown"
+      ? inbound.text
+      : ""
 
   const hasVisibleContent = items.length > 0
   // Assistant messages may still be streaming (no parts yet). Show a working
@@ -256,36 +328,56 @@ function ChatMessage({ message }: { message: SessionMessage }) {
                   : "text-muted-foreground"
             }`}
           >
-            {role === "assistant" ? "Assistant" : role === "user" ? "User" : role}
+            {role === "assistant"
+              ? "Assistant"
+              : inbound?.source === "github"
+                ? "GitHub"
+                : inbound?.source === "unknown"
+                  ? "Message"
+                  : role === "user"
+                    ? "Operator"
+                    : role}
           </span>
           {time && <span className="text-[10px] tabular-nums text-muted-foreground/60">{time}</span>}
         </div>
 
-        {/* Interleaved reasoning / text / tool calls, in the order they happened. */}
         <div className="space-y-1.5">
-          {items.map((item, i) => {
-            if (item.kind === "text") {
-              return <TextPart key={i} text={displayText(item.text)} reasoning={item.reasoning} />
-            }
-            if (item.kind === "transient") {
-              return <TransientGroup key={i} tools={item.tools} sample={item.sample} />
-            }
-            // A subagent (the `task` tool) is a first-class unit of work, not just
-            // another bash call — give it its own block so operators can see it
-            // spin up and read its result.
-            if (item.toolName === "task") {
-              return <SubagentBlock key={i} status={item.status} args={item.args} result={item.result} />
-            }
-            return (
-              <ToolCallBlock
-                key={i}
-                toolName={item.toolName}
-                status={item.status}
-                args={item.args}
-                result={item.result}
-              />
-            )
-          })}
+          {inbound?.source === "github" && <GitHubInboundCard inbound={inbound} />}
+          {inbound?.source === "operator" && <Markdown>{inbound.text}</Markdown>}
+          {inbound?.source === "unknown" && <Markdown>{inbound.text}</Markdown>}
+          {isAssistant && answer && <Markdown>{answer}</Markdown>}
+          {isAssistant && traceItems.length > 0 && (
+            <details className="rounded-md border border-border/50 bg-muted/10 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+              <summary className="cursor-pointer font-medium hover:text-foreground">
+                Technical trace · {traceItems.length} step{traceItems.length === 1 ? "" : "s"}
+              </summary>
+              <div className="mt-2 space-y-1.5">
+                {traceItems.map((item, i) => {
+                  if (item.kind === "text") {
+                    return <TextPart key={i} text={item.text} reasoning={item.reasoning} />
+                  }
+                  if (item.kind === "transient") {
+                    return <TransientGroup key={i} tools={item.tools} sample={item.sample} />
+                  }
+                  // A subagent (the `task` tool) is a first-class unit of work, not just
+                  // another bash call — give it its own block so operators can see it
+                  // spin up and read its result.
+                  if (item.toolName === "task") {
+                    return <SubagentBlock key={i} status={item.status} args={item.args} result={item.result} />
+                  }
+                  return (
+                    <ToolCallBlock
+                      key={i}
+                      toolName={item.toolName}
+                      status={item.status}
+                      args={item.args}
+                      result={item.result}
+                    />
+                  )
+                })}
+              </div>
+            </details>
+          )}
         </div>
 
         {isAssistant && !hasVisibleContent && (
@@ -720,57 +812,6 @@ function SessionSidebarItem({
   )
 }
 
-function ToolTimeline({ messages }: { messages: SessionMessage[] }) {
-  const tools = useMemo(() => {
-    const items: { name: string; status?: string }[] = []
-    for (const msg of messages) {
-      for (const part of msg.parts ?? []) {
-        const isTool = typeof part.type === "string" && (part.type.startsWith("tool") || part.type === "dynamic-tool")
-        if (!isTool) continue
-        const stateObj = part.state && typeof part.state === "object" ? part.state : undefined
-        const rawStatus = typeof part.state === "string" ? part.state : stateObj?.status
-        const status =
-          rawStatus === "input-available" || rawStatus === "streaming"
-            ? "running"
-            : rawStatus === "output-available"
-              ? "done"
-              : rawStatus === "output-error"
-                ? "error"
-                : rawStatus
-        items.push({ name: part.tool ?? part.toolName ?? "unknown", status })
-      }
-    }
-    return items.slice(-12)
-  }, [messages])
-
-  if (tools.length === 0) return null
-
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 border-b px-4 py-2">
-      <ListBullets className="size-3 text-muted-foreground" />
-      <span className="mr-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Tools</span>
-      {tools.map((t, i) => (
-        <span
-          key={`${t.name}-${i}`}
-          className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[10px] ${
-            t.status === "running"
-              ? "border-blue-300 text-blue-700 dark:border-blue-800 dark:text-blue-300"
-              : t.status === "error"
-                ? "border-red-300 text-red-700 dark:border-red-800 dark:text-red-300"
-                : t.status === "done"
-                  ? "border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300"
-                  : "border-border text-muted-foreground"
-          }`}
-        >
-          <Wrench className="size-2.5" />
-          {t.name}
-          {t.status === "running" && <ArrowClockwise className="size-2.5 animate-spin" />}
-        </span>
-      ))}
-    </div>
-  )
-}
-
 // ---------------------------------------------------------------------------
 // Main detail page
 // ---------------------------------------------------------------------------
@@ -797,6 +838,7 @@ export default function ContainerDetailPage() {
   const [destroyOpen, setDestroyOpen] = useState(false)
   const [draft, setDraft] = useState("")
   const [optimistic, setOptimistic] = useState<SessionMessage[]>([])
+  const [renderLimit, setRenderLimit] = useState(80)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatScrollRef = useRef<HTMLDivElement>(null)
   const stickToBottomRef = useRef(true)
@@ -976,6 +1018,10 @@ export default function ContainerDetailPage() {
   const observedAt = detail.statusObservedAt ?? detail.updatedAt
   const observedAtIso =
     typeof observedAt === "string" ? observedAt : observedAt ? new Date(observedAt).toISOString() : null
+  const presentationGroups = groupTranscriptMessages(activeMessages)
+  const visibleGroups = presentationGroups.slice(Math.max(0, presentationGroups.length - renderLimit))
+  const hiddenGroupCount = Math.max(0, presentationGroups.length - visibleGroups.length)
+  const activity = summarizeRunActivity(activeMessages, overallStatus)
 
   const handleSend = () => {
     const text = draft.trim()
@@ -1036,7 +1082,7 @@ export default function ContainerDetailPage() {
                     title="Live updates streaming over SSE"
                   >
                     <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-                    Live
+                    Updates connected
                   </span>
                 )}
               </div>
@@ -1060,7 +1106,6 @@ export default function ContainerDetailPage() {
                     {formatTimeAgo(observedAtIso)}
                   </span>
                 )}
-                {detail.sandboxHint && <span className="hidden text-[10px] sm:inline">{detail.sandboxHint}</span>}
               </div>
             </div>
           </div>
@@ -1152,6 +1197,7 @@ export default function ContainerDetailPage() {
                     isActive={s.id === effectiveSessionId}
                     onClick={() => {
                       setActiveSessionId(s.id)
+                      setRenderLimit(80)
                       setSidebarOpen(false)
                     }}
                   />
@@ -1246,7 +1292,7 @@ export default function ContainerDetailPage() {
                   {activeSummary.model && (
                     <span className="inline-flex min-w-0 items-center gap-1">
                       <Code className="size-3 shrink-0" />
-                      <span className="truncate">{activeSummary.model}</span>
+                      <span className="truncate">{modelLabel(activeSummary.model)}</span>
                     </span>
                   )}
                 </div>
@@ -1257,7 +1303,28 @@ export default function ContainerDetailPage() {
             </div>
           )}
 
-          <ToolTimeline messages={serverMessages} />
+          {activeMessages.length > 0 && (
+            <div className="flex items-start gap-2 border-b bg-muted/20 px-4 py-2 text-xs">
+              {activity.state === "working" ? (
+                <ArrowClockwise className="mt-0.5 size-3 shrink-0 animate-spin text-blue-600 dark:text-blue-400" />
+              ) : (
+                <Check className="mt-0.5 size-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              )}
+              <div className="min-w-0 flex-1">
+                <span className="font-semibold text-foreground">
+                  {activity.state === "working"
+                    ? "Working"
+                    : activity.state === "skipped"
+                      ? "No action needed"
+                      : "Latest update"}
+                </span>
+                {activity.summary && <span className="ml-1 text-muted-foreground">{activity.summary}</span>}
+              </div>
+              {streaming && (
+                <span className="shrink-0 text-[10px] text-emerald-700 dark:text-emerald-300">Updates connected</span>
+              )}
+            </div>
+          )}
 
           {/* Messages */}
           <div
@@ -1269,16 +1336,28 @@ export default function ContainerDetailPage() {
               stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
             }}
           >
-            {activeMessages.length > 0 ? (
+            {presentationGroups.length > 0 ? (
               <div className="min-w-0 divide-y divide-border/30">
-                {activeMessages.map((msg, i) => (
-                  <div
-                    key={msg.info?.id ?? `${effectiveSessionId}-${i}`}
-                    className={msg.info?.id?.startsWith("opt-") ? "opacity-70" : undefined}
-                  >
-                    <ChatMessage message={msg} />
+                {hiddenGroupCount > 0 && (
+                  <div className="px-4 py-3">
+                    <Button variant="outline" size="xs" onClick={() => setRenderLimit((limit) => limit + 80)}>
+                      Load {Math.min(80, hiddenGroupCount)} earlier activit{hiddenGroupCount === 1 ? "y" : "ies"}
+                    </Button>
                   </div>
-                ))}
+                )}
+                {visibleGroups.map((group, index) => {
+                  if (group.kind === "skipped-activity")
+                    return <SkippedActivityGroup key={`skipped-${index}`} group={group} />
+                  const message = group.message
+                  return (
+                    <div
+                      key={message.info?.id ?? `${effectiveSessionId}-${index}`}
+                      className={message.info?.id?.startsWith("opt-") ? "opacity-70" : undefined}
+                    >
+                      <ChatMessage message={message} />
+                    </div>
+                  )
+                })}
                 <div ref={chatEndRef} />
               </div>
             ) : (
