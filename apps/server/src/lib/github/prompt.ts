@@ -89,6 +89,37 @@ function routingContext(involvement: GitHubInvolvement): string {
   return facts.length > 0 ? `\nRouting context:\n${facts.join("\n")}\n` : ""
 }
 
+/**
+ * Compact presentation data for the dashboard transcript. It is separate from
+ * the full agent prompt so the UI never has to expose internal routing fields
+ * or repeatedly render an issue body. URI encoding keeps untrusted text from
+ * terminating the HTML comment.
+ */
+function transcriptEnvelope(
+  eventLabel: string,
+  data: Record<string, unknown>,
+  opts: Pick<Parameters<typeof formatEventPrompt>[0], "sender" | "repo" | "entityKey">,
+): string {
+  const entity = asRecord(data.pull_request) ?? asRecord(data.issue)
+  const comment = asRecord(data.comment)
+  const review = asRecord(data.review)
+  const subject = asString(entity?.title) ?? null
+  const excerpt = asString(comment?.body) ?? asString(review?.body) ?? null
+  const encoded = encodeURIComponent(
+    JSON.stringify({
+      v: 1,
+      source: "github",
+      label: eventLabel,
+      sender: opts.sender,
+      repo: opts.repo,
+      entityKey: opts.entityKey,
+      subject,
+      excerpt: excerpt ? truncate(excerpt, 360).replace(/\s+/g, " ").trim() : null,
+    }),
+  ).replaceAll("--", "%2D%2D")
+  return `<!-- jared:transcript-v1=${encoded} -->`
+}
+
 /** Extract curated context lines from a GitHub webhook payload. */
 export function extractEventContext(event: string, payload: string): string {
   const data = parsePayload(payload)
@@ -269,8 +300,10 @@ export function formatEventPrompt(opts: {
 
   const context = extractEventContext(opts.event, opts.payload)
   const involvement = deriveGitHubInvolvement(opts.event, data, opts.botLogin, opts.action)
+  const presentationMarker = transcriptEnvelope(eventLabel, data, opts)
 
   return `New webhook event: ${eventLabel}${tierMarker}
+${presentationMarker}
 
 Bot identity: ${opts.botLogin}
 Repository: ${opts.repo ?? "unknown"}

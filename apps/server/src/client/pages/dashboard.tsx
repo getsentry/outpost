@@ -1,4 +1,4 @@
-import { ArrowRight, CheckCircle, CircleDashed, Clock, Hourglass, Lightning } from "@phosphor-icons/react"
+import { ArrowRight, CheckCircle, CircleDashed, Clock, Hourglass, Warning } from "@phosphor-icons/react"
 import { useNavigate } from "react-router-dom"
 import { formatTimeAgo, repoGitHubUrl } from "@/client/lib/format"
 import { useEventStats, useEvents } from "@/client/lib/queries"
@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 function StatsCards() {
+  const navigate = useNavigate()
   const { data: stats, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useEventStats()
 
   if (isLoading) {
@@ -34,14 +35,47 @@ function StatsCards() {
     return <div className="py-4 text-center text-sm text-destructive">Failed to load stats</div>
   }
 
-  const total = stats?.total ?? 0
-  const stuck = stats?.stuck ?? 0
-  const cards = [
-    { label: "Total Events", value: total, icon: Lightning },
-    { label: "Pending", value: stats?.pending ?? 0, icon: CircleDashed },
-    { label: "Admitted", value: stats?.admitted ?? 0, icon: Hourglass },
-    { label: "Stuck", value: stuck, icon: Clock },
-    { label: "Completed", value: stats?.completed ?? 0, icon: CheckCircle },
+  const queues = [
+    {
+      label: "Stuck",
+      value: stats?.stuck ?? 0,
+      description: "Delivery has not started",
+      icon: Warning,
+      status: "d:boot",
+      tone: "text-amber-700 dark:text-amber-300",
+    },
+    {
+      label: "Failed",
+      value: stats?.failed ?? 0,
+      description: "Delivery needs investigation",
+      icon: Warning,
+      status: "failed",
+      tone: "text-red-700 dark:text-red-300",
+    },
+    {
+      label: "Pending",
+      value: stats?.pending ?? 0,
+      description: "Waiting for dispatch",
+      icon: CircleDashed,
+      status: "pending",
+      tone: "text-foreground",
+    },
+    {
+      label: "Admitted",
+      value: stats?.admitted ?? 0,
+      description: "Submitted to the agent",
+      icon: Hourglass,
+      status: "admitted",
+      tone: "text-foreground",
+    },
+    {
+      label: "Settled",
+      value: stats?.settled ?? 0,
+      description: "Agent receipt confirmed",
+      icon: CheckCircle,
+      status: "settled",
+      tone: "text-foreground",
+    },
   ]
 
   return (
@@ -56,20 +90,42 @@ function StatsCards() {
           <LastUpdated dataUpdatedAt={dataUpdatedAt} isFetching={isFetching} onRefresh={() => refetch()} />
         </div>
       </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {cards.map((card) => (
-          <Card key={card.label}>
-            <CardHeader>
-              <CardDescription className="flex items-center gap-1.5">
-                <card.icon className="size-3.5" />
-                {card.label}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold tabular-nums">{card.value}</div>
-            </CardContent>
-          </Card>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {queues.map((queue) => (
+          <button
+            key={queue.label}
+            type="button"
+            onClick={() => navigate(`/events?status=${encodeURIComponent(queue.status)}`)}
+            className="rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Card className="h-full transition-colors hover:bg-muted/40">
+              <CardHeader className="pb-2">
+                <CardDescription className="flex items-center gap-1.5">
+                  <queue.icon className={`size-3.5 ${queue.tone}`} />
+                  {queue.label}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className={`text-2xl font-bold tabular-nums ${queue.tone}`}>{queue.value}</div>
+                <p className="mt-1 text-[11px] text-muted-foreground">{queue.description}</p>
+              </CardContent>
+            </Card>
+          </button>
         ))}
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 px-1 text-xs text-muted-foreground">
+        <span>
+          <strong className="font-medium text-foreground">{stats?.completed ?? 0}</strong> completed
+        </span>
+        <span>
+          <strong className="font-medium text-foreground">{stats?.skipped ?? 0}</strong> skipped
+        </span>
+        <span>
+          <strong className="font-medium text-foreground">{stats?.last24h ?? 0}</strong> events in the last 24h
+        </span>
+        <span>
+          <strong className="font-medium text-foreground">{stats?.total ?? 0}</strong> total retained events
+        </span>
       </div>
     </div>
   )
@@ -120,7 +176,11 @@ function RecentEvents() {
             </TableHeader>
             <TableBody>
               {data.data.map((event) => (
-                <TableRow key={event.id} className="cursor-pointer" onClick={() => navigate(`/events/${event.id}`)}>
+                <TableRow
+                  key={event.id}
+                  className={`cursor-pointer ${event.status === "skipped" ? "opacity-55" : ""}`}
+                  onClick={() => navigate(`/events/${event.id}`)}
+                >
                   <TableCell className="font-medium">
                     {event.event}
                     {event.action ? `.${event.action}` : ""}

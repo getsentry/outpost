@@ -1,23 +1,15 @@
 import { describe, expect, it } from "vitest"
-import { classifyModelTier, isDurableExecutionRequest, isExecutionRequest } from "../model-tier"
+import { classifyModelTier, isDurableExecutionRequest } from "../model-tier"
 
 const json = (o: unknown) => JSON.stringify(o)
 
 describe("classifyModelTier", () => {
-  it("recognizes explicit operator work without treating a status question as execution", () => {
-    expect(isExecutionRequest("Please investigate the failing CI job and propose a fix.")).toBe(true)
-    expect(isExecutionRequest("What is the status of this PR?")).toBe(false)
+  it("keeps durable repository actions distinct from status-only questions", () => {
     expect(isDurableExecutionRequest("Please fix the failing CI job.")).toBe(true)
     expect(isDurableExecutionRequest("Please investigate the failing CI job and report the findings.")).toBe(false)
   })
 
-  it("marks PR review activity as light (respond-to-comment)", () => {
-    expect(classifyModelTier("pull_request_review", "submitted", json({ review: { id: 1 } }))).toBe("light")
-    expect(classifyModelTier("pull_request_review_comment", "created", json({}))).toBe("light")
-    expect(classifyModelTier("pull_request_review_thread", "resolved", json({}))).toBe("light")
-  })
-
-  it("keeps imperative PR comments on the heavy execution path", () => {
+  it("routes every admitted comment and review event through Opus", () => {
     expect(
       classifyModelTier(
         "issue_comment",
@@ -28,16 +20,16 @@ describe("classifyModelTier", () => {
         }),
       ),
     ).toBe("heavy")
-  })
-
-  it("keeps clearly informational PR comments on the light reply path", () => {
     expect(
       classifyModelTier(
         "issue_comment",
-        "created",
-        json({ issue: { pull_request: {} }, comment: { body: "What is the expected release date?" } }),
+        "edited",
+        json({ issue: { pull_request: {} }, comment: { body: "Deployment complete", user: { login: "bot[bot]" } } }),
       ),
-    ).toBe("light")
+    ).toBe("heavy")
+    expect(classifyModelTier("pull_request_review", "submitted", json({ review: { id: 1 } }))).toBe("heavy")
+    expect(classifyModelTier("pull_request_review_comment", "created", json({}))).toBe("heavy")
+    expect(classifyModelTier("pull_request_review_thread", "resolved", json({}))).toBe("heavy")
   })
 
   it("routes issue comments to the heavy execution path", () => {

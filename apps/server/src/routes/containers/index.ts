@@ -63,6 +63,7 @@ import {
   saveSession,
   summarizeSession,
 } from "@/lib/containers/sessions"
+import { summarizeRunActivity } from "@/lib/containers/transcript-presentation"
 import { createGitHubApp } from "@/lib/github/app"
 import { isDurableExecutionRequest } from "@/lib/github/model-tier"
 import { formatChatPrompt } from "@/lib/github/prompt"
@@ -590,6 +591,7 @@ const router = new Hono<BaseEnv>()
         title: (rootSession?.title as string) ?? null,
         agent: summary.agent,
         model: summary.model,
+        activityPreview: summarizeRunActivity(allMessages, deriveDisplayStatus(parsed, s.updatedAt)),
       }
     })
 

@@ -140,6 +140,13 @@ export type SessionListItem = {
   title: string | null
   agent: string | null
   model: string | null
+  activityPreview?: {
+    source: "github" | "operator" | "unknown"
+    state: "working" | "updated" | "skipped"
+    summary: string | null
+    eventLabel?: string
+    sender?: string | null
+  }
 }
 
 export const api = {
