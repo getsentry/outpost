@@ -26,7 +26,7 @@
       // conversation live in the FlueJaredAgent Durable Object. Flip image back to
       // "./container/Dockerfile.phase1" if reverting FLUE_NATIVE to "0".
       "image": "./container/Dockerfile",
-      "max_instances": 10,
+      "max_instances": 25,
       "instance_type": "standard-3",
       "ssh": {
         "enabled": true
