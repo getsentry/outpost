@@ -34,6 +34,7 @@ export type ScheduleRecord = {
   dayOfMonth: number | null
   enabled: boolean
   revision: number
+  armedRevision: number | null
   nextDueAt: number | null
   archivedAt: number | null
 }
@@ -53,6 +54,7 @@ function asSchedule(row: Record<string, unknown>): ScheduleRecord {
     dayOfMonth: typeof row.day_of_month === "number" ? row.day_of_month : null,
     enabled: Boolean(row.enabled),
     revision: Number(row.revision),
+    armedRevision: typeof row.armed_revision === "number" ? row.armed_revision : null,
     nextDueAt: typeof row.next_due_at === "number" ? row.next_due_at : null,
     archivedAt: typeof row.archived_at === "number" ? row.archived_at : null,
   }
@@ -161,8 +163,13 @@ async function existingRun(
   return row ? { runId: row.id, status: row.status } : null
 }
 
-async function advanceScheduleDue(env: Env, schedule: ScheduleRecord, intendedAt: number): Promise<void> {
-  const next = nextDueAt(schedule, intendedAt)
+async function advanceScheduleDue(
+  env: Env,
+  schedule: ScheduleRecord,
+  intendedAt: number,
+  after: number = intendedAt,
+): Promise<void> {
+  const next = nextDueAt(schedule, after)
   await env.DB.prepare(
     "UPDATE scheduled_jobs SET next_due_at = ?, updated_at = ? WHERE id = ? AND revision = ? AND enabled = 1 AND next_due_at = ?",
   )
@@ -177,9 +184,15 @@ export async function startScheduleRun(
   input: { trigger: "scheduled" | "manual"; intendedAt?: number; dedupeKey?: string } = { trigger: "scheduled" },
 ): Promise<{ runId: string; status: string } | null> {
   const schedule = await readSchedule(env, scheduleId)
-  if (!schedule?.enabled || schedule.archivedAt || schedule.nextDueAt === null) return null
+  if (
+    !schedule ||
+    schedule.archivedAt ||
+    (input.trigger === "scheduled" && (!schedule.enabled || schedule.nextDueAt === null))
+  )
+    return null
 
-  const intendedAt = input.intendedAt ?? schedule.nextDueAt
+  const intendedAt = input.intendedAt ?? (input.trigger === "manual" ? Date.now() : schedule.nextDueAt)
+  if (intendedAt === null) return null
   const dedupeKey = input.dedupeKey ?? `due:${intendedAt}`
   const runId = crypto.randomUUID()
 
@@ -194,7 +207,9 @@ export async function startScheduleRun(
       status: "skipped_overlap",
     })
     if (!created) return existingRun(env, schedule.id, dedupeKey)
-    await advanceScheduleDue(env, schedule, intendedAt)
+    // Record this missed slot, then jump to the next future recurrence instead
+    // of replaying a backlog behind the still-active run.
+    await advanceScheduleDue(env, schedule, intendedAt, Math.max(intendedAt, Date.now()))
     return { runId, status: "skipped_overlap" }
   }
 
@@ -203,9 +218,11 @@ export async function startScheduleRun(
   ) {
     return existingRun(env, schedule.id, dedupeKey)
   }
-  if (input.trigger === "scheduled") await advanceScheduleDue(env, schedule, intendedAt)
 
   const slot = await acquireSlot(env, runId, Date.now())
+  if (input.trigger === "scheduled") {
+    await advanceScheduleDue(env, schedule, intendedAt, slot === null ? Math.max(intendedAt, Date.now()) : intendedAt)
+  }
   if (slot === null) {
     await env.DB.prepare("UPDATE scheduled_job_runs SET status = 'skipped_capacity', updated_at = ? WHERE id = ?")
       .bind(Date.now(), runId)
@@ -254,8 +271,10 @@ export async function startScheduleRun(
       })
 
       phase = "admitting"
+      // A manual Run now is explicitly authorized even while its recurrence is
+      // paused. Scheduled admissions must still stop if the recurrence is paused.
       const admission = await env.DB.prepare(
-        "UPDATE scheduled_job_runs SET status = 'admitting', updated_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM scheduled_jobs WHERE id = ? AND revision = ? AND enabled = 1 AND archived_at IS NULL)",
+        `UPDATE scheduled_job_runs SET status = 'unknown_admission', updated_at = ? WHERE id = ? AND EXISTS (SELECT 1 FROM scheduled_jobs WHERE id = ? AND revision = ? AND archived_at IS NULL${input.trigger === "scheduled" ? " AND enabled = 1" : ""})`,
       )
         .bind(Date.now(), runId, schedule.id, schedule.revision)
         .run()
@@ -306,15 +325,33 @@ export async function startScheduleRun(
 /** Mark admitted turns settled only after the live Flue history says they are no longer busy. */
 export async function settleScheduleRuns(env: Env, scheduleId: string): Promise<number> {
   const rows = await env.DB.prepare(
-    "SELECT id, entity_key, status, created_at FROM scheduled_job_runs WHERE schedule_id = ? AND status IN ('admitted', 'unknown_admission') ORDER BY admitted_at LIMIT 10",
+    "SELECT id, entity_key, status, created_at, updated_at FROM scheduled_job_runs WHERE schedule_id = ? AND status IN ('preparing', 'admitting', 'admitted', 'unknown_admission') ORDER BY updated_at LIMIT 10",
   )
     .bind(scheduleId)
-    .all<{ id: string; entity_key: string | null; status: "admitted" | "unknown_admission"; created_at: number }>()
+    .all<{
+      id: string
+      entity_key: string | null
+      status: "preparing" | "admitting" | "admitted" | "unknown_admission"
+      created_at: number
+      updated_at: number
+    }>()
   let settled = 0
   for (const row of rows.results ?? []) {
-    if (row.status === "unknown_admission" && Date.now() - row.created_at >= UNKNOWN_ADMISSION_TIMEOUT_MS) {
+    if (row.status === "preparing" && Date.now() - row.updated_at >= UNKNOWN_ADMISSION_TIMEOUT_MS) {
       const result = await env.DB.prepare(
-        "UPDATE scheduled_job_runs SET status = 'needs_attention', failure_reason = COALESCE(failure_reason, 'Flue admission could not be confirmed'), updated_at = ? WHERE id = ? AND status = 'unknown_admission'",
+        "UPDATE scheduled_job_runs SET status = 'failed', failure_reason = COALESCE(failure_reason, 'Scheduled run did not finish preparation'), updated_at = ? WHERE id = ? AND status = 'preparing'",
+      )
+        .bind(Date.now(), row.id)
+        .run()
+      if ((result.meta.changes ?? 0) === 1) await releaseSlot(env, row.id)
+      continue
+    }
+    if (
+      (row.status === "admitting" || row.status === "unknown_admission") &&
+      Date.now() - row.created_at >= UNKNOWN_ADMISSION_TIMEOUT_MS
+    ) {
+      const result = await env.DB.prepare(
+        "UPDATE scheduled_job_runs SET status = 'needs_attention', failure_reason = COALESCE(failure_reason, 'Flue admission could not be confirmed'), updated_at = ? WHERE id = ? AND status IN ('admitting', 'unknown_admission')",
       )
         .bind(Date.now(), row.id)
         .run()

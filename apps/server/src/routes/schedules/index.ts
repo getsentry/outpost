@@ -1,10 +1,9 @@
 import { Hono } from "hono"
 import { parseOwnerRepo } from "@/lib/containers/do-prep"
 import { createGitHubApp } from "@/lib/github/app"
-import type { ScheduleArm } from "@/lib/schedules/runner"
 import { nextDueAt, readSchedule, ScheduleOverlapError } from "@/lib/schedules/service"
-import type { ScheduleInput } from "@/lib/schedules/validation"
-import { parseScheduleInput } from "@/lib/schedules/validation"
+import type { ManualRunInput, ScheduleInput } from "@/lib/schedules/validation"
+import { parseManualRunInput, parseScheduleInput } from "@/lib/schedules/validation"
 import { isAuthenticated } from "@/middlewares"
 import type { AuthEnv } from "@/types"
 
@@ -25,14 +24,6 @@ async function verifyRepoAccess(env: AuthEnv["Bindings"], repo: string): Promise
   return (await app.getRepoInstallationToken(parsed.owner, parsed.repo)) !== null
 }
 
-function armInput(schedule: NonNullable<Awaited<ReturnType<typeof readSchedule>>>): ScheduleArm {
-  return {
-    scheduleId: schedule.id,
-    revision: schedule.revision,
-    nextDueAt: schedule.enabled && !schedule.archivedAt ? schedule.nextDueAt : null,
-  }
-}
-
 function publicSchedule(schedule: NonNullable<Awaited<ReturnType<typeof readSchedule>>>) {
   return {
     id: schedule.id,
@@ -46,6 +37,7 @@ function publicSchedule(schedule: NonNullable<Awaited<ReturnType<typeof readSche
     dayOfMonth: schedule.dayOfMonth ?? undefined,
     enabled: schedule.enabled,
     revision: schedule.revision,
+    armedRevision: schedule.armedRevision,
     nextDueAt: schedule.nextDueAt,
   }
 }
@@ -120,8 +112,10 @@ router
       .run()
     const schedule = await readSchedule(c.env, id)
     if (!schedule) return c.json({ error: "Couldn't read created schedule" }, 500)
-    await runner(c.env, id).arm(armInput(schedule))
-    return c.json({ data: publicSchedule(schedule) }, 201)
+    await runner(c.env, id).sync(id)
+    const armed = await readSchedule(c.env, id)
+    if (!armed) return c.json({ error: "Couldn't read created schedule" }, 500)
+    return c.json({ data: publicSchedule(armed) }, 201)
   })
   .get("/:id", async (c) => {
     const schedule = await readSchedule(c.env, c.req.param("id"))
@@ -182,14 +176,21 @@ router
     const schedule = await readSchedule(c.env, id)
     if (!schedule || schedule.revision !== revision)
       return c.json({ error: "Schedule changed; reload and try again." }, 409)
-    await runner(c.env, id).arm(armInput(schedule))
-    return c.json({ data: publicSchedule(schedule) })
+    await runner(c.env, id).sync(id)
+    const armed = await readSchedule(c.env, id)
+    if (!armed) return c.json({ error: "Schedule not found" }, 404)
+    return c.json({ data: publicSchedule(armed) })
   })
   .post("/:id/run", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { confirm?: boolean; idempotencyKey?: string } | null
-    if (body?.confirm !== true || !body.idempotencyKey) return c.json({ error: "Run confirmation is required" }, 400)
+    let body: ManualRunInput
     try {
-      const result = await runner(c.env, c.req.param("id")).runNow(body.idempotencyKey)
+      body = parseManualRunInput(await c.req.json())
+    } catch {
+      return c.json({ error: "Run confirmation and idempotency key are required" }, 400)
+    }
+    try {
+      const scheduleId = c.req.param("id")
+      const result = await runner(c.env, scheduleId).runNow(scheduleId, body.idempotencyKey)
       if (!result) return c.json({ error: "Schedule not found or inactive" }, 404)
       return c.json({ data: result }, 202)
     } catch (error) {
@@ -214,21 +215,24 @@ router
     const schedule = await readSchedule(c.env, id)
     if (!schedule || schedule.revision !== revision)
       return c.json({ error: "Schedule changed; reload and try again." }, 409)
-    await runner(c.env, id).arm(armInput(schedule))
-    return c.json({ data: publicSchedule(schedule) })
+    await runner(c.env, id).sync(id)
+    const armed = await readSchedule(c.env, id)
+    if (!armed) return c.json({ error: "Schedule not found" }, 404)
+    return c.json({ data: publicSchedule(armed) })
   })
   .delete("/:id", async (c) => {
     const id = c.req.param("id")
     const current = await readSchedule(c.env, id)
     if (!current || current.archivedAt) return c.json({ error: "Schedule not found" }, 404)
     const now = Date.now()
-    await c.env.DB.prepare(
-      "UPDATE scheduled_jobs SET enabled = 0, revision = ?, next_due_at = NULL, archived_at = ?, updated_at = ? WHERE id = ?",
+    const result = await c.env.DB.prepare(
+      "UPDATE scheduled_jobs SET enabled = 0, revision = ?, next_due_at = NULL, archived_at = ?, updated_at = ? WHERE id = ? AND revision = ?",
     )
-      .bind(current.revision + 1, now, now, id)
+      .bind(current.revision + 1, now, now, id, current.revision)
       .run()
+    if ((result.meta.changes ?? 0) !== 1) return c.json({ error: "Schedule changed; reload and try again." }, 409)
     const schedule = await readSchedule(c.env, id)
-    if (schedule) await runner(c.env, id).arm(armInput(schedule))
+    if (schedule) await runner(c.env, id).sync(id)
     return c.json({ ok: true })
   })
 

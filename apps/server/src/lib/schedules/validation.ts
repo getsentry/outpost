@@ -17,6 +17,13 @@ const baseSchema = z.object({
 
 export type ScheduleInput = z.infer<typeof baseSchema>
 
+const manualRunSchema = z.object({
+  confirm: z.literal(true),
+  idempotencyKey: z.string().trim().min(1).max(120),
+})
+
+export type ManualRunInput = z.infer<typeof manualRunSchema>
+
 export function parseScheduleInput(value: unknown): ScheduleInput {
   const input = baseSchema.parse(value)
   if (!isValidRepoSlug(input.repo)) throw new Error("repo must be an owner/name slug")
@@ -44,4 +51,9 @@ export function parseScheduleInput(value: unknown): ScheduleInput {
     throw new Error("timezone must be a valid IANA timezone")
   }
   return input
+}
+
+/** Validate the explicit confirmation and replay fence for an operator-triggered run. */
+export function parseManualRunInput(value: unknown): ManualRunInput {
+  return manualRunSchema.parse(value)
 }

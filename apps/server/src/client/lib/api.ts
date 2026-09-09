@@ -47,6 +47,7 @@ export type ScheduleInput = {
 export type Schedule = ScheduleInput & {
   id: string
   revision: number
+  armedRevision: number | null
   nextDueAt: number | null
   createdAt?: number
   updatedAt?: number

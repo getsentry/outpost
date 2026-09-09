@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseScheduleInput } from "../validation"
+import { parseManualRunInput, parseScheduleInput } from "../validation"
 
 const base = {
   name: "Weekly dependency maintenance",
@@ -23,5 +23,19 @@ describe("parseScheduleInput", () => {
 
   it("rejects an invalid IANA timezone", () => {
     expect(() => parseScheduleInput({ ...base, timezone: "Mars/Olympus" })).toThrow("timezone")
+  })
+})
+
+describe("parseManualRunInput", () => {
+  it("requires an explicit confirmation and bounded string idempotency key", () => {
+    expect(parseManualRunInput({ confirm: true, idempotencyKey: "  run-123  " })).toEqual({
+      confirm: true,
+      idempotencyKey: "run-123",
+    })
+  })
+
+  it("rejects malformed replay fences", () => {
+    expect(() => parseManualRunInput({ confirm: true, idempotencyKey: {} })).toThrow()
+    expect(() => parseManualRunInput({ confirm: true, idempotencyKey: "x".repeat(121) })).toThrow()
   })
 })

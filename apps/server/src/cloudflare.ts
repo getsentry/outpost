@@ -102,19 +102,37 @@ const handlers = {
         } catch (_err) {
           console.warn("maintenance_runs.record.failed", { failure_class: "contained" })
         }
-        // Schedule configuration is authoritative in D1. Re-arm only schedules
-        // whose runner never confirmed the current revision; avoid disturbing
-        // healthy runner monitor alarms.
+        // Schedule configuration is authoritative in D1. Re-arm only runners
+        // that did not confirm their current revision. Active runs are included
+        // even when a recurrence was paused or archived: their monitor alarm is
+        // for settlement only and must not strand a leased capacity slot.
         try {
           const unarmed = await env.DB.prepare(
-            "SELECT id, revision, next_due_at FROM scheduled_jobs WHERE enabled = 1 AND archived_at IS NULL AND next_due_at IS NOT NULL AND (armed_revision IS NULL OR armed_revision != revision) LIMIT 100",
-          ).all<{ id: string; revision: number; next_due_at: number }>()
+            `SELECT job.id, job.revision, job.next_due_at,
+              EXISTS (
+                SELECT 1 FROM scheduled_job_runs run
+                WHERE run.schedule_id = job.id
+                  AND run.status IN ('preparing', 'admitting', 'admitted', 'unknown_admission')
+              ) AS has_active_run
+            FROM scheduled_jobs job
+            WHERE (job.armed_revision IS NULL OR job.armed_revision != job.revision)
+              AND (
+                (job.enabled = 1 AND job.archived_at IS NULL AND job.next_due_at IS NOT NULL)
+                OR EXISTS (
+                  SELECT 1 FROM scheduled_job_runs run
+                  WHERE run.schedule_id = job.id
+                    AND run.status IN ('preparing', 'admitting', 'admitted', 'unknown_admission')
+                )
+              )
+            LIMIT 100`,
+          ).all<{ id: string; revision: number; next_due_at: number | null; has_active_run: number }>()
           await Promise.all(
             (unarmed.results ?? []).map((job) =>
               env.ScheduleRunner.get(env.ScheduleRunner.idFromName(job.id)).arm({
                 scheduleId: job.id,
                 revision: job.revision,
                 nextDueAt: job.next_due_at,
+                wakeAt: job.has_active_run ? controller.scheduledTime : undefined,
               } satisfies ScheduleArm),
             ),
           )

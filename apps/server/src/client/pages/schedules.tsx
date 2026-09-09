@@ -54,9 +54,9 @@ function cadenceLabel(schedule: Pick<ScheduleInput, "cadence" | "time" | "timezo
   return `Monthly on day ${schedule.dayOfMonth ?? 1} at ${schedule.time}`
 }
 
-function formatAt(value: number | null | undefined) {
+function formatAt(value: number | null | undefined, timeZone?: string) {
   return value
-    ? new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+    ? new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short", timeZone })
     : "Not scheduled"
 }
 
@@ -269,7 +269,15 @@ function ScheduleEditor({
             </CardHeader>
             <CardContent className="space-y-1 text-xs text-muted-foreground">
               {preview.length ? (
-                preview.map((time) => <p key={time}>{new Date(time).toLocaleString()}</p>)
+                preview.map((time) => (
+                  <p key={time}>
+                    {new Date(time).toLocaleString(undefined, {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                      timeZone: input.timezone,
+                    })}
+                  </p>
+                ))
               ) : (
                 <p>Enter a valid timezone and recurrence.</p>
               )}
@@ -380,6 +388,7 @@ export default function SchedulesPage() {
   const [editor, setEditor] = useState<Schedule | null | undefined>(undefined)
   const [historyId, setHistoryId] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<{ kind: "run" | "archive"; schedule: Schedule } | null>(null)
+  const actionError = [run, setEnabled, archive].find((mutation) => mutation.isError)?.error
 
   return (
     <div className="space-y-6">
@@ -418,6 +427,13 @@ export default function SchedulesPage() {
         </Card>
       ) : (
         <div className="grid gap-3">
+          {actionError && (
+            <Card>
+              <CardContent role="alert" className="py-3 text-xs text-destructive">
+                {actionError instanceof Error ? actionError.message : "Could not update schedule"}
+              </CardContent>
+            </Card>
+          )}
           {schedules.data.data.map((schedule) => (
             <Card key={schedule.id}>
               <CardHeader className="pb-3">
@@ -434,9 +450,12 @@ export default function SchedulesPage() {
               <CardContent className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
                   <Clock className="size-3.5" />
-                  Next: {formatAt(schedule.nextDueAt)}
+                  Next: {formatAt(schedule.nextDueAt, schedule.timezone)}
                 </span>
                 <span>Last: {schedule.lastRun ? schedule.lastRun.status : "Never"}</span>
+                {schedule.enabled && schedule.armedRevision !== schedule.revision && (
+                  <span className="text-amber-700 dark:text-amber-400">Scheduler recovery pending</span>
+                )}
                 {schedule.lastRun?.artifact_url && (
                   <a
                     className="underline underline-offset-2"
@@ -477,7 +496,7 @@ export default function SchedulesPage() {
                     variant="outline"
                     size="xs"
                     onClick={() => setConfirm({ kind: "run", schedule })}
-                    disabled={!schedule.enabled || !!schedule.activeRun || run.isPending}
+                    disabled={!!schedule.activeRun || run.isPending}
                   >
                     <Play data-icon="inline-start" />
                     Run now
@@ -522,6 +541,7 @@ export default function SchedulesPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              disabled={confirm?.kind === "run" ? run.isPending : archive.isPending}
               onClick={(event) => {
                 event.preventDefault()
                 if (!confirm) return
