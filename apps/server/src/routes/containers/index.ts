@@ -70,6 +70,7 @@ import { formatChatPrompt } from "@/lib/github/prompt"
 import { isAuthenticated } from "@/middlewares"
 import { requireUserOrInternalToken } from "@/middlewares/flue-auth"
 import type { BaseEnv } from "@/types"
+import workspaceRecoveryRoutes from "./workspace-recovery"
 
 /**
  * Normalize an API response that may be a bare array or wrapped in { data: [...] }.
@@ -390,6 +391,7 @@ async function chatStartGate(
 }
 
 const router = new Hono<BaseEnv>()
+  .route("/", workspaceRecoveryRoutes)
   // --- Session ingest from containers: requires a per-entity scoped token ---
   .post("/sessions", async (c) => {
     const { FLUE_INTERNAL_HEADER, resolveFlueInternalToken } = await import("@/middlewares/flue-auth")

@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers"
 import { createOpenTelemetryInstrumentation } from "@flue/opentelemetry"
 import { type FlueObservation, instrument } from "@flue/runtime"
 import * as Sentry from "@sentry/cloudflare"
+import { workspaceInterceptor } from "@/lib/containers/workspace-runtime"
 import {
   contentPolicy,
   createTerminalFailureDeduper,
@@ -111,7 +112,7 @@ instrument({
     if (event.type === "submission_settled") await captureSettledSubmissionFailure(event)
     if (event.type === "log") forwardFlueLog(event)
   },
-  interceptor: (_operation, _ctx, next) => next(),
+  interceptor: workspaceInterceptor,
   async dispose() {
     await Sentry.flush(2_000)
   },

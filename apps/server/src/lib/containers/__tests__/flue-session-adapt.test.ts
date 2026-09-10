@@ -1,7 +1,30 @@
 import { describe, expect, it } from "vitest"
 import { flueHistoryToSessionData } from "../flue-session-adapt"
+import { deriveDisplayStatus } from "../sessions"
 
 describe("flueHistoryToSessionData", () => {
+  it("displays a workspace-lost settlement as blocked, not idle or historical", () => {
+    const raw = flueHistoryToSessionData("getsentry/cli#42", {
+      messages: [{ role: "user", submissionId: "one", parts: [] }],
+      settlements: [{ submissionId: "one", outcome: "failed", error: { type: "workspace_lost" } }],
+    })
+    expect(JSON.parse(raw).sessionStatus["getsentry-cli-42"].type).toBe("blocked")
+    expect(deriveDisplayStatus(raw, 0)).toBe("blocked")
+  })
+
+  it("clears an old blocker once a newer delivery has completed", () => {
+    const raw = flueHistoryToSessionData("getsentry/cli#42", {
+      messages: [
+        { role: "user", submissionId: "one", parts: [] },
+        { role: "user", submissionId: "two", parts: [] },
+      ],
+      settlements: [
+        { submissionId: "one", outcome: "failed", error: { type: "workspace_lost" } },
+        { submissionId: "two", outcome: "completed" },
+      ],
+    })
+    expect(JSON.parse(raw).sessionStatus["getsentry-cli-42"].type).toBe("idle")
+  })
   it("bounds oversized dynamic-tool output while retaining its original size", () => {
     const raw = flueHistoryToSessionData("getsentry/cli#42", {
       messages: [

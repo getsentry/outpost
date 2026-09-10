@@ -2,14 +2,24 @@
 
 import { env } from "cloudflare:workers"
 import { getSandbox } from "@cloudflare/sandbox"
-import { type AgentProps, dispatch, useAgentStart, useDelivery, useModel, useSandbox, useSubagent } from "@flue/runtime"
+import {
+  type AgentProps,
+  dispatch,
+  useAgentFinish,
+  useAgentStart,
+  useDelivery,
+  useModel,
+  useSandbox,
+  useSubagent,
+} from "@flue/runtime"
 import { cloudflareSandbox, extend } from "@flue/runtime/cloudflare"
 import * as Sentry from "@sentry/cloudflare"
 import { drizzle } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { mayRunFollowUp, startAgentGeneration } from "@/lib/agents/lifecycle"
-import { type DoPrepEnv, ensureDoSandboxPrepped } from "@/lib/containers/do-prep"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
+import { acknowledgeWorkspaceLoss, workspaceStore } from "@/lib/containers/workspace-checkpoint"
+import { assertWorkspaceUsable, currentWorkspace, recoverableSandbox } from "@/lib/containers/workspace-runtime"
 import { cloudflareSentryOptions } from "@/lib/observability/cloudflare"
 import {
   classifySandboxPreparationFailure,
@@ -43,18 +53,23 @@ interface Env {
  * the Worker clones the repo via getSandbox(Sandbox, id). Do not re-sanitize.
  */
 export function Jared({ id }: AgentProps) {
+  // A lost workspace is not a model-retry problem. Fail before another model
+  // call (including after a tool error) instead of burning dozens of retries.
+  assertWorkspaceUsable()
   const delivery = useDelivery()
   useModel(modelForDelivery(delivery))
 
   const { Sandbox } = env as unknown as Env
-  // Match prep options in github/dispatch.ts (normalizeId + short idle teardown).
-  // The container is disposable: it tears down ~10m after the last exec, and this
-  // conversation (the durable brain) persists in the DO, so the next event resumes
-  // context and re-clones the repo into a fresh sandbox.
+  const sandbox = getSandbox(Sandbox, id, SANDBOX_OPTS)
+  // The submission interceptor holds a bounded keepalive lease. Every shared
+  // subagent tool uses the recovery guard around Flue's native adapter.
   useSandbox(
-    cloudflareSandbox(getSandbox(Sandbox, id, SANDBOX_OPTS), {
-      cwd: "/workspace/repo",
-    }),
+    recoverableSandbox(
+      cloudflareSandbox(sandbox, {
+        cwd: "/workspace/repo",
+      }),
+      sandbox,
+    ),
   )
 
   // Webhook turns are prepped by the Worker before dispatch, but DO-initiated
@@ -62,7 +77,7 @@ export function Jared({ id }: AgentProps) {
   // the DO with a possibly-empty container. Re-clone + re-auth before the model's
   // first turn so git/gh work. `force` on non-user deliveries also refreshes the
   // ~1h GitHub token for long-delayed follow-ups.
-  useAgentStart(async () => {
+  useAgentStart(async ({ signal }) => {
     await Sentry.startSpan(
       {
         name: "jared.sandbox.prepare",
@@ -76,7 +91,7 @@ export function Jared({ id }: AgentProps) {
       },
       async (span) => {
         try {
-          await ensureDoSandboxPrepped(env as unknown as DoPrepEnv, id, delivery?.kind !== "user")
+          await currentWorkspace().start(delivery?.kind !== "user", signal)
           span.setAttribute("jared.sandbox.outcome", "prepared")
         } catch (error) {
           span.setAttribute("jared.sandbox.outcome", "failed")
@@ -86,6 +101,9 @@ export function Jared({ id }: AgentProps) {
       },
     )
   })
+
+  // Also enforce the outcome if the model stops immediately after a tool error.
+  useAgentFinish(() => currentWorkspace().assertUsable())
 
   useSubagent(exploreSubagent)
   useSubagent(implementSubagent)
@@ -106,6 +124,11 @@ Jared.agentName = "jared"
 export const cloudflare = extend({
   base: (Base) =>
     class extends Base {
+      /** Called only by the authenticated operator route after settlement. */
+      acknowledgeWorkspaceLoss(runId: string) {
+        return acknowledgeWorkspaceLoss(workspaceStore(this.ctx.storage.sql), runId)
+      }
+
       /** One-shot follow-up (e.g. auto-merge quiet period). */
       async scheduleFollowUp(delaySeconds: number, prompt: string) {
         const db = drizzle((env as unknown as Env).DB, { schema: dbSchema })

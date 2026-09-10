@@ -10,23 +10,26 @@ import type { InProcessHistoryRead } from "@/lib/containers/flue-dispatch"
 import { readFlueHistoryInProcess } from "@/lib/containers/flue-dispatch"
 import { workflowCorrelationTags } from "@/lib/observability/sentry"
 import type { BaseEnvBindings } from "@/types/env/base"
-import { settledSubmissionIds } from "./delivery-status"
+import { type SettlementStatus, submissionSettlementStatus } from "./delivery-status"
 
 type Env = BaseEnvBindings["Bindings"]
 
-export type ReconcileResult = { entities: number; settled: number; timedOut: number }
+export type ReconcileResult = { entities: number; settled: number; timedOut: number; failed: number }
 
 /**
  * Return `settled` only when the exact admitted submission has a Flue settlement.
  * An idle conversation is not evidence for a different submission in the same
  * conversation, so it intentionally returns null.
  */
-export function settledStatusForAdmission(read: InProcessHistoryRead, submissionId: string): "settled" | null {
-  return read.ok && settledSubmissionIds(read.history).has(submissionId) ? "settled" : null
+export function settledStatusForAdmission(read: InProcessHistoryRead, submissionId: string): SettlementStatus | null {
+  return read.ok ? submissionSettlementStatus(read.history, submissionId) : null
 }
 
 /** Legacy convenience for callers that need a terminal timeout fallback. */
-export function decideReconciledStatus(read: InProcessHistoryRead, submissionId: string): "settled" | "failed:timeout" {
+export function decideReconciledStatus(
+  read: InProcessHistoryRead,
+  submissionId: string,
+): SettlementStatus | "failed:timeout" {
   return settledStatusForAdmission(read, submissionId) ?? "failed:timeout"
 }
 
@@ -61,6 +64,7 @@ export async function reconcileStuckDispatched(
 
   let settled = 0
   let timedOut = 0
+  let failed = 0
 
   for (const [entityKey, entries] of byEntity) {
     let read: InProcessHistoryRead | undefined
@@ -99,9 +103,10 @@ export async function reconcileStuckDispatched(
       )
       const changes = res.meta.changes ?? 0
       if (status === "settled") settled += changes
-      else timedOut += changes
+      else if (status === "failed:timeout") timedOut += changes
+      else failed += changes
     }
   }
 
-  return { entities: byEntity.size, settled, timedOut }
+  return { entities: byEntity.size, settled, timedOut, failed }
 }
