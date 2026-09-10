@@ -1,4 +1,4 @@
-import { CaretUpDown, House, Lightning, List, Monitor, Moon, Robot, SignOut, Sun } from "@phosphor-icons/react"
+import { CaretUpDown, House, Lightning, List, Monitor, Moon, Repeat, Robot, SignOut, Sun } from "@phosphor-icons/react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useTheme } from "next-themes"
 import { NavLink, Outlet, useNavigate } from "react-router-dom"
@@ -40,6 +40,7 @@ const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: House },
   { to: "/events", label: "Webhook Events", icon: Lightning },
   { to: "/containers", label: "Agent runs", icon: Robot },
+  { to: "/schedules", label: "Schedules", icon: Repeat },
 ]
 
 const THEME_OPTIONS = [

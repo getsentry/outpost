@@ -2,6 +2,7 @@ import type { Logger } from "@jared/utils"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
 import type { Sandbox } from "@/lib/containers/sandbox"
+import type { ScheduleRunner } from "@/lib/schedules/runner"
 import type { createAuth } from "@/utils"
 
 export type BaseEnvBindings = {
@@ -34,6 +35,8 @@ export type BaseEnvBindings = {
     SENTRY_INTEGRATION_TOKEN?: string
     // Cloudflare Sandbox Durable Object binding (thin Linux sandbox for Flue)
     Sandbox: DurableObjectNamespace<Sandbox>
+    /** One Durable Object alarm per operator-configured schedule. */
+    ScheduleRunner: DurableObjectNamespace<ScheduleRunner>
     /**
      * Phase 2 flag: when "1"/"true", agent brain runs as a Flue Durable Object
      * and the container is a thin sandbox (no in-container Flue/Lore process).

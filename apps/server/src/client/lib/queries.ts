@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { authClient } from "@/lib/endpoint"
-import { api, type EventsParams, type SessionDetailResponse, type SessionsParams } from "./api"
+import { api, type EventsParams, type ScheduleInput, type SessionDetailResponse, type SessionsParams } from "./api"
 
 export function useSession() {
   return useQuery({
@@ -199,6 +199,63 @@ export function useStartChat() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
     },
+  })
+}
+
+export function useSchedules() {
+  return useQuery({ queryKey: ["schedules"], queryFn: api.getSchedules, refetchInterval: 15_000 })
+}
+
+export function useSchedule(id: string | null) {
+  return useQuery({
+    queryKey: ["schedule", id],
+    queryFn: () => api.getSchedule(id!),
+    enabled: Boolean(id),
+    refetchInterval: 10_000,
+  })
+}
+
+function invalidateSchedules(queryClient: ReturnType<typeof useQueryClient>) {
+  return () => {
+    queryClient.invalidateQueries({ queryKey: ["schedules"] })
+    queryClient.invalidateQueries({ queryKey: ["schedule"] })
+  }
+}
+
+export function useCreateSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: ScheduleInput) => api.createSchedule(input),
+    onSuccess: invalidateSchedules(queryClient),
+  })
+}
+
+export function useUpdateSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: ScheduleInput }) => api.updateSchedule(id, input),
+    onSuccess: invalidateSchedules(queryClient),
+  })
+}
+
+export function useRunSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({ mutationFn: (id: string) => api.runSchedule(id), onSuccess: invalidateSchedules(queryClient) })
+}
+
+export function useSetScheduleEnabled() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => api.setScheduleEnabled(id, enabled),
+    onSuccess: invalidateSchedules(queryClient),
+  })
+}
+
+export function useArchiveSchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api.archiveSchedule(id),
+    onSuccess: invalidateSchedules(queryClient),
   })
 }
 

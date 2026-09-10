@@ -5,6 +5,7 @@ import EventDetailPage from "@/client/pages/event-detail"
 import EventsPage from "@/client/pages/events"
 import LoginPage from "@/client/pages/login"
 import NotFoundPage from "@/client/pages/not-found"
+import SchedulesPage from "@/client/pages/schedules"
 import SessionsPage from "@/client/pages/sessions"
 import { AuthGuard } from "@/components/auth-guard"
 import { ErrorBoundary } from "@/components/error-boundary"
@@ -29,6 +30,7 @@ function App() {
             <Route path="containers" element={<SessionsPage />} />
             <Route path="containers/detail" element={<ContainerDetailPage />} />
             <Route path="containers/:entityKey" element={<ContainerDetailPage />} />
+            <Route path="schedules" element={<SchedulesPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

@@ -176,3 +176,71 @@ export const maintenanceRuns = sqliteTable("maintenance_runs", {
   completedAt: integer("completed_at", { mode: "timestamp" }).notNull(),
   outcome: text("outcome").notNull(),
 })
+
+/** Operator-configured prompt recurrence. D1 is authoritative; the per-job DO only arms alarms. */
+export const scheduledJobs = sqliteTable(
+  "scheduled_jobs",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    repo: text("repo").notNull(),
+    prompt: text("prompt").notNull(),
+    cadence: text("cadence").notNull(),
+    localTime: text("local_time").notNull(),
+    timezone: text("timezone").notNull(),
+    dayOfWeek: integer("day_of_week"),
+    dayOfMonth: integer("day_of_month"),
+    enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+    revision: integer("revision").notNull().default(1),
+    armedRevision: integer("armed_revision"),
+    nextDueAt: integer("next_due_at", { mode: "timestamp_ms" }),
+    createdBy: text("created_by").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  },
+  (table) => [
+    index("idx_scheduled_jobs_enabled_due").on(table.enabled, table.nextDueAt),
+    index("idx_scheduled_jobs_archived_updated").on(table.archivedAt, table.updatedAt),
+  ],
+)
+
+/** Immutable execution evidence for one scheduled or operator-confirmed occurrence. */
+export const scheduledJobRuns = sqliteTable(
+  "scheduled_job_runs",
+  {
+    id: text("id").primaryKey(),
+    scheduleId: text("schedule_id").notNull(),
+    scheduleRevision: integer("schedule_revision").notNull(),
+    dedupeKey: text("dedupe_key").notNull(),
+    trigger: text("trigger").notNull(),
+    intendedAt: integer("intended_at", { mode: "timestamp_ms" }).notNull(),
+    repo: text("repo").notNull(),
+    prompt: text("prompt").notNull(),
+    entityKey: text("entity_key"),
+    flueSubmissionId: text("flue_submission_id"),
+    status: text("status").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    failureReason: text("failure_reason"),
+    artifactUrl: text("artifact_url"),
+    artifactKind: text("artifact_kind"),
+    startedAt: integer("started_at", { mode: "timestamp_ms" }),
+    admittedAt: integer("admitted_at", { mode: "timestamp_ms" }),
+    settledAt: integer("settled_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("scheduled_job_runs_schedule_dedupe_unique").on(table.scheduleId, table.dedupeKey),
+    index("idx_scheduled_job_runs_schedule_created").on(table.scheduleId, table.createdAt),
+    index("idx_scheduled_job_runs_status_updated").on(table.status, table.updatedAt),
+    uniqueIndex("scheduled_job_runs_entity_unique").on(table.entityKey),
+  ],
+)
+
+/** Small fixed pool reserving sandbox capacity for scheduled work without consuming all ten instances. */
+export const scheduledRunSlots = sqliteTable("scheduled_run_slots", {
+  slot: integer("slot").primaryKey(),
+  runId: text("run_id"),
+  leaseExpiresAt: integer("lease_expires_at", { mode: "timestamp_ms" }),
+})

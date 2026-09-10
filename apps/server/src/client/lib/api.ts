@@ -31,6 +31,46 @@ export type SessionsParams = {
   limit?: number
 }
 
+export type ScheduleCadence = "daily" | "weekly" | "monthly"
+export type ScheduleInput = {
+  name: string
+  repo: string
+  prompt: string
+  cadence: ScheduleCadence
+  time: string
+  timezone: string
+  dayOfWeek?: number
+  dayOfMonth?: number
+  enabled: boolean
+}
+
+export type Schedule = ScheduleInput & {
+  id: string
+  revision: number
+  armedRevision: number | null
+  nextDueAt: number | null
+  createdAt?: number
+  updatedAt?: number
+  lastRun?: ScheduledRun | null
+  activeRun?: { id: string; status: string } | null
+}
+
+export type ScheduledRun = {
+  id: string
+  status: string
+  trigger: "scheduled" | "manual"
+  intended_at: number
+  repo: string
+  prompt: string
+  entity_key: string | null
+  artifact_url: string | null
+  artifact_kind: string | null
+  failure_reason: string | null
+  created_at: number
+}
+
+export type ScheduleDetail = { data: Schedule; runs: ScheduledRun[] }
+
 // --- Session data types (matches OpenCode HTTP API shapes) ---
 
 export type SessionInfo = {
@@ -253,6 +293,75 @@ export const api = {
     const res = await fetch("/api/containers/chat/repos")
     if (!res.ok) throw new Error(`Failed to fetch repositories: ${res.status}`)
     return res.json() as Promise<{ repos: string[] }>
+  },
+
+  async getSchedules(): Promise<{ data: Schedule[] }> {
+    const res = await fetch("/api/schedules")
+    if (!res.ok) throw new Error(`Failed to fetch schedules: ${res.status}`)
+    return res.json()
+  },
+
+  async getSchedule(id: string): Promise<ScheduleDetail> {
+    const res = await fetch(`/api/schedules/${encodeURIComponent(id)}`)
+    if (!res.ok) throw new Error(`Failed to fetch schedule: ${res.status}`)
+    return res.json()
+  },
+
+  async createSchedule(input: ScheduleInput): Promise<{ data: Schedule }> {
+    const res = await fetch("/api/schedules", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    })
+    if (!res.ok)
+      throw new Error(
+        ((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "Failed to create schedule",
+      )
+    return res.json()
+  },
+
+  async updateSchedule(id: string, input: ScheduleInput): Promise<{ data: Schedule }> {
+    const res = await fetch(`/api/schedules/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+    })
+    if (!res.ok)
+      throw new Error(
+        ((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "Failed to update schedule",
+      )
+    return res.json()
+  },
+
+  async runSchedule(id: string): Promise<{ data: { runId: string; status: string } }> {
+    const res = await fetch(`/api/schedules/${encodeURIComponent(id)}/run`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ confirm: true, idempotencyKey: crypto.randomUUID() }),
+    })
+    if (!res.ok)
+      throw new Error(
+        ((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "Failed to start schedule",
+      )
+    return res.json()
+  },
+
+  async setScheduleEnabled(id: string, enabled: boolean): Promise<{ data: Schedule }> {
+    const state = enabled ? "resume" : "pause"
+    const res = await fetch(`/api/schedules/${encodeURIComponent(id)}/${state}`, { method: "POST" })
+    if (!res.ok)
+      throw new Error(
+        ((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `Failed to ${state} schedule`,
+      )
+    return res.json()
+  },
+
+  async archiveSchedule(id: string): Promise<void> {
+    const res = await fetch(`/api/schedules/${encodeURIComponent(id)}`, { method: "DELETE" })
+    if (!res.ok)
+      throw new Error(
+        ((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? "Failed to archive schedule",
+      )
   },
 
   async startChat(input: { repo: string; text: string }) {
