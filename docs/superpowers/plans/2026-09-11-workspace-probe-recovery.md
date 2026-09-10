@@ -52,14 +52,16 @@ type WorkspaceProbeFailure = {
 }
 ```
 
-- [x] Run focused regressions, full server tests (291 passed), Biome, fresh build, and configured TypeScript check.
+- [x] Run focused regressions, full server tests (294 passed after review fixes), Biome, fresh build, and configured TypeScript check.
 - [x] Update the recovery contract to explain retries, retained diagnostics, and unchanged acknowledgment requirements.
 
 ## Task 2: Review and delivery
 
-- [ ] Commit the coherent fix using a conventional commit; push the feature branch.
-- [ ] Create a PR against main with a short reviewer-facing explanation.
-- [ ] Start an independent full-branch review covering bugs, cancellation/races, secret leakage, DRY, and missing tests; fix and re-review findings.
+- [x] Commit the coherent fix using a conventional commit; push the feature branch.
+- [x] Create PR #174 against main with a short reviewer-facing explanation.
+- [x] Start an independent full-branch review covering bugs, cancellation/races, secret leakage, DRY, and missing tests.
+- [x] Reproduce and fix cancellation during post-command probes and the preparation-probe bypass; fix two introduced deep TypeScript errors.
+- [ ] Re-review the final changes before merge.
 - [ ] Check every non-Cloudflare check and unresolved review thread on the final head.
 - [ ] Squash-merge only the verified head; fetch and verify the merge commit on main.
 - [ ] Begin a separate chat-panel diagnosis/design: preserve message/tool order, show running/error states clearly, and progressively disclose detail without fabricating unavailable reasoning.

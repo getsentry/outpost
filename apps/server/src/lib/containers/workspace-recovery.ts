@@ -20,7 +20,11 @@ export type WorkspaceState = {
 export type WorkspaceStore = { read(): WorkspaceState | undefined; write(state: WorkspaceState): void }
 type Options = {
   inspect(): Promise<WorkspaceSnapshot | null>
-  prepare(checkpoint: WorkspaceSnapshot | undefined, signal: AbortSignal): Promise<void>
+  prepare(
+    checkpoint: WorkspaceSnapshot | undefined,
+    signal: AbortSignal,
+    inspect: () => Promise<WorkspaceSnapshot | null>,
+  ): Promise<void>
   store: WorkspaceStore
   runId: string
 }
@@ -152,10 +156,15 @@ export class WorkspaceRecovery {
       try {
         await withWorkspaceDeadline(
           180_000,
-          (preparationSignal) => this.options.prepare(replaced ? state.checkpoint : undefined, preparationSignal),
+          (preparationSignal) =>
+            this.options.prepare(replaced ? state.checkpoint : undefined, preparationSignal, () =>
+              this.inspect(preparationSignal),
+            ),
           signal,
         )
       } catch {
+        // A preparation probe may already have recorded a specific failure.
+        this.assertUsable()
         this.block("The repository, skills, authentication, or saved Git checkpoint could not be restored.")
       }
       current = await this.inspect(signal)
@@ -192,20 +201,20 @@ export class WorkspaceRecovery {
           this.block(
             "A command or write has an unknown outcome. It was not replayed; inspect its effects before retrying.",
           )
-        const current = await this.inspect()
+        const current = await this.inspect(activeSignal)
         if (current?.ready && current.generation === before.generation) throw error
         await this.ensureReady(false, activeSignal)
         // Reads alone may be retried, once. A second workspace loss is terminal.
         try {
           result = await operation()
         } catch (retryError) {
-          const retried = await this.inspect()
+          const retried = await this.inspect(activeSignal)
           if (!retried?.ready || retried.generation !== this.state().checkpoint?.generation)
             this.block("The workspace was lost again during the read retry.")
           throw retryError
         }
       }
-      const after = await this.inspect()
+      const after = await this.inspect(activeSignal)
       if (!after || after.generation !== this.state().checkpoint?.generation) {
         this.block("The workspace disappeared during an operation. Its result cannot be trusted.")
       }

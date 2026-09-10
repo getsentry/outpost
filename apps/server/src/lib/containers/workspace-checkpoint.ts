@@ -76,6 +76,7 @@ export async function prepareWorkspace(
   env: DoPrepEnv,
   id: string,
   sandbox: ReturnType<typeof getSandbox>,
+  inspect: () => Promise<WorkspaceSnapshot | null>,
   checkpoint?: WorkspaceSnapshot,
   signal?: AbortSignal,
   assertOwner?: () => void,
@@ -98,7 +99,7 @@ export async function prepareWorkspace(
     writeFile: (...args: Parameters<typeof source.writeFile>) => checked(() => source.writeFile(...args)),
     setEnvVars: (...args: Parameters<typeof source.setEnvVars>) => checked(() => source.setEnvVars(...args)),
   } as ReturnType<typeof getSandbox>
-  const before = await inspectWorkspace(sandbox)
+  const before = await inspect()
   await ensureDoSandboxPrepped(env, id, true, sandbox)
   // Only a missing repo may be reconstructed. A repo populated by another
   // caller is verified by the guard, never reset over somebody else's work.

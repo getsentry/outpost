@@ -39,8 +39,8 @@ export const workspaceInterceptor: FlueExecutionInterceptor = async (operation, 
     runId: ctx.submissionId,
     store: workspaceStore(storage.sql),
     inspect: () => inspectWorkspace(sandbox),
-    prepare: (checkpoint, signal) =>
-      prepareWorkspace(bindings, id, sandbox, checkpoint, signal, () => guard.assertUsable()),
+    prepare: (checkpoint, signal, inspect) =>
+      prepareWorkspace(bindings, id, sandbox, inspect, checkpoint, signal, () => guard.assertUsable()),
   })
   const leaseId = `${ctx.submissionId}:${crypto.randomUUID()}`
   return activeWorkspace.run(guard, async () => {

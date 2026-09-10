@@ -25,7 +25,9 @@ attempts, each bounded to 30 seconds, with 400/800 ms backoff (at most 91.2 seco
 in total). Cancellation or a newer invocation prevents subsequent probes. Late
 results cannot update a checkpoint or start preparation/tools. SDK timeouts do
 not guarantee process cancellation; this retry applies only to the read-only
-probe, never to a command or write requested by the agent.
+probe, including preparation's own preflight, never to a command or write
+requested by the agent. Post-operation probes also honor the operation's
+cancellation signal; interrupting verification leaves a mutation uncertain.
 
 Command failures, malformed checkpoints, and unknown errors block immediately.
 Terminal probe failures retain `meta.workspaceProbe` in the failure receipt and

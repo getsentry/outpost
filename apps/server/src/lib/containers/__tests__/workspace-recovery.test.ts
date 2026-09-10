@@ -168,6 +168,24 @@ describe("workspace recovery", () => {
     expect(f.store.read()?.inFlight).toBe(false)
   })
 
+  it("cancels post-command probe retries and retains the uncertain mutation", async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    const controller = new AbortController()
+    const write = vi.fn(async () => {
+      f.inspect.mockRejectedValue(new Error("Network connection lost"))
+    })
+    const result = f.guard.run(write, true, controller.signal).catch((error) => error)
+    await vi.advanceTimersByTimeAsync(1)
+    controller.abort()
+    await vi.runAllTimersAsync()
+    expect(await result).toMatchObject({ name: "AbortError" })
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(f.inspect).toHaveBeenCalledTimes(2)
+    expect(f.store.read()?.inFlight).toBe(true)
+    expect(() => f.guard.finish()).toThrow(/blocked/)
+  })
+
   it("blocks inherited uncertainty even if a resumed run only renders or finishes", () => {
     const f = fixture({ checkpoint: clean, inFlight: true, recoveries: 0, runId: "old-run" })
     expect(() => f.guard.assertUsable()).toThrow(/blocked/)
@@ -310,7 +328,7 @@ describe("workspace recovery", () => {
     f.lose()
     const command = vi.fn(async () => "ok")
     expect(await f.guard.run(command, true)).toBe("ok")
-    expect(f.prepare).toHaveBeenCalledWith(clean, expect.any(AbortSignal))
+    expect(f.prepare).toHaveBeenCalledWith(clean, expect.any(AbortSignal), expect.any(Function))
     expect(command).toHaveBeenCalledTimes(1)
   })
 

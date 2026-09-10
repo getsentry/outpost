@@ -8,14 +8,13 @@ export type WorkspaceProbeFailure = {
 
 /** Contains no provider message, stderr, command, credentials, or file contents. */
 export class WorkspaceProbeError extends Error {
+  readonly kind: "command_failed" | "invalid_checkpoint"
   readonly exitCode?: number
 
-  constructor(
-    readonly kind: "command_failed" | "invalid_checkpoint",
-    exitCode?: number,
-  ) {
+  constructor(kind: "command_failed" | "invalid_checkpoint", exitCode?: number) {
     super(`Workspace probe failed: ${kind}`)
     this.name = "WorkspaceProbeError"
+    this.kind = kind
     if (typeof exitCode === "number" && Number.isInteger(exitCode) && exitCode >= -1 && exitCode <= 255)
       this.exitCode = exitCode
   }
