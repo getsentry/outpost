@@ -105,6 +105,24 @@ function renderToFile(opts: SandboxSetupOpts): string {
 }
 
 describe("buildThinSandboxPrepScript", () => {
+  it("refuses to delete surviving files in a workspace with a missing .git directory", () => {
+    const f = prepFixture()
+    const repo = join(f.dir, "workspace/repo")
+    mkdirSync(repo)
+    writeFileSync(join(repo, "uncommitted.txt"), "surviving work")
+    expect(f.run("test-token").status).not.toBe(0)
+    expect(readFileSync(join(repo, "uncommitted.txt"), "utf8")).toBe("surviving work")
+  })
+  it("refreshes auth without overwriting agent edits to injected workspace files", () => {
+    const f = prepFixture()
+    expect(f.run("test-token").status).toBe(0)
+    const skill = join(f.dir, "workspace/repo/.agents/skills/test.md")
+    writeFileSync(skill, "local agent edit")
+    writeFileSync(join(f.dir, "root/.agents/skills/new.md"), "new skill")
+    expect(f.run("fresh-test-token").status).toBe(0)
+    expect(readFileSync(skill, "utf8")).toBe("local agent edit")
+    expect(readFileSync(join(f.dir, "workspace/repo/.agents/skills/new.md"), "utf8")).toBe("new skill")
+  })
   it("authenticates later commands and detects lost command auth after a DO reset", async () => {
     const { sandbox } = prepFixture()
     for (const token of ["initial-installation-token", "refreshed-installation-token"]) {
@@ -149,7 +167,7 @@ describe("buildThinSandboxPrepScript", () => {
     expect(script).toContain("trap cleanup EXIT")
     expect(script).toContain("git clone --depth 50")
     expect(script).toContain("gh auth setup-git --hostname github.com")
-    expect(script).toContain("cp -R /root/.agents/skills")
+    expect(script).toContain("copy_workspace_file -R /root/.agents/skills")
     expect(script).toContain("test -d /workspace/repo/.git")
   })
 

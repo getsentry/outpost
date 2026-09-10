@@ -6,6 +6,7 @@
  */
 
 import { Sandbox as CloudflareSandbox } from "@cloudflare/sandbox"
+import { RunLeaseManager } from "./run-lease"
 
 type OutboundEnv = {
   GITHUB_TOKEN?: string
@@ -22,6 +23,23 @@ type OutboundEnv = {
  * Keep them for the zero-trust path when we move token injection out of the sandbox.
  */
 export class JaredSandbox extends CloudflareSandbox {
+  private runLeases = new RunLeaseManager({
+    storage: this.ctx.storage,
+    now: Date.now,
+    setKeepAlive: (value) => this.setKeepAlive(value),
+    schedule: (seconds, payload) => this.schedule(seconds, "expireRunLease", payload),
+  })
+
+  acquireRunLease(id: string) {
+    return this.runLeases.acquire(id)
+  }
+  releaseRunLease(id: string) {
+    return this.runLeases.release(id)
+  }
+  expireRunLease(payload: { id: string; expiresAt: number }) {
+    return this.runLeases.expire(payload)
+  }
+
   static outboundByHost = {
     "api.github.com": (request: Request, env: OutboundEnv) => {
       const headers = new Headers(request.headers)

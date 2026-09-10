@@ -199,10 +199,10 @@ export async function saveSession(
  * Used for Clear Idle filtering and demotion decisions — not shown in the UI.
  * Any busy child → busy; otherwise idle if we have status entries, else unknown.
  */
-export type OverallSessionStatus = "busy" | "idle" | "unknown"
+export type OverallSessionStatus = "busy" | "idle" | "blocked" | "unknown"
 
 /** Operator-facing status for list/detail (accounts for stale busy + sync failures). */
-export type DisplayRunStatus = "working" | "idle" | "sync_unavailable" | "historical" | "unknown"
+export type DisplayRunStatus = "working" | "idle" | "blocked" | "sync_unavailable" | "historical" | "unknown"
 
 /** Busy placeholders older than this are treated as stale (not truly working). */
 export const STALE_BUSY_MS = 30 * 60 * 1000
@@ -239,6 +239,7 @@ export function deriveOverallStatus(sessionData: string | AnyRecord): OverallSes
   const statuses = parsed.sessionStatus as Record<string, Record<string, string>> | null | undefined
   const statusValues = statuses ? Object.values(statuses) : []
   if (statusValues.some((st) => st?.type === "busy")) return "busy"
+  if (statusValues.some((st) => st?.type === "blocked")) return "blocked"
   if (statusValues.length > 0) return "idle"
   return "unknown"
 }
@@ -269,6 +270,8 @@ export function deriveDisplayStatus(
   const age = Math.max(0, now - toUpdatedAtMs(updatedAt))
   const syncError = opts?.syncError ?? null
   const hasSyncError = typeof syncError === "string" && syncError.length > 0
+
+  if (overall === "blocked") return "blocked"
 
   if (overall === "busy") {
     if (age >= STALE_BUSY_MS) return "sync_unavailable"

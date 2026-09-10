@@ -78,6 +78,11 @@ function StatusIndicator({ status }: { status: string }) {
       dot: "bg-amber-500",
       label: "Sync unavailable",
     },
+    blocked: {
+      bg: "bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300",
+      dot: "bg-red-500",
+      label: "Blocked: workspace recovery",
+    },
     historical: {
       bg: "bg-muted text-muted-foreground",
       dot: "bg-muted-foreground/50",

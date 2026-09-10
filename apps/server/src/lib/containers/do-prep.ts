@@ -5,7 +5,7 @@
 // `scheduleFollowUp`) and post-teardown resumes reach the agent Durable Object
 // directly — the container may have been torn down (~10m idle) and respun empty,
 // so `git`/`gh` would fail. This closes that gap by re-cloning + re-authing at the
-// start of such turns. Idempotent and best-effort (never throws into the turn).
+// start of such turns. Idempotent and fail-closed when preparation is incomplete.
 
 import { getSandbox } from "@cloudflare/sandbox"
 import { desc, eq, isNull } from "drizzle-orm"
@@ -49,12 +49,17 @@ export function parseOwnerRepo(entityKey: string): { owner: string; repo: string
  *   skills, and command environment survived. Sandbox DO resets can lose the
  *   in-memory environment even when the container's clone still exists.
  */
-export async function ensureDoSandboxPrepped(env: DoPrepEnv, instanceId: string, force: boolean): Promise<void> {
-  const sandbox = getSandbox(env.Sandbox, instanceId, SANDBOX_OPTS)
+export async function ensureDoSandboxPrepped(
+  env: DoPrepEnv,
+  instanceId: string,
+  force: boolean,
+  sandboxOverride?: ReturnType<typeof getSandbox>,
+): Promise<void> {
+  const sandbox = sandboxOverride ?? getSandbox(env.Sandbox, instanceId, SANDBOX_OPTS)
 
   if (!force) {
     const isReady = await sandbox
-      .exec(THIN_SANDBOX_READY_CHECK, { cwd: "/workspace" })
+      .exec(THIN_SANDBOX_READY_CHECK, { cwd: "/" })
       .then((r) => r.success)
       .catch(() => false)
     if (isReady) return
@@ -80,13 +85,13 @@ export async function ensureDoSandboxPrepped(env: DoPrepEnv, instanceId: string,
   }
   if (!entityKey) {
     console.warn("do-prep: no agent_sessions row", { instanceId })
-    return
+    throw new Error("Sandbox preparation requires an agent session mapping")
   }
 
   const parsed = parseOwnerRepo(entityKey)
   if (!parsed) {
     console.warn("do-prep: cannot derive repo from entity key", { entityKey })
-    return
+    throw new Error("Sandbox preparation requires a valid repository")
   }
 
   const app = createGitHubApp({
@@ -100,7 +105,7 @@ export async function ensureDoSandboxPrepped(env: DoPrepEnv, instanceId: string,
   ])
   if (!installationToken) {
     console.warn("do-prep: no installation token", { repo: parsed.slug })
-    return
+    throw new Error("Sandbox preparation requires a GitHub installation token")
   }
 
   await ensureSandboxReady(sandbox, {

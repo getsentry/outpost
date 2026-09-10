@@ -63,6 +63,7 @@ function StatusDot({ status }: { status: string }) {
     working: "bg-yellow-500 animate-pulse",
     busy: "bg-yellow-500 animate-pulse",
     idle: "bg-green-500",
+    blocked: "bg-red-500",
     sync_unavailable: "bg-amber-500",
     historical: "bg-muted-foreground/50",
   }
@@ -76,6 +77,8 @@ function statusLabel(status: string): string {
       return "Working"
     case "idle":
       return "Idle"
+    case "blocked":
+      return "Blocked: workspace recovery"
     case "sync_unavailable":
       return "Sync unavailable"
     case "historical":

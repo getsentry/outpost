@@ -1,6 +1,7 @@
 // Pure Flue → dashboard session-blob adapters (no Worker / dispatch imports).
 // Used by saveSession (ingest choke point) and flueHistoryToSessionData.
 
+import { statusForSettlement } from "../events/delivery-status"
 import { toAgentInstanceId } from "./ids"
 
 export const FLUE_AGENT = "jared"
@@ -21,7 +22,12 @@ export function flueHistoryToSessionData(entityKey: string, history: Record<stri
     .map((m, index) => normalizeFlueMessage(m, index))
     .filter((m): m is AnyRecord => m !== null)
 
-  const status = deriveFlueBusyStatus(rawMessages, settlements) ? "busy" : "idle"
+  const latest = settlements.at(-1)
+  const status = deriveFlueBusyStatus(rawMessages, settlements)
+    ? "busy"
+    : latest && statusForSettlement(latest) === "failed:workspace_lost"
+      ? "blocked"
+      : "idle"
   const totalCost = messages.reduce((sum, m) => {
     const cost = (m.info as AnyRecord | undefined)?.cost
     return sum + (typeof cost === "number" ? cost : 0)

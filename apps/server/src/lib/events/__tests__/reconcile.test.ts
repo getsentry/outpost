@@ -30,6 +30,18 @@ describe("decideReconciledStatus", () => {
 })
 
 describe("settledStatusForAdmission", () => {
+  it.each([
+    ["failed", { type: "workspace_lost" }, "failed:workspace_lost"],
+    ["failed", { type: "internal_error" }, "failed:runtime"],
+    ["aborted", undefined, "failed:aborted"],
+  ])("preserves a %s receipt instead of labeling it settled", (outcome, error, expected) => {
+    expect(
+      settledStatusForAdmission(
+        { ok: true, offset: null, history: { settlements: [{ submissionId: "one", outcome, error }] } },
+        "one",
+      ),
+    ).toBe(expected)
+  })
   const history = {
     messages: [
       { role: "user", submissionId: "sub-42", parts: [] },
