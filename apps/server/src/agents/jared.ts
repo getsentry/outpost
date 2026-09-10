@@ -9,6 +9,7 @@ import { drizzle } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { mayRunFollowUp, startAgentGeneration } from "@/lib/agents/lifecycle"
 import { type DoPrepEnv, ensureDoSandboxPrepped } from "@/lib/containers/do-prep"
+import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
 import { cloudflareSentryOptions } from "@/lib/observability/cloudflare"
 import {
   classifySandboxPreparationFailure,
@@ -51,7 +52,7 @@ export function Jared({ id }: AgentProps) {
   // conversation (the durable brain) persists in the DO, so the next event resumes
   // context and re-clones the repo into a fresh sandbox.
   useSandbox(
-    cloudflareSandbox(getSandbox(Sandbox, id, { normalizeId: true, sleepAfter: "10m" }), {
+    cloudflareSandbox(getSandbox(Sandbox, id, SANDBOX_OPTS), {
       cwd: "/workspace/repo",
     }),
   )

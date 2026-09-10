@@ -12,7 +12,7 @@ import { desc, eq, isNull } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { createGitHubApp } from "@/lib/github/app"
-import { ensureSandboxReady } from "./dispatch"
+import { ensureSandboxReady, THIN_SANDBOX_READY_CHECK } from "./dispatch"
 import { SANDBOX_OPTS } from "./sandbox-opts"
 
 export type DoPrepEnv = {
@@ -45,18 +45,19 @@ export function parseOwnerRepo(entityKey: string): { owner: string; repo: string
  *
  * @param force When true (DO-initiated / scheduled turns that bypass the Worker),
  *   always (re)prep — refreshing the ~1h GitHub token even if the clone survived.
- *   When false (webhook turns the Worker already prepped), only prep if the clone
- *   is missing, as cheap defense against an unexpected teardown.
+ *   When false (webhook turns the Worker already prepped), verify the repo,
+ *   skills, and command environment survived. Sandbox DO resets can lose the
+ *   in-memory environment even when the container's clone still exists.
  */
 export async function ensureDoSandboxPrepped(env: DoPrepEnv, instanceId: string, force: boolean): Promise<void> {
   const sandbox = getSandbox(env.Sandbox, instanceId, SANDBOX_OPTS)
 
   if (!force) {
-    const hasRepo = await sandbox
-      .exec("test -d /workspace/repo/.git", { cwd: "/workspace" })
+    const isReady = await sandbox
+      .exec(THIN_SANDBOX_READY_CHECK, { cwd: "/workspace" })
       .then((r) => r.success)
       .catch(() => false)
-    if (hasRepo) return
+    if (isReady) return
   }
 
   const db = drizzle(env.DB, { schema: dbSchema })

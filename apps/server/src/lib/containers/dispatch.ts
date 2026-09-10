@@ -171,6 +171,10 @@ export async function ensureSandboxReady(
       await sandbox.writeFile(envSource, buildEnvFileContents(opts, opts.installationToken))
       const result = await sandbox.exec(buildThinSandboxPrepScript(opts, envSource), { cwd: "/workspace" })
       if (!result.success) throw new Error(`thin sandbox prep failed: ${result.stderr}`)
+      // Sourcing the file only authenticates the prep shell. Native Flue runs
+      // later commands in separate shells, so give them the installation token
+      // through the Sandbox API as well (never interpolate it into exec).
+      await sandbox.setEnvVars({ GH_TOKEN: opts.installationToken || undefined })
     }, 5)
 
     // Guard against a "successful" prep that silently dropped work: a mid-exec
@@ -377,7 +381,9 @@ export function buildThinSandboxPrepScript(opts: SandboxSetupOpts, envSource = "
     '  git -C /workspace/repo config user.email "$BOT_EMAIL"',
     "fi",
     'if [ -n "$TOKEN" ]; then',
-    '  echo "$TOKEN" | gh auth login --with-token',
+    // Installation tokens authenticate gh through GH_TOKEN, not the user login
+    // flow. Configure Git to use that same token for subsequent fetches/pushes.
+    "  gh auth setup-git --hostname github.com",
     "fi",
     'mv "$ENV_SOURCE" /tmp/flue-env.sh.tmp',
     "mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh",
@@ -398,20 +404,19 @@ async function writeEnvFile(sandbox: ReturnType<typeof getSandbox>, opts: Sandbo
 /**
  * Assert the three things the Phase 2 agent depends on actually landed after
  * setup: the cloned repo, a non-empty skills tree, and a GitHub token in the env
- * file the agent sources. A transient reset can make a setup step "succeed"
- * without doing its work, leaving the agent skill-less and unauthenticated; this
+ * file and subsequent command environment. A transient reset can make a setup
+ * step "succeed" without doing its work, leaving the agent unauthenticated; this
  * turns that silent half-prep into a loud, retryable failure. Wrapped in the
  * transient retry so a reset during the check itself isn't a false negative.
  */
+export const THIN_SANDBOX_READY_CHECK =
+  "test -d /workspace/repo/.git && " +
+  '[ -n "$(ls -A /workspace/repo/.agents/skills 2>/dev/null)" ] && ' +
+  `test -n "\${GH_TOKEN:-}" && ` +
+  "grep -q '^export GH_TOKEN=' /tmp/flue-env.sh"
+
 async function verifyThinSandboxPrepped(sandbox: ReturnType<typeof getSandbox>): Promise<void> {
-  const check = await retryTransientSandbox(() =>
-    sandbox.exec(
-      "test -d /workspace/repo/.git && " +
-        '[ -n "$(ls -A /workspace/repo/.agents/skills 2>/dev/null)" ] && ' +
-        "grep -q '^export GH_TOKEN=' /tmp/flue-env.sh",
-      { cwd: "/workspace" },
-    ),
-  )
+  const check = await retryTransientSandbox(() => sandbox.exec(THIN_SANDBOX_READY_CHECK, { cwd: "/workspace" }))
   if (!check.success) {
     throw new Error("sandbox prep incomplete: repo, skills, or GitHub auth missing after setup")
   }
