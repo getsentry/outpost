@@ -166,7 +166,27 @@ describe("real Git workspace checkpoints", () => {
   it("does not treat a damaged repo containing local files as an empty sandbox", async () => {
     const f = fixture()
     rmSync(join(f.repo, ".git"), { recursive: true })
-    await expect(inspectWorkspace(f.sandbox as Parameters<typeof inspectWorkspace>[0])).rejects.toThrow()
+    await expect(inspectWorkspace(f.sandbox as Parameters<typeof inspectWorkspace>[0])).rejects.toMatchObject({
+      kind: "command_failed",
+      exitCode: 45,
+    })
+  })
+  it("reports malformed checkpoint output without exposing stdout or stderr", async () => {
+    const sandbox = {
+      exec: async () => ({
+        stdout: "private checkpoint output",
+        stderr: "private stderr",
+        exitCode: 0,
+        success: true,
+        command: "probe",
+        duration: 1,
+        timestamp: new Date().toISOString(),
+      }),
+    }
+    await expect(inspectWorkspace(sandbox)).rejects.toMatchObject({
+      kind: "invalid_checkpoint",
+      message: "Workspace probe failed: invalid_checkpoint",
+    })
   })
   it("uses valid bash for probing and restoring detached checkpoints", () => {
     const f = fixture()

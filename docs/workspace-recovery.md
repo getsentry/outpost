@@ -19,6 +19,25 @@ untracked files in the **brain DO's SQLite storage**, not the disposable
 container. It stores hashes, not file contents or credentials. No D1 migration,
 new binding, or secret is required.
 
+A single transient health-probe failure does not prove the workspace was lost.
+Transport/session resets and probe timeouts get at most three read-only probe
+attempts, each bounded to 30 seconds, with 400/800 ms backoff (at most 91.2 seconds
+in total). Cancellation or a newer invocation prevents subsequent probes. Late
+results cannot update a checkpoint or start preparation/tools. SDK timeouts do
+not guarantee process cancellation; this retry applies only to the read-only
+probe, including preparation's own preflight, never to a command or write
+requested by the agent. Post-operation probes also honor the operation's
+cancellation signal; interrupting verification leaves a mutation uncertain.
+
+Command failures, malformed checkpoints, and unknown errors block immediately.
+Terminal probe failures retain `meta.workspaceProbe` in the failure receipt and
+`probeFailure` in the durable guard: an allowlisted category, attempt count, and
+numeric exit code when available. A structured warning records the same fields.
+Raw provider errors, command text, stdout, stderr, and credentials are excluded.
+The categories are `transport`, `timeout`, `command_failed`,
+`invalid_checkpoint`, and `unknown`. A missing repo is still a recoverable
+snapshot, not a probe error; a damaged existing repo remains protected.
+
 Untracked symlinks are fingerprinted by their target path, not dereferenced;
 regular files also include their executable bit.
 

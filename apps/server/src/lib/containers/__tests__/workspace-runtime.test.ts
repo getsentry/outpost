@@ -13,9 +13,10 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { acknowledgeWorkspaceLoss, workspaceStore } from "../workspace-checkpoint"
 import { assertWorkspaceUsable, currentWorkspace, recoverableSandbox, workspaceInterceptor } from "../workspace-runtime"
 
-const mocks = vi.hoisted(() => ({ context: vi.fn(), sandbox: vi.fn() }))
+const mocks = vi.hoisted(() => ({ context: vi.fn(), sandbox: vi.fn(), prep: vi.fn(async () => {}) }))
 vi.mock("@cloudflare/sandbox", () => ({ getSandbox: mocks.sandbox }))
 vi.mock("@flue/runtime/cloudflare", () => ({ getCloudflareContext: mocks.context }))
+vi.mock("../do-prep", () => ({ ensureDoSandboxPrepped: mocks.prep }))
 const databases: DatabaseSync[] = []
 // Pin this integration seam to the patched Flue release. An upgrade must rerun
 // these tests against the actual discovery/reconciliation implementation.
@@ -28,6 +29,7 @@ const flueSql = await import(
 afterEach(() => {
   for (const db of databases.splice(0)) db.close()
   vi.clearAllMocks()
+  vi.useRealTimers()
 })
 
 function fixture(id = "repo-1") {
@@ -67,6 +69,41 @@ function fixture(id = "repo-1") {
 }
 
 describe("Flue workspace integration", () => {
+  it("retries preparation's own probe before restoring a missing repository", async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    f.sandbox.exec
+      .mockResolvedValueOnce({ success: false, exitCode: 44, stdout: "" })
+      .mockRejectedValueOnce(new Error("Network connection lost"))
+      .mockResolvedValueOnce({ success: false, exitCode: 44, stdout: "" })
+    const result = f
+      .invoke(async () => {
+        await currentWorkspace().start(false)
+        return "ready"
+      })
+      .catch((error) => error)
+    await vi.runAllTimersAsync()
+    expect(await result).toBe("ready")
+    expect(mocks.prep).toHaveBeenCalledTimes(1)
+    expect(workspaceStore(f.sql).read()?.blocked).toBeUndefined()
+  })
+
+  it("retains classified diagnostics when preparation's probe exhausts its retries", async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    f.sandbox.exec
+      .mockResolvedValueOnce({ success: false, exitCode: 44, stdout: "" })
+      .mockRejectedValue(new Error("Network connection lost"))
+    const result = f.invoke(async () => currentWorkspace().start(false)).catch((error) => error)
+    await vi.runAllTimersAsync()
+    expect(await result).toMatchObject({
+      type: "workspace_lost",
+      meta: { workspaceProbe: { kind: "transport", attempts: 3 } },
+    })
+    expect(mocks.prep).not.toHaveBeenCalled()
+    expect(workspaceStore(f.sql).read()?.inFlight).toBe(true)
+  })
+
   it.each([
     "healthy",
     "blocked",

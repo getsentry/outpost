@@ -1,4 +1,5 @@
 import { FlueError } from "@flue/runtime"
+import { classifyWorkspaceProbeFailure, type WorkspaceProbeFailure } from "./workspace-probe"
 
 export type WorkspaceSnapshot = {
   generation: string
@@ -14,11 +15,16 @@ export type WorkspaceState = {
   recoveries: number
   runId: string
   blocked?: string
+  probeFailure?: WorkspaceProbeFailure
 }
 export type WorkspaceStore = { read(): WorkspaceState | undefined; write(state: WorkspaceState): void }
 type Options = {
   inspect(): Promise<WorkspaceSnapshot | null>
-  prepare(checkpoint: WorkspaceSnapshot | undefined, signal: AbortSignal): Promise<void>
+  prepare(
+    checkpoint: WorkspaceSnapshot | undefined,
+    signal: AbortSignal,
+    inspect: () => Promise<WorkspaceSnapshot | null>,
+  ): Promise<void>
   store: WorkspaceStore
   runId: string
 }
@@ -66,14 +72,14 @@ export class WorkspaceRecovery {
     return saved
   }
 
-  private block(reason: string): never {
-    this.options.store.write({ ...this.state(), blocked: reason })
-    throw new WorkspaceLostError(reason, this.state().runId)
+  private block(reason: string, probeFailure?: WorkspaceProbeFailure): never {
+    this.options.store.write({ ...this.state(), blocked: reason, ...(probeFailure ? { probeFailure } : {}) })
+    throw new WorkspaceLostError(reason, this.state().runId, this.state().probeFailure)
   }
 
   assertUsable() {
     const state = this.state()
-    if (state.blocked) throw new WorkspaceLostError(state.blocked, state.runId)
+    if (state.blocked) throw new WorkspaceLostError(state.blocked, state.runId, state.probeFailure)
   }
 
   finish() {
@@ -108,12 +114,30 @@ export class WorkspaceRecovery {
     })
   }
 
-  private async inspect(signal?: AbortSignal) {
-    try {
-      return await withWorkspaceDeadline(30_000, () => this.options.inspect(), signal)
-    } catch {
-      signal?.throwIfAborted()
-      return this.block("The workspace health check failed. No further commands were started.")
+  private async inspect(signal = this.lifetime.signal): Promise<WorkspaceSnapshot | null> {
+    for (let attempts = 1; ; attempts++) {
+      signal.throwIfAborted()
+      this.assertUsable()
+      try {
+        const snapshot = await withWorkspaceDeadline(30_000, () => this.options.inspect(), signal)
+        signal.throwIfAborted()
+        this.assertUsable()
+        return snapshot
+      } catch (error) {
+        signal.throwIfAborted()
+        this.assertUsable()
+        const failure = { ...classifyWorkspaceProbeFailure(error), attempts }
+        if (attempts >= 3 || (failure.kind !== "transport" && failure.kind !== "timeout")) {
+          console.warn("jared: workspace probe failed", { runId: this.state().runId, ...failure })
+          return this.block(
+            `The workspace health check failed (${failure.kind}${failure.exitCode !== undefined ? `, exit ${failure.exitCode}` : ""}; ${attempts} ${attempts === 1 ? "attempt" : "attempts"}). No further commands were started.`,
+            failure,
+          )
+        }
+        // Only repeat the read-only probe. A timed-out provider call can finish
+        // late, but cannot update checkpoints or start preparation/tools.
+        await waitForProbeRetry(400 * attempts, signal)
+      }
     }
   }
 
@@ -132,10 +156,15 @@ export class WorkspaceRecovery {
       try {
         await withWorkspaceDeadline(
           180_000,
-          (preparationSignal) => this.options.prepare(replaced ? state.checkpoint : undefined, preparationSignal),
+          (preparationSignal) =>
+            this.options.prepare(replaced ? state.checkpoint : undefined, preparationSignal, () =>
+              this.inspect(preparationSignal),
+            ),
           signal,
         )
       } catch {
+        // A preparation probe may already have recorded a specific failure.
+        this.assertUsable()
         this.block("The repository, skills, authentication, or saved Git checkpoint could not be restored.")
       }
       current = await this.inspect(signal)
@@ -172,20 +201,20 @@ export class WorkspaceRecovery {
           this.block(
             "A command or write has an unknown outcome. It was not replayed; inspect its effects before retrying.",
           )
-        const current = await this.inspect()
+        const current = await this.inspect(activeSignal)
         if (current?.ready && current.generation === before.generation) throw error
         await this.ensureReady(false, activeSignal)
         // Reads alone may be retried, once. A second workspace loss is terminal.
         try {
           result = await operation()
         } catch (retryError) {
-          const retried = await this.inspect()
+          const retried = await this.inspect(activeSignal)
           if (!retried?.ready || retried.generation !== this.state().checkpoint?.generation)
             this.block("The workspace was lost again during the read retry.")
           throw retryError
         }
       }
-      const after = await this.inspect()
+      const after = await this.inspect(activeSignal)
       if (!after || after.generation !== this.state().checkpoint?.generation) {
         this.block("The workspace disappeared during an operation. Its result cannot be trusted.")
       }
@@ -242,15 +271,37 @@ function sameCheckpoint(a: WorkspaceSnapshot, b: WorkspaceSnapshot) {
   return a.head === b.head && a.branch === b.branch && a.fingerprint === b.fingerprint
 }
 
+function waitForProbeRetry(ms: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal.reason)
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
 /** Deliberately contains no command, token, stderr, or repository contents. */
 export class WorkspaceLostError extends FlueError {
-  constructor(reason: string, runId?: string) {
+  constructor(reason: string, runId?: string, probeFailure?: WorkspaceProbeFailure) {
     super({
       type: "workspace_lost",
       message: "Jared is blocked by a lost or uncertain workspace.",
       details: reason,
       dev: "",
-      ...(runId ? { meta: { workspaceRunId: runId } } : {}),
+      ...(runId || probeFailure
+        ? {
+            meta: {
+              ...(runId ? { workspaceRunId: runId } : {}),
+              ...(probeFailure ? { workspaceProbe: probeFailure } : {}),
+            },
+          }
+        : {}),
     })
   }
 }
