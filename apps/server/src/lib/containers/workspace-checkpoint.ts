@@ -6,6 +6,26 @@ import type { WorkspaceSnapshot, WorkspaceState, WorkspaceStore } from "./worksp
 const MARKER = "/workspace/repo/.git/jared-workspace-generation"
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
 
+// Node is part of the sandbox image. Hash Git-style file modes and raw names;
+// a symlink's contents are its target path, not the file it happens to point at.
+const UNTRACKED_FINGERPRINT = `
+const fs = require("node:fs");
+const { createHash } = require("node:crypto");
+const paths = fs.readFileSync(0);
+const hash = createHash("sha256");
+let start = 0;
+for (let end; (end = paths.indexOf(0, start)) !== -1; start = end + 1) {
+  const path = paths.subarray(start, end);
+  const stat = fs.lstatSync(path);
+  const mode = stat.isSymbolicLink() ? "120000" : stat.isFile() ? (stat.mode & 0o100 ? "100755" : "100644") : null;
+  if (!mode) throw new Error("Unsupported untracked file kind");
+  const content = stat.isSymbolicLink() ? fs.readlinkSync(path, { encoding: "buffer" }) : fs.readFileSync(path);
+  hash.update(mode).update("\\0").update(path).update("\\0");
+  hash.update(createHash("sha256").update(content).digest());
+}
+process.stdout.write(hash.digest("hex"));
+`
+
 /** Probe from /, not the possibly-missing cwd that makes spawn report ENOENT. */
 export const WORKSPACE_CHECKPOINT_COMMAND = [
   "set -euo pipefail",
@@ -17,7 +37,7 @@ export const WORKSPACE_CHECKPOINT_COMMAND = [
   "git symbolic-ref --quiet --short HEAD || printf '\\n'",
   // Store hashes only, never file contents or credentials. Include all tracked
   // changes and non-ignored untracked files, including the injected agent files.
-  "{ git ls-files --stage -z; git diff --no-ext-diff --no-textconv --binary HEAD; git ls-files --others --exclude-standard -z; git ls-files --others --exclude-standard -z | xargs -0 -r sha256sum --; } | sha256sum | cut -d ' ' -f 1",
+  `{ git ls-files --stage -z; git diff --no-ext-diff --no-textconv --binary HEAD; git ls-files --others --exclude-standard -z | node -e ${quote(UNTRACKED_FINGERPRINT)}; } | sha256sum | cut -d ' ' -f 1`,
   `if ${THIN_SANDBOX_READY_CHECK}; then printf 'ready\\n'; else printf 'unready\\n'; fi`,
 ].join("\n")
 
@@ -119,7 +139,16 @@ export function workspaceStore(sql: Sql): WorkspaceStore {
 }
 
 /** Explicit operator acknowledgement only; never called by automatic retries. */
-export function acknowledgeWorkspaceLoss(store: WorkspaceStore, runId: string): boolean {
+export function acknowledgeWorkspaceLoss(store: WorkspaceStore, runId: string, sql: Sql): boolean {
+  // The route's earlier history read cannot fence a new admission. Check the
+  // pinned Flue schema and clear synchronously in the same brain DO turn.
+  // Unknown schemas/statuses fail closed; never mutate Flue-owned records.
+  try {
+    if (sql.exec("SELECT 1 FROM flue_agent_submissions WHERE status != 'settled' LIMIT 1").toArray().length)
+      return false
+  } catch {
+    return false
+  }
   const state = store.read()
   if (!state?.blocked || state.runId !== runId) return false
   store.write({ runId, inFlight: false, recoveries: 0 })

@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
@@ -74,6 +74,33 @@ function fixture() {
 }
 
 describe("real Git workspace checkpoints", () => {
+  it("preserves dangling untracked symlinks without dereferencing them", async () => {
+    const f = fixture()
+    symlinkSync("missing-target", join(f.repo, "link"))
+    const inspect = () => inspectWorkspace(f.sandbox as Parameters<typeof inspectWorkspace>[0])
+    const before = await inspect()
+    expect(before?.ready).toBe(true)
+    writeFileSync(join(f.repo, "missing-target"), "target contents")
+    f.git("add", "missing-target")
+    expect((await inspect())?.ready).toBe(true)
+  })
+
+  it("detects untracked symlink target and executable-bit changes", async () => {
+    const f = fixture()
+    writeFileSync(join(f.repo, "a.txt"), "same contents")
+    writeFileSync(join(f.repo, "b.txt"), "same contents")
+    const link = join(f.repo, "link")
+    symlinkSync("a.txt", link)
+    const inspect = () => inspectWorkspace(f.sandbox as Parameters<typeof inspectWorkspace>[0])
+    const before = await inspect()
+    unlinkSync(link)
+    symlinkSync("b.txt", link)
+    const afterLink = await inspect()
+    expect(afterLink?.fingerprint).not.toBe(before?.fingerprint)
+    chmodSync(join(f.repo, "a.txt"), 0o755)
+    expect((await inspect())?.fingerprint).not.toBe(afterLink?.fingerprint)
+  })
+
   it("detects staged changes even when working files are restored to HEAD", async () => {
     const f = fixture()
     const inspect = () => inspectWorkspace(f.sandbox as Parameters<typeof inspectWorkspace>[0])

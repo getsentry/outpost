@@ -23,7 +23,7 @@ overrides:
 
 patchedDependencies:
   '@flue/runtime@2.0.1':
-    hash: d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1
+    hash: e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963
     path: patches/@flue__runtime@2.0.1.patch
 
 importers:
@@ -65,10 +65,10 @@ importers:
         version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(ws@8.21.0)(zod@4.5.4)
       '@flue/opentelemetry':
         specifier: 2.0.1
-        version: 2.0.1(@flue/runtime@2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4))(@opentelemetry/api@1.9.1)
+        version: 2.0.1(@flue/runtime@2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4))(@opentelemetry/api@1.9.1)
       '@flue/runtime':
         specifier: 2.0.1
-        version: 2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
+        version: 2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
       '@flue/sdk':
         specifier: 2.0.1
         version: 2.0.1
@@ -240,7 +240,7 @@ importers:
         version: 0.83.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(ws@8.21.0)(zod@4.5.4)
       '@flue/runtime':
         specifier: 2.0.1
-        version: 2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
+        version: 2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
       '@flue/sdk':
         specifier: 2.0.1
         version: 2.0.1
@@ -6600,7 +6600,7 @@ snapshots:
 
   '@flue/cli@2.0.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(@types/node@24.13.1)(esbuild@0.28.1)(hono@4.12.34)(jiti@2.7.0)(tsx@4.22.4)(typescript@5.9.3)(ws@8.21.0)(yaml@2.9.0)(zod@4.5.4)':
     dependencies:
-      '@flue/runtime': 2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
+      '@flue/runtime': 2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
       '@flue/vite': 2.0.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(hono@4.12.34)(typescript@5.9.3)(vite@8.2.0(@types/node@24.13.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(ws@8.21.0)(zod@4.5.4)
       '@vercel/detect-agent': 1.2.3
       cac: 7.0.0
@@ -6633,7 +6633,7 @@ snapshots:
 
   '@flue/cli@2.0.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(@types/node@24.13.3)(esbuild@0.28.1)(hono@4.12.34)(jiti@2.7.0)(tsx@4.22.4)(typescript@5.9.3)(ws@8.21.0)(yaml@2.9.0)(zod@4.5.4)':
     dependencies:
-      '@flue/runtime': 2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
+      '@flue/runtime': 2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
       '@flue/vite': 2.0.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(hono@4.12.34)(typescript@5.9.3)(vite@8.2.0(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(ws@8.21.0)(zod@4.5.4)
       '@vercel/detect-agent': 1.2.3
       cac: 7.0.0
@@ -6664,12 +6664,12 @@ snapshots:
       - yaml
       - zod
 
-  '@flue/opentelemetry@2.0.1(@flue/runtime@2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4))(@opentelemetry/api@1.9.1)':
+  '@flue/opentelemetry@2.0.1(@flue/runtime@2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4))(@opentelemetry/api@1.9.1)':
     dependencies:
-      '@flue/runtime': 2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
+      '@flue/runtime': 2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
       '@opentelemetry/api': 1.9.1
 
-  '@flue/runtime@2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)':
+  '@flue/runtime@2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)':
     dependencies:
       '@earendil-works/pi-agent-core': 0.83.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(ws@8.21.0)(zod@4.5.4)
       '@earendil-works/pi-ai': 0.83.0(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(ws@8.21.0)(zod@4.5.4)
@@ -6695,7 +6695,7 @@ snapshots:
 
   '@flue/vite@2.0.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(hono@4.12.34)(typescript@5.9.3)(vite@8.0.16(@types/node@24.13.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(ws@8.21.0)(zod@4.5.4)':
     dependencies:
-      '@flue/runtime': 2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
+      '@flue/runtime': 2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
       '@hono/node-server': 2.0.12(hono@4.12.34)
       magic-string: 1.1.0
       tinyglobby: 0.2.17
@@ -6713,7 +6713,7 @@ snapshots:
 
   '@flue/vite@2.0.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(hono@4.12.34)(typescript@5.9.3)(vite@8.2.0(@types/node@24.13.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(ws@8.21.0)(zod@4.5.4)':
     dependencies:
-      '@flue/runtime': 2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
+      '@flue/runtime': 2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
       '@hono/node-server': 2.0.12(hono@4.12.34)
       magic-string: 1.1.0
       tinyglobby: 0.2.17
@@ -6731,7 +6731,7 @@ snapshots:
 
   '@flue/vite@2.0.1(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(hono@4.12.34)(typescript@5.9.3)(vite@8.2.0(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))(ws@8.21.0)(zod@4.5.4)':
     dependencies:
-      '@flue/runtime': 2.0.1(patch_hash=d8f6ccb2b9a28fa8e6d77f539855d411b767b6149fe6ac3fb95563dddf7352c1)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
+      '@flue/runtime': 2.0.1(patch_hash=e3dee19899722a78568960d74f8375c92c8dcedb80b94545ab848f0ccdb58963)(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.5.4))(typescript@5.9.3)(ws@8.21.0)(zod@4.5.4)
       '@hono/node-server': 2.0.12(hono@4.12.34)
       magic-string: 1.1.0
       tinyglobby: 0.2.17

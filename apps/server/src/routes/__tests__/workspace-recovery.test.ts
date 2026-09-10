@@ -32,10 +32,12 @@ function fixture(authenticated = true) {
 }
 
 describe("operator workspace acknowledgement", () => {
-  it("can acknowledge an exact durable blocker after Flue overrides it with abort or timeout", async () => {
+  it("can acknowledge an exact durable blocker after Flue terminalizes an interruption", async () => {
     for (const receipt of [
       { submissionId: "sub_one", outcome: "aborted" },
       { submissionId: "sub_one", outcome: "failed", error: { type: "submission_timeout" } },
+      { submissionId: "sub_one", outcome: "failed", error: { type: "submission_retry_exhausted" } },
+      { submissionId: "sub_one", outcome: "failed", error: { type: "submission_interrupted" } },
     ]) {
       const f = fixture()
       read.mockResolvedValue({ ok: true, history: { settlements: [receipt] } })

@@ -1,12 +1,30 @@
 import { DatabaseSync } from "node:sqlite"
-import { createSandboxSessionEnv, type SandboxApi, type SessionEnv } from "@flue/runtime"
+import {
+  createSandboxSessionEnv,
+  instrument,
+  type SandboxApi,
+  type SessionEnv,
+  useAgentFinish,
+  useAgentStart,
+  useModel,
+} from "@flue/runtime"
+import { agentStreamPath, createCloudflareAgentRuntime, createFlueContext } from "@flue/runtime/internal"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { acknowledgeWorkspaceLoss, workspaceStore } from "../workspace-checkpoint"
 import { assertWorkspaceUsable, currentWorkspace, recoverableSandbox, workspaceInterceptor } from "../workspace-runtime"
 
 const mocks = vi.hoisted(() => ({ context: vi.fn(), sandbox: vi.fn() }))
 vi.mock("@cloudflare/sandbox", () => ({ getSandbox: mocks.sandbox }))
 vi.mock("@flue/runtime/cloudflare", () => ({ getCloudflareContext: mocks.context }))
 const databases: DatabaseSync[] = []
+// Pin this integration seam to the patched Flue release. An upgrade must rerun
+// these tests against the actual discovery/reconciliation implementation.
+const flue = await import(
+  new URL("./conversation-stream-store-CIKkNpqs.mjs", import.meta.resolve("@flue/runtime")).href
+)
+const flueSql = await import(
+  new URL("./sql-agent-execution-store-DokZyrAM.mjs", import.meta.resolve("@flue/runtime")).href
+)
 afterEach(() => {
   for (const db of databases.splice(0)) db.close()
   vi.clearAllMocks()
@@ -21,6 +39,14 @@ function fixture(id = "repo-1") {
       return { toArray: () => rows }
     },
   }
+  const storage = { sql, transactionSync: <T>(callback: () => T) => callback() }
+  const prepared = createCloudflareAgentRuntime({
+    agents: [],
+    createContext: () => {
+      throw new Error("Unused context")
+    },
+    runWithInstanceContext: (_instance, _name, callback) => callback(),
+  }).prepare({ storage, className: "JaredAgent", agentName: "jared" })
   mocks.context.mockReturnValue({ env: { Sandbox: {} }, storage: { sql } })
   const sandbox = {
     acquireRunLease: vi.fn(async (_id: string) => {}),
@@ -37,10 +63,218 @@ function fixture(id = "repo-1") {
   const ctx = { instanceId: id, agentName: "jared", submissionId: `sub-${id}` }
   const invoke = <T>(next: () => Promise<T>) =>
     workspaceInterceptor({ type: "agent", operationId: ctx.submissionId, operationKind: "prompt" }, ctx, next)
-  return { invoke, sandbox, sql }
+  return { invoke, sandbox, sql, prepared }
 }
 
 describe("Flue workspace integration", () => {
+  it.each([
+    "healthy",
+    "blocked",
+    "inFlight",
+  ])("reconciles a persisted final answer through the %s completion guard without replay", async (state) => {
+    const f = fixture()
+    const submissionId = "sub-repo-1"
+    const attemptId = "old-attempt"
+    const starts = vi.fn()
+    const finishes = vi.fn(() => currentWorkspace().assertUsable())
+    const Agent = () => {
+      useModel("test/model", { compaction: false })
+      useAgentStart(starts)
+      useAgentFinish(finishes)
+      return "Test agent"
+    }
+    const writer = await flueSql.r.create({
+      store: f.prepared.conversationStreamStore,
+      path: agentStreamPath("jared", "repo-1"),
+      identity: { agentName: "jared", instanceId: "repo-1" },
+      producerId: "test",
+    })
+    const { conversationId } = await flue.l(writer, Agent)
+    const input = {
+      kind: "direct" as const,
+      submissionId,
+      agent: "jared",
+      id: "repo-1",
+      message: { kind: "user" as const, body: "Do the work" },
+      acceptedAt: new Date().toISOString(),
+    }
+    const submissions = f.prepared.submissionStore
+    await submissions.admitDirect(input)
+    await submissions.markSubmissionCanonicalReady(submissionId)
+    const submission = await submissions.claimSubmission({
+      submissionId,
+      attemptId,
+      ownerId: "test",
+      leaseExpiresAt: Date.now() + 60_000,
+    })
+    expect(submission).not.toBeNull()
+    const userId = `entry_direct_${Buffer.from(submissionId).toString("base64url")}`
+    const envelope = {
+      v: 1,
+      conversationId,
+      harness: "default",
+      session: "default",
+      timestamp: new Date().toISOString(),
+      submissionId,
+      attemptId,
+    }
+    const usage = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    }
+    await writer.append(
+      [
+        {
+          ...envelope,
+          id: "record_user",
+          type: "user_message",
+          messageId: userId,
+          parentId: null,
+          content: [{ type: "text", text: input.message.body }],
+        },
+        {
+          ...envelope,
+          id: "record_answer",
+          type: "assistant_message_started",
+          messageId: "entry_answer",
+          parentId: userId,
+          modelInfo: { api: "openai-completions", provider: "openai", model: "gpt-4o" },
+        },
+        {
+          ...envelope,
+          id: "record_done",
+          type: "assistant_message_completed",
+          messageId: "entry_answer",
+          stopReason: "stop",
+          usage,
+        },
+      ],
+      { submission: { submissionId, attemptId } },
+    )
+    const testModel = {
+      id: "model",
+      name: "model",
+      api: "openai-completions" as const,
+      provider: "test",
+      baseUrl: "https://invalid.example",
+      reasoning: false,
+      input: ["text" as const],
+      contextWindow: 100000,
+      maxTokens: 1000,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    }
+    const createContext = () =>
+      createFlueContext({
+        id: "repo-1",
+        agentName: "jared",
+        submissionId,
+        env: {},
+        agentConfig: { resolveModel: () => testModel },
+        conversationWriter: writer,
+        attachmentStore: f.prepared.attachmentStore,
+      })
+    if (state !== "healthy")
+      workspaceStore(f.sql).write({
+        runId: submissionId,
+        inFlight: state === "inFlight",
+        recoveries: 0,
+        ...(state === "blocked" ? { blocked: "uncertain mutation" } : {}),
+      })
+    const model = vi.spyOn(flue.y.prototype, "runModelTurnWithRecovery").mockImplementation(() => {
+      throw new Error("Must not replay the model")
+    })
+    const dispose = instrument({ observe: () => {}, interceptor: workspaceInterceptor, dispose: () => {} })
+    try {
+      const replacement = await flue.m(
+        submissions,
+        submission,
+        Agent,
+        createContext,
+        { ownerId: "replacement", leaseExpiresAt: Date.now() + 60_000 },
+        writer,
+      )
+      expect(replacement?.attemptId).toBeTypeOf("string")
+      expect(replacement.attemptId).not.toBe(attemptId)
+      const process = flue.p({
+        submissions,
+        submission: replacement,
+        resolveAgent: () => Agent,
+        createContext,
+        conversationWriter: writer,
+      })
+      if (state === "healthy") await process
+      else await expect(process).rejects.toMatchObject({ type: "workspace_lost" })
+      const settled = await submissions.getSubmission(submissionId)
+      expect(settled?.status).toBe("settled")
+      const receipt = await writer.getRecord(`record_direct-submission:${submissionId}:settled`)
+      expect(receipt).toMatchObject(
+        state === "healthy" ? { outcome: "completed" } : { outcome: "failed", error: { type: "workspace_lost" } },
+      )
+      expect(starts).not.toHaveBeenCalled()
+      expect(model).not.toHaveBeenCalled()
+      expect(f.sandbox.writeFile).not.toHaveBeenCalled()
+      if (state === "healthy") expect(finishes).toHaveBeenCalledOnce()
+    } finally {
+      model.mockRestore()
+      await dispose()
+    }
+  })
+
+  it("discovers a reconciliation session outside the run scope without touching the sandbox", async () => {
+    const f = fixture()
+    const inner = createSandboxSessionEnv(f.sandbox as unknown as SandboxApi, "/workspace/repo")
+    const session = await recoverableSandbox({ createSessionEnv: async () => inner }, f.sandbox).createSessionEnv({
+      id: "one",
+    })
+    await expect(flue.w(session)).resolves.toMatchObject({ skills: {} })
+    expect(f.sandbox.exec).not.toHaveBeenCalled()
+    expect(f.sandbox.writeFile).not.toHaveBeenCalled()
+    expect(() => session.exec("touch should-not-run")).toThrow(/blocked/)
+  })
+
+  it.each([
+    "queued",
+    "running",
+    "terminalizing",
+    "joining",
+    "joined",
+    "future-status",
+  ])("rejects stale acknowledgement when a %s submission appears after the history read", (status) => {
+    const f = fixture()
+    const store = workspaceStore(f.sql)
+    store.write({ runId: "original", blocked: "uncertain mutation", inFlight: true, recoveries: 0 })
+    // The route has already observed the original settled receipt. A new
+    // admission before its RPC must prevent the DO from clearing the guard.
+    f.sql.exec(
+      "INSERT INTO flue_agent_submissions (submission_id, session_key, kind, payload, status, accepted_at) VALUES (?, ?, ?, ?, ?, ?)",
+      "new",
+      "session",
+      "direct",
+      "{}",
+      status,
+      1,
+    )
+    expect(acknowledgeWorkspaceLoss(store, "original", f.sql)).toBe(false)
+    expect(store.read()?.blocked).toBe("uncertain mutation")
+  })
+
+  it("fails acknowledgement closed on unknown runtime schema and clears only an inactive exact blocker", () => {
+    const f = fixture()
+    const store = workspaceStore(f.sql)
+    store.write({ runId: "original", blocked: "uncertain mutation", inFlight: true, recoveries: 0 })
+    expect(acknowledgeWorkspaceLoss(store, "different", f.sql)).toBe(false)
+    expect(acknowledgeWorkspaceLoss(store, "original", f.sql)).toBe(true)
+    expect(store.read()).toEqual({ runId: "original", inFlight: false, recoveries: 0 })
+    store.write({ runId: "original", blocked: "uncertain mutation", inFlight: true, recoveries: 0 })
+    f.sql.exec("DROP TABLE flue_agent_submissions")
+    expect(acknowledgeWorkspaceLoss(store, "original", f.sql)).toBe(false)
+    expect(store.read()?.blocked).toBe("uncertain mutation")
+  })
+
   it("never starts a file write after an abandoned mkdir completes", async () => {
     const f = fixture()
     let finishMkdir!: () => void

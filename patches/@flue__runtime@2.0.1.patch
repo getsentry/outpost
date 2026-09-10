@@ -14,3 +14,24 @@ index 806871f3ff171d698b28a0606ec9d9a9241aa36d..5abd75107df0b902361b58e7c62f1d61
  		},
  		async exists(path) {
  			return (await guarded("exists", sandbox.exists(path))).exists;
+diff --git a/dist/conversation-stream-store-CIKkNpqs.mjs b/dist/conversation-stream-store-CIKkNpqs.mjs
+index 3da59aa268cbfaa38b106e8a03351091544b0061..aa47af22bfb94ea696b6714ad8c6287d5b8dbb7e 100644
+--- a/dist/conversation-stream-store-CIKkNpqs.mjs
++++ b/dist/conversation-stream-store-CIKkNpqs.mjs
+@@ -4866,9 +4866,13 @@ async function reconcileInterruptedSubmission(submissions, submission, agent, cr
+ 	const ctx = createContext(input.submissionId);
+ 	const state = await createAgentSubmissionSessionHandler(agent, input, (s) => s.inspectSubmissionInput(input))(ctx);
+ 	if (state === "completed") {
+-		await settleJoinedSubmissions(submissions, attempt, ctx, "completed", void 0, conversationWriter);
+-		await settleSubmissionWithRecord(submissions, submission.kind, attempt, ctx, "completed", void 0, conversationWriter);
+-		return;
++		// A persisted final answer does not prove application finish validation
++		// completed before the crash. Re-enter processSubmission with fresh
++		// ownership; the saved final response skips model/tool replay while
++		// execution interceptors and finish hooks validate settlement.
++		const replacement = await submissions.replaceSubmissionAttempt(attempt, generateAttemptId(), lease);
++		if (!replacement?.attemptId) return void 0;
++		return replacement;
+ 	}
+ 	if (submission.abortRequestedAt !== void 0) {
+ 		await settleAbortedWithContext(submissions, submission, attempt, agent, createContext(input.submissionId), conversationWriter, emitCoordinatorEvent);

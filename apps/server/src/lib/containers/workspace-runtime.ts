@@ -88,10 +88,15 @@ export function guardSessionEnv(inner: SessionEnv, getGuard: () => WorkspaceReco
     readdir: (path) => getGuard().run(() => inner.readdir(path), false),
     // SessionEnv.exists is specified to never throw. The sticky guard still
     // blocks the next write/exec/model render or the finish hook.
-    exists: (path) =>
-      getGuard()
-        .run(() => inner.exists(path), false)
-        .catch(() => false),
+    exists: async (path) => {
+      try {
+        return await getGuard().run(() => inner.exists(path), false)
+      } catch {
+        // Reconciliation discovers context outside a submission scope. Missing
+        // scope must be false, never an unguarded call into the sandbox.
+        return false
+      }
+    },
     // Flue's generic adapter retries *any* failed write after mkdir. Create the
     // parent first, then make exactly one provider write under our guard.
     writeFile: (path, content) =>

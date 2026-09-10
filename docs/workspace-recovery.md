@@ -19,6 +19,9 @@ untracked files in the **brain DO's SQLite storage**, not the disposable
 container. It stores hashes, not file contents or credentials. No D1 migration,
 new binding, or secret is required.
 
+Untracked symlinks are fingerprinted by their target path, not dereferenced;
+regular files also include their executable bit.
+
 When the repo is missing, preparation restores the repository, skills, and GitHub
 authentication. Recovery fetches the saved commit from origin and restores its
 branch (or detached HEAD), then verifies the fingerprint before continuing.
@@ -52,6 +55,11 @@ and aborted receipts instead of marking every receipt `settled`; workspace
 failures become `failed:workspace_lost`. Existing historical completed receipts
 are not retroactively changed.
 
+The pinned Flue runtime patch sends completed-but-unsettled submissions through
+a fresh attempt and the normal completion guard after a brain restart. Ordinary
+saved final responses run finish hooks without replaying the model or tools.
+Reconciliation's context discovery makes no sandbox calls outside a guarded run.
+
 Before clearing a blocker, inspect the run and any uncertain external effects
 (for example, whether the push or PR creation happened), and save any surviving
 local files. Do not repeatedly resend the failed webhook.
@@ -66,11 +74,16 @@ Content-Type: application/json
 ```
 
 The endpoint requires an inactive conversation, the original workspace failure
-receipt (or an explicit abort/submission timeout that superseded it), and an
+receipt (or an explicit abort, timeout, retry exhaustion, or interrupted-input
+receipt that superseded it), and an
 exact matching durable blocker. Use the error's `meta.workspaceRunId` when a
 later submission reports a blocker inherited from an earlier run. It clears only the guard's checkpoint
 and uncertainty record; it does not delete the conversation or workspace,
 dispatch a new event, or retry any command. A stale acknowledgement returns 409.
+The brain DO checks Flue's authoritative submission table and clears the blocker
+synchronously, so a newly admitted run invalidates an earlier inactive-history
+read. This is a read-only dependency on the pinned Flue schema: missing schema
+or unknown active statuses fail closed, with installed-runtime compatibility tests.
 After inspection and acknowledgement, send explicit operator guidance or resend
 the desired event separately. Without acknowledgement, an uncertain mutation
 continues to block automatic work.

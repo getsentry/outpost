@@ -126,7 +126,7 @@ export const cloudflare = extend({
     class extends Base {
       /** Called only by the authenticated operator route after settlement. */
       acknowledgeWorkspaceLoss(runId: string) {
-        return acknowledgeWorkspaceLoss(workspaceStore(this.ctx.storage.sql), runId)
+        return acknowledgeWorkspaceLoss(workspaceStore(this.ctx.storage.sql), runId, this.ctx.storage.sql)
       }
 
       /** One-shot follow-up (e.g. auto-merge quiet period). */

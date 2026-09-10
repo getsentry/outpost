@@ -32,15 +32,19 @@ export default new Hono<BaseEnv>().post("/:entityKey/workspace/acknowledge", isA
   const read = await readFlueHistoryInProcess(c.env, entityKey)
   const settlements = read.ok && Array.isArray(read.history.settlements) ? read.history.settlements : []
   const receipt = settlements.find((item) => item?.submissionId === body.runId)
-  // Flue gives explicit abort/timeouts precedence over interceptor errors. The
+  // Flue can terminalize cancellation/exhausted interruption outside our guard. The
   // exact durable blocker is still required below; these receipts alone never
   // authorize clearing uncertainty.
-  const cancellation =
-    receipt?.outcome === "aborted" || (receipt?.outcome === "failed" && receipt?.error?.type === "submission_timeout")
+  const interruption =
+    receipt?.outcome === "aborted" ||
+    (receipt?.outcome === "failed" &&
+      ["submission_timeout", "submission_retry_exhausted", "submission_interrupted"].includes(
+        receipt.error?.type ?? "",
+      ))
   if (
     !read.ok ||
     isFlueHistoryBusy(read.history) ||
-    (!cancellation && submissionSettlementStatus(read.history, body.runId) !== "failed:workspace_lost")
+    (!interruption && submissionSettlementStatus(read.history, body.runId) !== "failed:workspace_lost")
   ) {
     return c.json({ error: "Only a settled workspace failure on an inactive run can be acknowledged" }, 409)
   }
