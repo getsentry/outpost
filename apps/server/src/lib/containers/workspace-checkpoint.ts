@@ -1,6 +1,7 @@
 import type { getSandbox } from "@cloudflare/sandbox"
 import { THIN_SANDBOX_READY_CHECK } from "./dispatch"
 import { type DoPrepEnv, ensureDoSandboxPrepped } from "./do-prep"
+import { WorkspaceProbeError } from "./workspace-probe"
 import type { WorkspaceSnapshot, WorkspaceState, WorkspaceStore } from "./workspace-recovery"
 
 const MARKER = "/workspace/repo/.git/jared-workspace-generation"
@@ -46,7 +47,7 @@ export async function inspectWorkspace(
 ): Promise<WorkspaceSnapshot | null> {
   const result = await sandbox.exec(WORKSPACE_CHECKPOINT_COMMAND, { cwd: "/", timeout: 30_000 })
   if (result.exitCode === 44) return null
-  if (!result.success) throw new Error("Workspace checkpoint probe failed")
+  if (!result.success) throw new WorkspaceProbeError("command_failed", result.exitCode)
   const [generation, head, branch, fingerprint, readiness] = result.stdout.trimEnd().split("\n")
   if (
     !generation ||
@@ -54,7 +55,7 @@ export async function inspectWorkspace(
     !/^[a-f0-9]{64}$/.test(fingerprint ?? "") ||
     !["ready", "unready"].includes(readiness ?? "")
   ) {
-    throw new Error("Invalid workspace checkpoint")
+    throw new WorkspaceProbeError("invalid_checkpoint")
   }
   return { generation, head, branch, fingerprint, ready: readiness === "ready" }
 }

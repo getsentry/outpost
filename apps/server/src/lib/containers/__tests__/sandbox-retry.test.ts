@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { isTransientSandboxError } from "../dispatch"
+import { isTransientSandboxError } from "../sandbox-errors"
 
 describe("isTransientSandboxError", () => {
   it("treats sandbox session/DO resets and 5xx as transient (worth a retry)", () => {

@@ -16,6 +16,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
 import { FLUE_INTERNAL_HEADER, resolveFlueInternalToken } from "@/middlewares/flue-auth"
 import { toAgentInstanceId } from "./ids"
+import { isTransientSandboxError } from "./sandbox-errors"
 import { mintSessionIngestToken } from "./session-ingest-token"
 import { saveSession } from "./sessions"
 
@@ -114,23 +115,6 @@ export async function applyGitHubAuth(
       "mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh; " +
       `echo "export GH_TOKEN=${shellQuote(token)}" >> /tmp/flue-env.sh`,
     { cwd: "/workspace" },
-  )
-}
-
-/**
- * Sandbox/session hiccups that are safe to retry. When the sandbox scales to
- * zero or its backing Durable Object resets mid-exec, `sandbox.exec` throws
- * instead of returning — commonly `Session '...' shell exited (exit code: 0)`
- * (SessionTerminatedError) or a `HTTP error! status: 5xx` SandboxError. These are
- * infrastructure, not a failed command; the setup steps that hit them are all
- * idempotent, so a retry just recreates the session and re-runs them.
- * (JARED-J: SessionTerminatedError in ensureRepoCloned during CI bursts.)
- */
-export function isTransientSandboxError(err: unknown): boolean {
-  const msg = err instanceof Error ? err.message : String(err)
-  if (msg === "Default session initialization was invalidated by a container stop") return true
-  return /shell exited|session .*(?:terminat|exit)|SessionTerminated|Durable Object reset|Internal error in Durable Object|Network connection lost|HTTP error! status: 5\d\d|sandbox.*(?:not running|stopped|unavailable)/i.test(
-    msg,
   )
 }
 
