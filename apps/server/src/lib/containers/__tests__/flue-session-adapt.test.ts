@@ -3,6 +3,18 @@ import { flueHistoryToSessionData } from "../flue-session-adapt"
 import { deriveDisplayStatus } from "../sessions"
 
 describe("flueHistoryToSessionData", () => {
+  it.each([
+    ["failed", "failed"],
+    ["aborted", "interrupted"],
+  ])("preserves %s settlements as %s in the dashboard", (outcome, expected) => {
+    const raw = flueHistoryToSessionData("getsentry/cli#42", {
+      messages: [{ role: "user", submissionId: "one", parts: [] }],
+      settlements: [{ submissionId: "one", outcome, error: { type: "submission_timeout" } }],
+    })
+    expect(JSON.parse(raw).sessionStatus["getsentry-cli-42"].type).toBe(expected)
+    expect(deriveDisplayStatus(raw, 0)).toBe(expected)
+  })
+
   it("displays a workspace-lost settlement as blocked, not idle or historical", () => {
     const raw = flueHistoryToSessionData("getsentry/cli#42", {
       messages: [{ role: "user", submissionId: "one", parts: [] }],

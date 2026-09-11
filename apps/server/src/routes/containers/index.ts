@@ -18,7 +18,7 @@
 import { getSandbox } from "@cloudflare/sandbox"
 import { formatError, type Logger } from "@jared/utils"
 import * as Sentry from "@sentry/cloudflare"
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import { Hono } from "hono"
 import { streamSSE } from "hono/streaming"
@@ -185,6 +185,7 @@ function formatSessionDetailPayload(
   parsed: Record<string, unknown>,
   updatedAt: Date | string,
   syncError: string | null,
+  cleanupPending = false,
 ) {
   const statusObservedAt = typeof updatedAt === "string" ? updatedAt : new Date(updatedAt).toISOString()
   const chatError = typeof parsed.chatError === "string" && parsed.chatError ? parsed.chatError : null
@@ -194,7 +195,8 @@ function formatSessionDetailPayload(
     updatedAt,
     statusObservedAt,
     sandboxHint: SANDBOX_RUNTIME_NOTE,
-    status: deriveDisplayStatus(parsed, updatedAt, { syncError }),
+    status: deriveDisplayStatus(parsed, updatedAt, { syncError, cleanupPending }),
+    cleanupPending,
     sessions: parsed.sessions ?? [],
     sessionStatus: parsed.sessionStatus ?? {},
     messages: parsed.messages ?? {},
@@ -508,6 +510,17 @@ const router = new Hono<BaseEnv>()
     ])
 
     const total = countResult[0]?.count ?? 0
+    const pendingCleanup =
+      sessions.length > 0
+        ? await db.query.agentLifecycle.findMany({
+            where: inArray(
+              dbSchema.agentLifecycle.instanceId,
+              sessions.map((s) => toAgentInstanceId(s.entityKey)),
+            ),
+            columns: { instanceId: true, cleanupPending: true },
+          })
+        : []
+    const cleanupIds = new Set(pendingCleanup.filter((row) => row.cleanupPending).map((row) => row.instanceId))
 
     // Phase 2: list view has no session-reporter push — kick a background Flue
     // history pull for stale rows on this page so status/message counts catch up
@@ -582,6 +595,9 @@ const router = new Hono<BaseEnv>()
       }, 0)
 
       const statusObservedAt = typeof s.updatedAt === "string" ? s.updatedAt : new Date(s.updatedAt).toISOString()
+      const status = deriveDisplayStatus(parsed, s.updatedAt, {
+        cleanupPending: cleanupIds.has(toAgentInstanceId(s.entityKey)),
+      })
 
       return {
         entityKey: s.entityKey,
@@ -593,12 +609,12 @@ const router = new Hono<BaseEnv>()
         sessionCount: sessionList.length,
         messageCount: totalMessages,
         totalCost: totalCost > 0 ? totalCost : summary.cost,
-        status: deriveDisplayStatus(parsed, s.updatedAt),
+        status,
         // Root session metadata as a preview
         title: (rootSession?.title as string) ?? null,
         agent: summary.agent,
         model: summary.model,
-        activityPreview: summarizeRunActivity(allMessages, deriveDisplayStatus(parsed, s.updatedAt)),
+        activityPreview: summarizeRunActivity(allMessages, status),
       }
     })
 
@@ -627,12 +643,7 @@ const router = new Hono<BaseEnv>()
     if (generation === null) {
       if (await isSessionCleanupPending(db, entityKey)) {
         return c.json(
-          formatSessionDetailPayload(
-            session,
-            parseSessionData(session.sessionData),
-            session.updatedAt,
-            "Cleanup is incomplete. Retry Destroy to finish deleting this run.",
-          ),
+          formatSessionDetailPayload(session, parseSessionData(session.sessionData), session.updatedAt, null, true),
         )
       }
       return c.json({ error: "This agent run was destroyed" }, 410)
@@ -738,6 +749,12 @@ const router = new Hono<BaseEnv>()
           where: eq(dbSchema.agentSessions.entityKey, entityKey),
         })
         if (session && generation === null && (await isSessionCleanupPending(db, entityKey))) {
+          await stream.writeSSE({
+            event: "snapshot",
+            data: JSON.stringify(
+              formatSessionDetailPayload(session, parseSessionData(session.sessionData), session.updatedAt, null, true),
+            ),
+          })
           return { offset: null, ok: true }
         }
         if (!session || generation === null) {

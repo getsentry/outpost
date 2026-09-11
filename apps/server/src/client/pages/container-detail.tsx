@@ -27,6 +27,7 @@ import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubU
 import { useAgentWork, useDestroyContainer, useEvents, useSendPrompt, useSessionDetail } from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
 import { StatusBadge } from "@/components/status-badge"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -43,6 +44,7 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { chatEntityRepo, operatorText } from "@/lib/containers/chat-run"
+import { runStatusNotice, runStatusLabel as statusLabel } from "@/lib/containers/run-status"
 import {
   assistantVisibleText,
   classifyInboundMessage,
@@ -64,28 +66,13 @@ function StatusDot({ status }: { status: string }) {
     busy: "bg-yellow-500 animate-pulse",
     idle: "bg-green-500",
     blocked: "bg-red-500",
+    failed: "bg-destructive",
+    interrupted: "bg-destructive",
+    cleanup_pending: "bg-destructive",
     sync_unavailable: "bg-amber-500",
     historical: "bg-muted-foreground/50",
   }
   return <span className={`inline-block size-2 rounded-full ${styles[status] ?? "bg-gray-400"}`} />
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case "working":
-    case "busy":
-      return "Working"
-    case "idle":
-      return "Idle"
-    case "blocked":
-      return "Blocked: workspace recovery"
-    case "sync_unavailable":
-      return "Sync unavailable"
-    case "historical":
-      return "Historical"
-    default:
-      return "Offline"
-  }
 }
 
 function modelLabel(model: string): string {
@@ -274,7 +261,7 @@ function SkippedActivityGroup({ group }: { group: Extract<TranscriptGroup, { kin
   )
 }
 
-function ChatMessage({ message }: { message: SessionMessage }) {
+function ChatMessage({ message, working }: { message: SessionMessage; working: boolean }) {
   const role = transcriptMessageRole(message)
   const parts = message.parts ?? []
   const createdAt = transcriptMessageCreatedAt(message)
@@ -286,7 +273,6 @@ function ChatMessage({ message }: { message: SessionMessage }) {
   const inbound = isUser ? classifyInboundMessage(parts.map((part) => part.text ?? "").join("")) : null
   const items = useMemo(() => toRenderItems(parts), [parts])
   const answer = isAssistant ? assistantVisibleText(message) : ""
-  const traceItems = isAssistant ? items.filter((item) => item.kind !== "text" || item.reasoning) : []
   const copyText = isAssistant
     ? answer
     : inbound?.source === "operator" || inbound?.source === "unknown"
@@ -344,46 +330,37 @@ function ChatMessage({ message }: { message: SessionMessage }) {
           {time && <span className="text-[10px] tabular-nums text-muted-foreground/60">{time}</span>}
         </div>
 
-        <div className="space-y-1.5">
+        <div className="flex flex-col gap-2">
           {inbound?.source === "github" && <GitHubInboundCard inbound={inbound} />}
           {inbound?.source === "operator" && <Markdown>{inbound.text}</Markdown>}
           {inbound?.source === "unknown" && <Markdown>{inbound.text}</Markdown>}
-          {isAssistant && answer && <Markdown>{answer}</Markdown>}
-          {isAssistant && traceItems.length > 0 && (
-            <details className="rounded-md border border-border/50 bg-muted/10 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-              <summary className="cursor-pointer font-medium hover:text-foreground">
-                Technical trace · {traceItems.length} step{traceItems.length === 1 ? "" : "s"}
-              </summary>
-              <div className="mt-2 space-y-1.5">
-                {traceItems.map((item, i) => {
-                  if (item.kind === "text") {
-                    return <TextPart key={i} text={item.text} reasoning={item.reasoning} />
-                  }
-                  if (item.kind === "transient") {
-                    return <TransientGroup key={i} tools={item.tools} sample={item.sample} />
-                  }
-                  // A subagent (the `task` tool) is a first-class unit of work, not just
-                  // another bash call — give it its own block so operators can see it
-                  // spin up and read its result.
-                  if (item.toolName === "task") {
-                    return <SubagentBlock key={i} status={item.status} args={item.args} result={item.result} />
-                  }
-                  return (
-                    <ToolCallBlock
-                      key={i}
-                      toolName={item.toolName}
-                      status={item.status}
-                      args={item.args}
-                      result={item.result}
-                    />
-                  )
-                })}
-              </div>
-            </details>
-          )}
+          {isAssistant &&
+            items.map((item, i) => {
+              if (item.kind === "text") {
+                return <TextPart key={i} text={item.text} reasoning={item.reasoning} />
+              }
+              if (item.kind === "transient") {
+                return <TransientGroup key={i} tools={item.tools} sample={item.sample} />
+              }
+              // A subagent (the `task` tool) is a first-class unit of work, not just
+              // another bash call — give it its own block so operators can see it
+              // spin up and read its result.
+              if (item.toolName === "task") {
+                return <SubagentBlock key={i} status={item.status} args={item.args} result={item.result} />
+              }
+              return (
+                <ToolCallBlock
+                  key={i}
+                  toolName={item.toolName}
+                  status={item.status}
+                  args={item.args}
+                  result={item.result}
+                />
+              )
+            })}
         </div>
 
-        {isAssistant && !hasVisibleContent && (
+        {isAssistant && !hasVisibleContent && working && (
           <div className="flex items-center gap-1.5 text-[13px] text-muted-foreground">
             <ArrowClockwise className="size-3 animate-spin" />
             Working…
@@ -462,13 +439,7 @@ function toRenderItems(parts: MessagePart[]): RenderItem[] {
       const args =
         stateObj?.input ??
         (part.type === "tool-invocation" || part.type === "dynamic-tool" ? (part.input ?? part.args) : undefined)
-      const result =
-        stateObj?.output ??
-        (part.type === "dynamic-tool"
-          ? (part.output ?? part.errorText)
-          : part.type !== "tool-invocation"
-            ? part.result
-            : undefined)
+      const result = stateObj?.output ?? (part.type === "dynamic-tool" ? (part.output ?? part.errorText) : part.result)
       const toolName = part.tool ?? part.toolName ?? "unknown"
 
       // A subagent (`task`) is a whole unit of work — keep it as its own block
@@ -504,20 +475,18 @@ function TextPart({ text, reasoning }: { text: string; reasoning: boolean }) {
   const [expanded, setExpanded] = useState(false)
   const isLong = text.length > 1000
   const display = isLong && !expanded ? `${text.slice(0, 1000)}...` : text
+  if (reasoning)
+    return (
+      <details className="rounded-md border border-border/40 px-2.5 py-1.5 text-xs text-muted-foreground">
+        <summary className="cursor-pointer font-medium">Reasoning</summary>
+        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words text-xs leading-relaxed">
+          {text}
+        </pre>
+      </details>
+    )
   return (
     <div>
-      {reasoning && (
-        <div className="mb-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/60">
-          Reasoning
-        </div>
-      )}
-      {reasoning ? (
-        <pre className="whitespace-pre-wrap break-words border-l-2 border-muted-foreground/30 pl-2 text-[13px] leading-relaxed text-muted-foreground">
-          {display}
-        </pre>
-      ) : (
-        <Markdown>{display}</Markdown>
-      )}
+      <Markdown>{display}</Markdown>
       {isLong && (
         <button
           type="button"
@@ -548,8 +517,9 @@ function TransientGroup({ tools, sample }: { tools: string[]; sample: unknown })
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
         className="flex w-full cursor-pointer items-center gap-2 px-2.5 py-1 text-left text-[11px] text-muted-foreground/70 hover:bg-muted/20"
-        title="The sandbox was reset (a deploy or platform hiccup), not an agent error. The agent retries these automatically."
+        title="A sandbox or connection interruption occurred. Check the run status before retrying commands whose effects may be uncertain."
       >
         <Warning className="size-3 shrink-0 text-muted-foreground/40" />
         <span className="italic">{label}</span>
@@ -620,6 +590,7 @@ function SubagentBlock({
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        aria-expanded={open}
         className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] hover:bg-blue-500/10"
       >
         <TreeStructure className="size-3.5 shrink-0 text-blue-600 dark:text-blue-400" />
@@ -720,6 +691,7 @@ function ToolCallBlock({
       <button
         type="button"
         onClick={() => hasContent && setOpen(!open)}
+        aria-expanded={hasContent ? open : undefined}
         className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] ${hasContent ? "cursor-pointer hover:bg-muted/30" : "cursor-default"}`}
       >
         <Wrench className="size-3 shrink-0 text-muted-foreground/60" />
@@ -852,6 +824,7 @@ export default function ContainerDetailPage() {
   const messages = detail?.messages ?? {}
   const syncError = detail?.syncError
   const chatError = detail?.chatError
+  const cleanupPending = detail?.cleanupPending === true || detail?.status === "cleanup_pending"
   const chatAdmitted = detail?.chatAdmitted === true
 
   const orderedSessions = useMemo(() => {
@@ -935,7 +908,7 @@ export default function ContainerDetailPage() {
       >
         <AlertDialogTrigger render={<Button variant="outline" size="xs" />} disabled={destroyContainer.isPending}>
           <Trash data-icon="inline-start" />
-          Destroy
+          {cleanupPending ? "Retry Destroy" : "Destroy"}
         </AlertDialogTrigger>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1017,13 +990,14 @@ export default function ContainerDetailPage() {
   // reports token usage/cost in the history we read, so we don't surface a
   // cost figure at all rather than show a perpetually-empty one.
   const totalTools = allMessages.reduce((sum, m) => sum + (m.parts?.filter(isToolPart).length ?? 0), 0)
-  const overallStatus =
-    detail.status ??
-    (() => {
-      const statusValues = Object.values(sessionStatus)
-      const hasBusy = statusValues.some((s) => s.type === "busy")
-      return hasBusy ? "working" : statusValues.length > 0 ? "idle" : "unknown"
-    })()
+  const overallStatus = cleanupPending
+    ? "cleanup_pending"
+    : (detail.status ??
+      (() => {
+        const statusValues = Object.values(sessionStatus)
+        const hasBusy = statusValues.some((s) => s.type === "busy")
+        return hasBusy ? "working" : statusValues.length > 0 ? "idle" : "unknown"
+      })())
   const observedAt = detail.statusObservedAt ?? detail.updatedAt
   const observedAtIso =
     typeof observedAt === "string" ? observedAt : observedAt ? new Date(observedAt).toISOString() : null
@@ -1031,10 +1005,11 @@ export default function ContainerDetailPage() {
   const visibleGroups = presentationGroups.slice(Math.max(0, presentationGroups.length - renderLimit))
   const hiddenGroupCount = Math.max(0, presentationGroups.length - visibleGroups.length)
   const activity = summarizeRunActivity(activeMessages, overallStatus)
+  const notice = runStatusNotice(overallStatus)
 
   const handleSend = () => {
     const text = draft.trim()
-    if (!text || sendPrompt.isPending) return
+    if (!text || sendPrompt.isPending || cleanupPending || chatStarting || chatError) return
     const optId = `opt-${crypto.randomUUID()}`
     setOptimistic((prev) => [
       ...prev,
@@ -1128,6 +1103,14 @@ export default function ContainerDetailPage() {
           </div>
         </div>
       </div>
+
+      {notice && overallStatus !== "sync_unavailable" && (
+        <Alert variant="destructive" className="shrink-0">
+          <Warning />
+          <AlertTitle>{notice.title}</AlertTitle>
+          <AlertDescription>{notice.description}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Only alarm once the run is *derived* as sync-unavailable. A fresh working
           run can hit a transient history hiccup (DO spin-up, post-deploy) that
@@ -1281,7 +1264,7 @@ export default function ContainerDetailPage() {
             <div className="flex items-center gap-3 border-b px-4 py-2">
               <StatusDot
                 status={
-                  overallStatus === "sync_unavailable" || overallStatus === "historical"
+                  notice || overallStatus === "historical"
                     ? overallStatus
                     : (sessionStatus[activeSession.id]?.type ?? "unknown")
                 }
@@ -1312,12 +1295,12 @@ export default function ContainerDetailPage() {
             </div>
           )}
 
-          {activeMessages.length > 0 && (
+          {activeMessages.length > 0 && !notice && (
             <div className="flex items-start gap-2 border-b bg-muted/20 px-4 py-2 text-xs">
               {activity.state === "working" ? (
                 <ArrowClockwise className="mt-0.5 size-3 shrink-0 animate-spin text-blue-600 dark:text-blue-400" />
               ) : (
-                <Check className="mt-0.5 size-3 shrink-0 text-emerald-600 dark:text-emerald-400" />
+                <ChatText className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
               )}
               <div className="min-w-0 flex-1">
                 <span className="font-semibold text-foreground">
@@ -1363,7 +1346,10 @@ export default function ContainerDetailPage() {
                       key={message.info?.id ?? `${effectiveSessionId}-${index}`}
                       className={message.info?.id?.startsWith("opt-") ? "opacity-70" : undefined}
                     >
-                      <ChatMessage message={message} />
+                      <ChatMessage
+                        message={message}
+                        working={overallStatus === "working" && message === activeMessages.at(-1)}
+                      />
                     </div>
                   )
                 })}
@@ -1383,12 +1369,8 @@ export default function ContainerDetailPage() {
                           : "Select a session to view messages"}
                   </p>
                   <p className="max-w-md text-xs text-muted-foreground">
-                    {overallStatus === "sync_unavailable" ? (
-                      <>
-                        Status: {statusLabel(overallStatus)}
-                        {observedAtIso ? ` · last updated ${formatTimeAgo(observedAtIso)}` : ""}. Check recent events in
-                        the sidebar, or send guidance below to start a new turn.
-                      </>
+                    {notice ? (
+                      notice.description
                     ) : overallStatus === "working" ? (
                       <>
                         The agent is working. Its messages appear here as soon as they sync — this refreshes on its own.
@@ -1438,25 +1420,27 @@ export default function ContainerDetailPage() {
                     handleSend()
                   }
                 }}
-                disabled={chatStarting || !!chatError}
+                disabled={cleanupPending || chatStarting || !!chatError}
                 aria-label={chatRepo ? "Message to the agent" : "Operator guidance"}
                 aria-invalid={sendPrompt.isError || undefined}
                 aria-describedby={sendPrompt.isError ? "operator-prompt-error" : undefined}
                 placeholder={
-                  chatError
-                    ? "Chat failed to start"
-                    : chatStarting
-                      ? "Starting…"
-                      : chatRepo
-                        ? "Message the agent… (⌘/Ctrl+Enter)"
-                        : "Send guidance to the agent… (⌘/Ctrl+Enter)"
+                  cleanupPending
+                    ? "Finish cleanup before sending a message"
+                    : chatError
+                      ? "Chat failed to start"
+                      : chatStarting
+                        ? "Starting…"
+                        : chatRepo
+                          ? "Message the agent… (⌘/Ctrl+Enter)"
+                          : "Send guidance to the agent… (⌘/Ctrl+Enter)"
                 }
                 rows={2}
                 className="min-h-[2.5rem] flex-1 resize-none border border-input bg-background px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
               />
               <Button
                 size="sm"
-                disabled={!draft.trim() || sendPrompt.isPending || chatStarting || !!chatError}
+                disabled={!draft.trim() || sendPrompt.isPending || cleanupPending || chatStarting || !!chatError}
                 onClick={handleSend}
               >
                 {sendPrompt.isPending ? (

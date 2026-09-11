@@ -68,6 +68,7 @@ async function fixture(authenticated = true) {
     } as unknown as BaseEnv["Bindings"])
   const detail = () =>
     app.request("/sessions/detail?entityKey=acme%2Fapp%2342", {}, { FLUE_NATIVE: "1" } as BaseEnv["Bindings"])
+  const list = () => app.request("/sessions", {}, {} as BaseEnv["Bindings"])
   const ingest = (token: string, text: string) =>
     app.request(
       "/sessions",
@@ -81,7 +82,7 @@ async function fixture(authenticated = true) {
       },
       { FLUE_INTERNAL_TOKEN: "test-secret" } as BaseEnv["Bindings"],
     )
-  return { request, detail, ingest, db, durableDestroy, binding }
+  return { request, detail, list, ingest, db, durableDestroy, binding }
 }
 
 describe("Destroy run", () => {
@@ -187,7 +188,11 @@ describe("Destroy run", () => {
     expect(await f.db.query.agentSessions.findMany()).toHaveLength(2)
     const detail = await f.detail()
     expect(detail.status).toBe(200)
-    expect(await detail.text()).toContain("Cleanup is incomplete")
+    expect(await detail.json()).toMatchObject({ status: "cleanup_pending", cleanupPending: true })
+    const list = await f.list()
+    expect(
+      (await list.json()).data.find((row: { entityKey: string }) => row.entityKey === "acme/app#42"),
+    ).toMatchObject({ status: "cleanup_pending", activityPreview: { state: "cleanup_pending" } })
     expect(historyRead).not.toHaveBeenCalled()
   })
 

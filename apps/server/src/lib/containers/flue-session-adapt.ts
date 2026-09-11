@@ -23,11 +23,16 @@ export function flueHistoryToSessionData(entityKey: string, history: Record<stri
     .filter((m): m is AnyRecord => m !== null)
 
   const latest = settlements.at(-1)
+  const settledStatus = latest ? statusForSettlement(latest) : null
   const status = deriveFlueBusyStatus(rawMessages, settlements)
     ? "busy"
-    : latest && statusForSettlement(latest) === "failed:workspace_lost"
+    : settledStatus === "failed:workspace_lost"
       ? "blocked"
-      : "idle"
+      : settledStatus === "failed:runtime"
+        ? "failed"
+        : settledStatus === "failed:aborted"
+          ? "interrupted"
+          : "idle"
   const totalCost = messages.reduce((sum, m) => {
     const cost = (m.info as AnyRecord | undefined)?.cost
     return sum + (typeof cost === "number" ? cost : 0)
