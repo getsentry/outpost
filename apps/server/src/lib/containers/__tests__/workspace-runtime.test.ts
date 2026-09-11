@@ -69,6 +69,32 @@ function fixture(id = "repo-1") {
 }
 
 describe("Flue workspace integration", () => {
+  it("reconnects a broken Sandbox handle before retrying the read-only probe", async () => {
+    vi.useFakeTimers()
+    const f = fixture()
+    const broken = {
+      ...f.sandbox,
+      exec: vi.fn(async () => {
+        mocks.sandbox.mockReturnValue(f.sandbox)
+        throw new Error("Durable Object reset because its code was updated.")
+      }),
+    }
+    // Cloudflare keeps rejecting every call on a broken stub. A fresh get is
+    // required; a mock that rejects only once on the same handle hides this.
+    mocks.sandbox.mockReturnValue(broken)
+    const result = f
+      .invoke(async () => {
+        await currentWorkspace().start(false)
+        return "ready"
+      })
+      .catch((error) => error)
+    await vi.runAllTimersAsync()
+    expect(await result).toBe("ready")
+    expect(broken.exec).toHaveBeenCalledTimes(1)
+    expect(f.sandbox.exec).toHaveBeenCalled()
+    expect(workspaceStore(f.sql).read()?.blocked).toBeUndefined()
+  })
+
   it("retries preparation's own probe before restoring a missing repository", async () => {
     vi.useFakeTimers()
     const f = fixture()

@@ -1,7 +1,6 @@
 "use agent"
 
 import { env } from "cloudflare:workers"
-import { getSandbox } from "@cloudflare/sandbox"
 import {
   type AgentProps,
   useAgentFinish,
@@ -24,6 +23,7 @@ import {
 } from "@/lib/containers/agent-destruction"
 import { dispatchPrompt, ensureSandboxReady, type SandboxSetupOpts } from "@/lib/containers/dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
+import { getSandbox } from "@/lib/containers/sandbox-client"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
 import {
   getSessionController,

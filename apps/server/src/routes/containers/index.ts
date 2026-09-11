@@ -15,7 +15,6 @@
 // Phase 2 (FLUE_NATIVE=1): session detail prefers Flue Durable Object history
 // via @flue/sdk instead of curling an in-container harness.
 
-import { getSandbox } from "@cloudflare/sandbox"
 import { formatError, type Logger } from "@jared/utils"
 import * as Sentry from "@sentry/cloudflare"
 import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm"
@@ -46,6 +45,7 @@ import {
 } from "@/lib/containers/flue-dispatch"
 import { isFlueHistoryBusy } from "@/lib/containers/flue-session-adapt"
 import { toAgentInstanceId } from "@/lib/containers/ids"
+import { getSandbox } from "@/lib/containers/sandbox-client"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
 import { cleanupFailureStage, getSessionController } from "@/lib/containers/session-controller"
 import {
