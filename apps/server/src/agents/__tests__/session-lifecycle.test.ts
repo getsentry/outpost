@@ -45,7 +45,10 @@ async function setup() {
   Object.assign(env, {
     DB: {},
     FLUE_NATIVE: "1",
-    FLUE_JARED_AGENT: { idFromName: (id: string) => id, get: () => ({ destroy: destroyAgent }) },
+    FLUE_JARED_AGENT: {
+      idFromName: (id: string) => id,
+      get: () => ({ prepareDestroy: async () => {}, destroy: destroyAgent, isDestroyComplete: async () => true }),
+    },
   })
   return { db, agent: new Agent() }
 }

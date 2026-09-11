@@ -100,7 +100,10 @@ describe("session lifecycle owner", () => {
   it("keeps failed cleanup fenced across coordinator restarts and permits a successful retry", async () => {
     const f = await fixture()
     f.dependencies.destroySandbox.mockRejectedValueOnce(new Error("temporary"))
-    await expect(f.controller.destroySession(f.generation)).rejects.toThrow("temporary")
+    await expect(f.controller.destroySession(f.generation)).rejects.toMatchObject({
+      message: "Run cleanup failed during sandbox deletion",
+      cause: new Error("temporary"),
+    })
     await expect(startAgentGeneration(f.db, instanceId)).rejects.toThrow(/cleanup/)
     const restarted = new SessionController(f.db, entityKey, f.dependencies)
     await expect(restarted.startSession()).rejects.toThrow(/cleanup/)

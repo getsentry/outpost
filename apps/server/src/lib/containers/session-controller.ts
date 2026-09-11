@@ -13,6 +13,21 @@ import type { BaseEnvBindings } from "@/types/env/base"
 import { type SandboxSetupOpts, saveInitialSession } from "./dispatch"
 import { toAgentInstanceId } from "./ids"
 
+const cleanupErrors = {
+  fence: "Run cleanup failed during lifecycle fencing",
+  agent: "Run cleanup failed during agent deletion",
+  sandbox: "Run cleanup failed during sandbox deletion",
+  records: "Run cleanup failed during record deletion",
+} as const
+
+/** RPC preserves Error.message, not custom properties. Log only known stages. */
+export function cleanupFailureStage(error: unknown): string {
+  return (
+    Object.entries(cleanupErrors).find(([, message]) => error instanceof Error && error.message === message)?.[0] ??
+    "unknown"
+  )
+}
+
 /** RPCs may interleave at awaits. Recover the tail after errors so retries work. */
 export class SerialQueue {
   private tail: Promise<unknown> = Promise.resolve()
@@ -119,23 +134,31 @@ export class SessionController {
         throw new Error("Run changed before Destroy; refresh and retry")
       // Older recycle/bulk-clear paths wrote tombstones without deleting the
       // durable conversation. Even an existing tombstone must be fully cleaned.
-      await destroyAgentGeneration(this.db, instanceId, true)
-      await this.dependencies.destroyAgent()
-      await this.dependencies.destroySandbox()
-      // One atomic batch: a fresh start cannot precede record deletion. On any
-      // failure leave both the retryable row and the persistent pending fence.
-      await this.db.batch([
-        this.db.delete(schema.agentSessions).where(eq(schema.agentSessions.entityKey, this.entityKey)),
-        this.db.delete(schema.webhookEvents).where(eq(schema.webhookEvents.entityKey, this.entityKey)),
-        this.db
-          .delete(schema.githubDiscussionObligations)
-          .where(eq(schema.githubDiscussionObligations.entityKey, this.entityKey)),
-        this.db.delete(schema.agentWorkItems).where(eq(schema.agentWorkItems.entityKey, this.entityKey)),
-        this.db
-          .update(schema.agentLifecycle)
-          .set({ cleanupPending: false })
-          .where(eq(schema.agentLifecycle.instanceId, instanceId)),
-      ])
+      let stage: keyof typeof cleanupErrors = "fence"
+      try {
+        await destroyAgentGeneration(this.db, instanceId, true)
+        stage = "agent"
+        await this.dependencies.destroyAgent()
+        stage = "sandbox"
+        await this.dependencies.destroySandbox()
+        // One atomic batch: a fresh start cannot precede record deletion. On any
+        // failure leave both the retryable row and the persistent pending fence.
+        stage = "records"
+        await this.db.batch([
+          this.db.delete(schema.agentSessions).where(eq(schema.agentSessions.entityKey, this.entityKey)),
+          this.db.delete(schema.webhookEvents).where(eq(schema.webhookEvents.entityKey, this.entityKey)),
+          this.db
+            .delete(schema.githubDiscussionObligations)
+            .where(eq(schema.githubDiscussionObligations.entityKey, this.entityKey)),
+          this.db.delete(schema.agentWorkItems).where(eq(schema.agentWorkItems.entityKey, this.entityKey)),
+          this.db
+            .update(schema.agentLifecycle)
+            .set({ cleanupPending: false })
+            .where(eq(schema.agentLifecycle.instanceId, instanceId)),
+        ])
+      } catch (error) {
+        throw new Error(cleanupErrors[stage], { cause: error })
+      }
     })
   }
 }
