@@ -43,7 +43,10 @@ export default new Hono<BaseEnv>().post("/:entityKey/workspace/acknowledge", isA
       ))
   if (
     !read.ok ||
-    isFlueHistoryBusy(read.history) ||
+    // An interrupted tool can remain input-available after terminal settlement.
+    // The exact blocker and all unsettled submissions are checked atomically by
+    // acknowledgeWorkspaceLoss below; stale parts must not prevent recovery.
+    isFlueHistoryBusy(read.history, { ignoreSettledParts: true }) ||
     (!interruption && submissionSettlementStatus(read.history, body.runId) !== "failed:workspace_lost")
   ) {
     return c.json({ error: "Only a settled workspace failure on an inactive run can be acknowledged" }, 409)

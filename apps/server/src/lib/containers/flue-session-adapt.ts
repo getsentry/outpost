@@ -228,8 +228,11 @@ function extractSettlements(history: Record<string, unknown> | null): AnyRecord[
  * source of truth. Used to guard destructive actions (Clear Idle) from deleting
  * a container that is actually mid-task.
  */
-export function isFlueHistoryBusy(history: Record<string, unknown> | null): boolean {
-  return deriveFlueBusyStatus(extractRawMessages(history), extractSettlements(history))
+export function isFlueHistoryBusy(
+  history: Record<string, unknown> | null,
+  opts?: { ignoreSettledParts?: boolean },
+): boolean {
+  return deriveFlueBusyStatus(extractRawMessages(history), extractSettlements(history), opts)
 }
 
 /**
@@ -255,8 +258,9 @@ export function deriveFlueBusyStatus(
       return true
     }
 
-    // Dashboard-only: a terminal receipt can survive best-effort tool repair.
-    // Keep the runtime admission guard conservative by default.
+    // A terminal receipt can survive best-effort tool repair. Recovery callers
+    // may opt in only when the DO atomically fences against new admissions.
+    // Keep destructive-action and admission guards conservative by default.
     if (opts?.ignoreSettledParts && submissionId && settled.has(submissionId)) continue
 
     const parts = Array.isArray(m.parts) ? (m.parts as AnyRecord[]) : []
