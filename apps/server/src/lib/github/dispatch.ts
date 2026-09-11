@@ -5,18 +5,15 @@
 // Phase 1: ensureSandboxReady starts Flue in-container; dispatchPrompt admits via curl.
 // Phase 2: FLUE_NATIVE=1 → thin sandbox + dispatchToFlueAgent (DO HTTP/SDK).
 
-import { getSandbox } from "@cloudflare/sandbox"
 import { formatError, type Logger } from "@jared/utils"
 import * as Sentry from "@sentry/cloudflare"
 import { eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
-import { startAgentGeneration } from "@/lib/agents/lifecycle"
 import { canonicalWorkKey, formatExecutionContract, listOpenAgentWork } from "@/lib/agents/work-items"
-import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
 import { dispatchToFlueAgent } from "@/lib/containers/flue-dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
-import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
+import { getSessionController } from "@/lib/containers/session-controller"
 import { admittedStatus } from "@/lib/events/delivery-status"
 import { createGitHubApp } from "@/lib/github/app"
 import { listOpenDiscussionObligations } from "@/lib/github/discussion-store"
@@ -37,6 +34,7 @@ export type GitHubEventDispatch = {
   /** The webhook_events row id (used to update status). */
   eventId: string
   containerKey: string
+  generation: number
   event: string
   action: string | null
   deliveryId: string
@@ -87,12 +85,6 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     logger.warn({ error: formatError(err) }, "bot login resolution failed")
   }
 
-  try {
-    await Promise.all([startAgentGeneration(db, sandboxId), saveInitialSession(db, containerKey)])
-  } catch {
-    /* best effort — may conflict with an existing row */
-  }
-
   // Diagnostic progress markers persisted to D1 so we can see how far the
   // background dispatch gets before any Worker eviction (Cloudflare kills the
   // waitUntil task without running our catch). Read back from webhook_events.status.
@@ -105,9 +97,9 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
   }
 
   try {
+    const controller = await getSessionController(env, containerKey)
+    const generation = evt.generation
     logger.info({ entity_key: containerKey, event_id: eventId, flue_native: flueNative }, "dispatch.start")
-
-    const sandbox = getSandbox(env.Sandbox, sandboxId, SANDBOX_OPTS)
 
     await mark("d:boot")
     logger.info({ entity_key: containerKey, event_id: eventId, sandbox_id: sandboxId }, "dispatch.sandbox_ready.start")
@@ -126,7 +118,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
       },
       async (span) => {
         try {
-          await ensureSandboxReady(sandbox, {
+          await controller.prepareSession(containerKey, generation, {
             repo: evt.repo,
             botLogin,
             installationToken,
@@ -134,6 +126,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
             anthropicApiKey: env.ANTHROPIC_API_KEY,
             openaiApiKey: env.OPENAI_API_KEY,
             entityKey: containerKey,
+            sessionGeneration: generation,
             appUrl: env.APP_URL,
             thinSandbox: flueNative,
             loreGatewayUrl: env.LORE_GATEWAY_URL,
@@ -192,33 +185,27 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
     logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.start")
 
     await mark("d:prompt")
-    let submissionId: string | undefined
-    if (flueNative) {
-      // Phase 2: admit into the Flue Durable Object (agent attaches the sandbox itself).
-      const receipt = await Sentry.startSpan(
-        {
-          name: "jared.flue.admit",
-          op: "jared.flue.admit",
-          attributes: workflowCorrelationTags({
-            source: "worker_dispatch",
-            entityKey: containerKey,
-            eventId,
-            lifecycleStatus: "admitting",
-            sandboxId,
-          }),
-        },
-        async (span) => {
-          const admitted = await dispatchToFlueAgent(env, { entityKey: containerKey, prompt, logger })
-          if (admitted.submissionId) span.setAttribute("flue.submission.id", admitted.submissionId)
-          span.setAttribute("jared.lifecycle_status", "admitted")
-          return admitted
-        },
-      )
-      submissionId = receipt.submissionId
-    } else {
-      // Phase 1: container-side Flue HTTP admit via background script.
-      await dispatchPrompt(sandbox, containerKey, prompt, eventId)
-    }
+    // Phase 2: admit into the Flue Durable Object (agent attaches the sandbox itself).
+    const receipt = await Sentry.startSpan(
+      {
+        name: "jared.flue.admit",
+        op: "jared.flue.admit",
+        attributes: workflowCorrelationTags({
+          source: "worker_dispatch",
+          entityKey: containerKey,
+          eventId,
+          lifecycleStatus: "admitting",
+          sandboxId,
+        }),
+      },
+      async (span) => {
+        const admitted = await dispatchToFlueAgent(env, { entityKey: containerKey, generation, prompt, logger })
+        if (admitted.submissionId) span.setAttribute("flue.submission.id", admitted.submissionId)
+        span.setAttribute("jared.lifecycle_status", "admitted")
+        return admitted
+      },
+    )
+    const submissionId = receipt.submissionId
 
     logger.info({ entity_key: containerKey, event_id: eventId }, "dispatch.prompt.scheduled")
 

@@ -916,7 +916,6 @@ export default function ContainerDetailPage() {
         setDestroyOpen(false)
         navigate("/containers")
       },
-      onError: () => setDestroyOpen(false),
     })
   }
 
@@ -926,21 +925,28 @@ export default function ContainerDetailPage() {
   // empty-state, and the not-found view below.
   const headerActions = (
     <div className="flex items-center gap-1">
-      <AlertDialog open={destroyOpen} onOpenChange={setDestroyOpen}>
-        <AlertDialogTrigger asChild>
-          <Button variant="outline" size="xs" disabled={destroyContainer.isPending}>
-            <Trash className="size-3" />
-            Destroy
-          </Button>
+      <AlertDialog
+        open={destroyOpen}
+        onOpenChange={(open) => {
+          if (destroyContainer.isPending) return
+          if (open) destroyContainer.reset()
+          setDestroyOpen(open)
+        }}
+      >
+        <AlertDialogTrigger render={<Button variant="outline" size="xs" />} disabled={destroyContainer.isPending}>
+          <Trash data-icon="inline-start" />
+          Destroy
         </AlertDialogTrigger>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Destroy this agent run?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will force-stop the sandbox (if running) and delete the session data for{" "}
-              <span className="font-mono font-medium">{entityKey}</span>. The agent will stop working. This action
-              cannot be undone.
+              This will stop the agent and permanently delete its chat history, files, scheduled work, and stored events
+              for <span className="font-mono font-medium">{entityKey}</span>. This cannot be undone.
             </AlertDialogDescription>
+            {destroyContainer.isError && (
+              <AlertDialogDescription role="alert">{destroyContainer.error.message}</AlertDialogDescription>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={destroyContainer.isPending}>Cancel</AlertDialogCancel>

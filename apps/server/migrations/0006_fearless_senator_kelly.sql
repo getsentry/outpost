@@ -1,0 +1,1 @@
+ALTER TABLE `agent_lifecycle` ADD `cleanup_pending` integer DEFAULT false NOT NULL;

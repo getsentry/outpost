@@ -1,6 +1,7 @@
 import { createLogger } from "@jared/utils"
 import { drizzle } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
+import { getSessionController } from "@/lib/containers/session-controller"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import type { BaseEnvBindings } from "@/types/env/base"
 
@@ -113,10 +114,21 @@ export async function retryOpenDiscussionObligations(
     // Another overlapping cron may have reclaimed this row while we were
     // reading it. Only the execution that won the guarded update dispatches.
     if ((retriedRow.meta.changes ?? 0) === 0) continue
+    let generation: number
+    try {
+      const controller = await getSessionController(env, row.entity_key)
+      generation = await controller.startSession(row.entity_key, row.event_id)
+    } catch {
+      // Destroy may have removed the source event or left cleanup pending
+      // since the cron selected it. Never resurrect that stale reminder.
+      logger.warn({ entity_key: row.entity_key, event_id: row.event_id }, "discussion retry could not start run")
+      continue
+    }
     retried += 1
     await dispatchGitHubEvent(env, db, logger, {
       eventId: row.event_id,
       containerKey: row.entity_key,
+      generation,
       event: row.event,
       action: row.action,
       deliveryId: row.delivery_id,

@@ -1,7 +1,8 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useEffect, useState } from "react"
 import { authClient } from "@/lib/endpoint"
-import { api, type EventsParams, type SessionDetailResponse, type SessionsParams } from "./api"
+import { api, type EventsParams, type SessionsParams } from "./api"
+import { subscribeSessionStream } from "./session-stream"
 
 export function useSession() {
   return useQuery({
@@ -122,50 +123,7 @@ export function useSessionDetail(entityKey: string) {
     if (!entityKey) return
     if (typeof window === "undefined" || typeof EventSource === "undefined") return
 
-    let source: EventSource | null = null
-    let cancelled = false
-    let retry: ReturnType<typeof setTimeout> | undefined
-
-    const connect = () => {
-      if (cancelled) return
-      source = new EventSource(`/api/containers/sessions/stream?entityKey=${encodeURIComponent(entityKey)}`)
-
-      source.addEventListener("snapshot", (ev) => {
-        try {
-          const payload = JSON.parse((ev as MessageEvent).data) as SessionDetailResponse
-          queryClient.setQueryData(["sessionDetail", entityKey], payload)
-          setStreaming(true)
-        } catch {
-          /* ignore malformed frame */
-        }
-      })
-
-      // Server ended the session (not found) — stop and let polling take over.
-      source.addEventListener("gone", () => {
-        cancelled = true
-        setStreaming(false)
-        source?.close()
-      })
-
-      source.onerror = () => {
-        setStreaming(false)
-        // EventSource auto-reconnects while CONNECTING (e.g. our lifetime cap
-        // closed the response). If it gave up (CLOSED), retry on a slow timer.
-        if (source && source.readyState === EventSource.CLOSED && !cancelled) {
-          source.close()
-          retry = setTimeout(connect, 15_000)
-        }
-      }
-    }
-
-    connect()
-
-    return () => {
-      cancelled = true
-      setStreaming(false)
-      if (retry) clearTimeout(retry)
-      source?.close()
-    }
+    return subscribeSessionStream(queryClient, entityKey, setStreaming)
   }, [entityKey, queryClient])
 
   return { ...query, streaming }
@@ -226,9 +184,15 @@ export function useDestroyContainer() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (entityKey: string) => api.destroyContainer(entityKey),
-    onSuccess: () => {
+    onSuccess: async (_data, entityKey) => {
+      const queryKey = ["sessionDetail", entityKey]
+      await queryClient.cancelQueries({ queryKey, exact: true })
+      queryClient.removeQueries({ queryKey, exact: true })
       queryClient.invalidateQueries({ queryKey: ["sessions"] })
-      queryClient.invalidateQueries({ queryKey: ["sessionDetail"] })
+      queryClient.invalidateQueries({ queryKey: ["events"] })
+      queryClient.invalidateQueries({ queryKey: ["eventsGrouped"] })
+      queryClient.invalidateQueries({ queryKey: ["eventStats"] })
+      queryClient.invalidateQueries({ queryKey: ["agentWork"] })
     },
   })
 }

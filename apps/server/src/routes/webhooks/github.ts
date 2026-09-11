@@ -10,12 +10,8 @@ import * as Sentry from "@sentry/cloudflare"
 import { and, eq, gt, inArray, like, or } from "drizzle-orm"
 import { Hono } from "hono"
 import * as dbSchema from "@/db/schema"
-import {
-  cancelAgentWorkFromGitHubSource,
-  canonicalWorkKey,
-  githubWorkSourceId,
-  recordAgentWork,
-} from "@/lib/agents/work-items"
+import { cancelAgentWorkFromGitHubSource, canonicalWorkKey, githubWorkSourceId } from "@/lib/agents/work-items"
+import { getSessionController } from "@/lib/containers/session-controller"
 import {
   ciStillRunning,
   classifyCiEvent,
@@ -25,11 +21,7 @@ import {
 } from "@/lib/github/actionability"
 import { createGitHubApp, type GitHubApp } from "@/lib/github/app"
 import { TRIGGER_LABEL } from "@/lib/github/constants"
-import {
-  cancelDiscussionObligation,
-  recordDiscussionObligation,
-  verifyDiscussionResponse,
-} from "@/lib/github/discussion-store"
+import { cancelDiscussionObligation, verifyDiscussionResponse } from "@/lib/github/discussion-store"
 import {
   extractDiscussionObligation,
   extractDiscussionSourceReference,
@@ -291,6 +283,8 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
   }
 
   const isSkipped = skipReason !== null
+  const controller = isSkipped ? null : await getSessionController(c.env, containerKey)
+  const generation = controller ? await controller.startSession(containerKey) : undefined
 
   const eventId = crypto.randomUUID()
 
@@ -299,7 +293,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
   const storedPayload = isSkipped ? JSON.stringify({ reason: skipReason }) : rawBody
 
   try {
-    await db.insert(dbSchema.webhookEvents).values({
+    const eventRecord = {
       id: eventId,
       entityKey: containerKey,
       event,
@@ -311,7 +305,10 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
       payload: storedPayload,
       status: isSkipped ? "skipped" : "pending",
       createdAt: new Date(),
-    })
+    }
+    if (controller && generation !== undefined)
+      await controller.recordSessionEvent(containerKey, generation, eventRecord)
+    else await db.insert(dbSchema.webhookEvents).values(eventRecord)
   } catch (err) {
     if (err instanceof Error && err.message.includes("UNIQUE constraint failed")) {
       return c.json({ ok: true, delivery_id: deliveryId, duplicate: true })
@@ -370,7 +367,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
   const discussion = botLogin ? extractDiscussionObligation(event, action, payload, botLogin) : null
   if (!isSkipped && discussion && entityKey && repo) {
     try {
-      await recordDiscussionObligation(db, {
+      await controller!.recordSessionDiscussion(containerKey, generation!, {
         eventId,
         entityKey: containerKey,
         repo,
@@ -386,7 +383,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
     // storage: one unavailable table must not let compaction erase the task.
     if (isDurableExecutionRequest(discussion.body)) {
       try {
-        await recordAgentWork(db, {
+        await controller!.recordSessionWork(containerKey, generation!, {
           workKey: canonicalWorkKey({ repo, entityKey: containerKey, prNumber: discussion.prNumber }),
           entityKey: containerKey,
           repo,
@@ -419,7 +416,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
     isDurableExecutionRequest(issueCommentBody)
   ) {
     try {
-      await recordAgentWork(db, {
+      await controller!.recordSessionWork(containerKey, generation!, {
         workKey: canonicalWorkKey({ repo, entityKey: containerKey }),
         entityKey: containerKey,
         repo,
@@ -459,6 +456,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
     dispatchGitHubEvent(c.env, db, logger, {
       eventId,
       containerKey,
+      generation,
       event,
       action,
       deliveryId,

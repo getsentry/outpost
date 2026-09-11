@@ -1,6 +1,7 @@
 import { and, desc, eq, like, or, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import { agentWorkItems, githubDiscussionObligations, webhookEvents } from "@/db/schema"
+import { getSessionController } from "@/lib/containers/session-controller"
 import { dispatchGitHubEvent } from "@/lib/github/dispatch"
 import { isAuthenticated } from "@/middlewares"
 import type { AuthEnv } from "@/types"
@@ -274,12 +275,15 @@ const router = new Hono<AuthEnv>()
 
     // Optimistically mark pending so the UI reflects the in-flight resend; the
     // dispatch helper updates it to admitted/failed when it completes.
+    const controller = await getSessionController(c.env, event.entityKey)
+    const generation = await controller.startSession(event.entityKey, event.id)
     await db.update(webhookEvents).set({ status: "pending" }).where(eq(webhookEvents.id, id))
 
     c.executionCtx.waitUntil(
       dispatchGitHubEvent(c.env, db, logger, {
         eventId: event.id,
         containerKey: event.entityKey,
+        generation,
         event: event.event,
         action: event.action,
         deliveryId: event.deliveryId,

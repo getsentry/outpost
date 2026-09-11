@@ -14,6 +14,7 @@
 import type { getSandbox } from "@cloudflare/sandbox"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
+import { startAgentGeneration } from "@/lib/agents/lifecycle"
 import { FLUE_INTERNAL_HEADER, resolveFlueInternalToken } from "@/middlewares/flue-auth"
 import { toAgentInstanceId } from "./ids"
 import { isTransientSandboxError } from "./sandbox-errors"
@@ -45,6 +46,7 @@ export type SandboxSetupOpts = {
   anthropicApiKey?: string
   openaiApiKey?: string
   entityKey: string
+  sessionGeneration?: number
   /** Public base URL of this Worker, so the in-container reporter can POST session data back. */
   appUrl?: string
   /**
@@ -192,6 +194,7 @@ export async function ensureSandboxReady(
     await applyGitHubAuth(sandbox, opts)
     await ensureSessionReporterRunning(sandbox, {
       entityKey: opts.entityKey,
+      sessionGeneration: opts.sessionGeneration,
       appUrl: opts.appUrl,
       flueInternalToken: opts.flueInternalToken,
     })
@@ -211,6 +214,7 @@ export async function ensureSandboxReady(
   // — it simply polls until Flue answers.
   await startSessionReporter(sandbox, {
     entityKey: opts.entityKey,
+    sessionGeneration: opts.sessionGeneration,
     appUrl: opts.appUrl,
     flueInternalToken: opts.flueInternalToken,
   })
@@ -417,7 +421,7 @@ async function verifyThinSandboxPrepped(sandbox: ReturnType<typeof getSandbox>):
 
 async function ensureSessionReporterRunning(
   sandbox: ReturnType<typeof getSandbox>,
-  opts: { entityKey: string; appUrl?: string; flueInternalToken?: string },
+  opts: { entityKey: string; sessionGeneration?: number; appUrl?: string; flueInternalToken?: string },
 ): Promise<void> {
   const check = await sandbox.exec("pgrep -f 'session-reporter.sh' > /dev/null 2>&1", { cwd: "/workspace" })
   if (check.success) return
@@ -434,17 +438,17 @@ async function ensureSessionReporterRunning(
  */
 async function startSessionReporter(
   sandbox: ReturnType<typeof getSandbox>,
-  opts: { entityKey: string; appUrl?: string; flueInternalToken?: string },
+  opts: { entityKey: string; sessionGeneration?: number; appUrl?: string; flueInternalToken?: string },
 ): Promise<void> {
   if (!opts.appUrl) return
-  if (!opts.flueInternalToken) {
+  if (!opts.flueInternalToken || opts.sessionGeneration === undefined) {
     // Without a signing secret we cannot authenticate ingest — skip reporter.
     return
   }
 
   const ingestUrl = `${opts.appUrl.replace(/\/$/, "")}/api/containers/sessions`
   const conversationId = toAgentInstanceId(opts.entityKey)
-  const ingestToken = await mintSessionIngestToken(opts.flueInternalToken, opts.entityKey)
+  const ingestToken = await mintSessionIngestToken(opts.flueInternalToken, opts.entityKey, opts.sessionGeneration)
 
   const reporterScript = [
     "#!/bin/bash",
@@ -562,15 +566,20 @@ export async function dispatchPrompt(
  * Save an initial session record to D1 so the container appears immediately.
  * Uses the canonical Flue conversation id so later history syncs merge cleanly.
  */
-export async function saveInitialSession(db: DrizzleD1Database<typeof dbSchema>, containerKey: string): Promise<void> {
+export async function saveInitialSession(
+  db: DrizzleD1Database<typeof dbSchema>,
+  containerKey: string,
+): Promise<number> {
   const sessionId = toAgentInstanceId(containerKey)
+  const generation = await startAgentGeneration(db, sessionId)
   const initialData = JSON.stringify({
     sessionStatus: { [sessionId]: { type: "busy" } },
     sessions: [{ id: sessionId, title: containerKey, agent: AGENT }],
     messages: {},
     flue: true,
   })
-  await saveSession(db, containerKey, initialData)
+  if (!(await saveSession(db, containerKey, initialData, generation))) throw new Error("Agent run was destroyed")
+  return generation
 }
 
 /** Re-export for callers that already import from dispatch. */
