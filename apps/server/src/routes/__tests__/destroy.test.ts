@@ -85,6 +85,29 @@ async function fixture(authenticated = true) {
 }
 
 describe("Destroy run", () => {
+  it.each([
+    "agent",
+    "sandbox",
+    "records",
+  ])("logs the %s cleanup stage without leaking provider details", async (stage) => {
+    const f = await fixture()
+    if (stage === "agent") f.durableDestroy.mockRejectedValueOnce(new Error("private provider detail"))
+    if (stage === "sandbox") sandboxDestroy.mockRejectedValueOnce(new Error("private provider detail"))
+    if (stage === "records")
+      await f.db.run(sql`CREATE TRIGGER fail_delete BEFORE DELETE ON agent_sessions
+      BEGIN SELECT RAISE(ABORT, 'private provider detail'); END`)
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const response = await f.request()
+      expect(response.status).toBe(503)
+      expect(warning).toHaveBeenCalledWith("jared: run destruction incomplete", { entityKey: "acme/app#42", stage })
+      expect(JSON.stringify(warning.mock.calls)).not.toContain("private provider detail")
+      expect(await response.text()).not.toContain("private provider detail")
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
   it("does not return a stale D1 fallback when history fails after deletion", async () => {
     const f = await fixture()
     historyRead.mockImplementationOnce(async () => {

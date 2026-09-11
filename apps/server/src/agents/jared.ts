@@ -17,6 +17,11 @@ import { drizzle } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { mayRunFollowUp } from "@/lib/agents/lifecycle"
 import type { AgentWorkRecordInput } from "@/lib/agents/work-items"
+import {
+  AGENT_DESTRUCTION_MARKER,
+  type AgentDestructionRpc,
+  destroyAgentWithConfirmation,
+} from "@/lib/containers/agent-destruction"
 import { dispatchPrompt, ensureSandboxReady, type SandboxSetupOpts } from "@/lib/containers/dispatch"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
@@ -150,12 +155,13 @@ export const cloudflare = extend({
         const bindings = env as unknown as BaseEnvBindings["Bindings"]
         const instanceId = toAgentInstanceId(entityKey)
         this.controller ??= new SessionController(drizzle(bindings.DB, { schema: dbSchema }), entityKey, {
-          destroyAgent: async () => {
-            const agent = bindings.FLUE_JARED_AGENT!.get(
-              bindings.FLUE_JARED_AGENT!.idFromName(instanceId),
-            ) as unknown as { destroy(): Promise<void> }
-            await agent.destroy()
-          },
+          destroyAgent: () =>
+            destroyAgentWithConfirmation(
+              () =>
+                bindings.FLUE_JARED_AGENT!.get(
+                  bindings.FLUE_JARED_AGENT!.idFromName(instanceId),
+                ) as unknown as AgentDestructionRpc,
+            ),
           destroySandbox: () => getSandbox(bindings.Sandbox, instanceId, SANDBOX_OPTS).destroy(),
           prepare: (options) => ensureSandboxReady(getSandbox(bindings.Sandbox, instanceId, SANDBOX_OPTS), options),
           admit: async (message, headers) => {
@@ -205,6 +211,19 @@ export const cloudflare = extend({
       }
       destroySession(entityKey: string, generation: number) {
         return this.controllerFor(entityKey).destroySession(generation)
+      }
+
+      prepareDestroy() {
+        return this.ownerQueue.run(async () => {
+          this.closing = true
+          await this.ctx.storage.put(AGENT_DESTRUCTION_MARKER, true)
+        })
+      }
+
+      async isDestroyComplete() {
+        // `closing` is true in the instance that armed/destroyed the run. Only
+        // a fresh incarnation can confirm both the reset and storage deletion.
+        return !this.closing && (await this.ctx.storage.get(AGENT_DESTRUCTION_MARKER)) === undefined
       }
 
       async destroy() {

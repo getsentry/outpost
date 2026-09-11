@@ -46,7 +46,7 @@ import {
 import { isFlueHistoryBusy } from "@/lib/containers/flue-session-adapt"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
-import { getSessionController } from "@/lib/containers/session-controller"
+import { cleanupFailureStage, getSessionController } from "@/lib/containers/session-controller"
 import {
   countSessionMessages,
   demoteBusyStatusesToIdle,
@@ -1245,8 +1245,8 @@ const router = new Hono<BaseEnv>()
       })
       const controller = await getSessionController(c.env, entityKey)
       await controller.destroySession(entityKey, lifecycle?.generation ?? 0)
-    } catch {
-      console.warn("jared: run destruction incomplete", { entityKey })
+    } catch (error) {
+      console.warn("jared: run destruction incomplete", { entityKey, stage: cleanupFailureStage(error) })
       return c.json(
         { error: "Could not finish deleting this run. Some cleanup may have completed; retry Destroy." },
         503,
