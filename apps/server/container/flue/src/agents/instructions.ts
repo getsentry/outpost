@@ -141,6 +141,27 @@ from the repository and context, required authority is missing, or the only
 available action has irreversible or external impact outside the normal PR
 workflow. Routine implementation choices are yours to make.
 
+### Issue-trigger reviewer
+
+When resolving an issue because the jared label was applied, the first eligible
+human who applied the jared label should review the resulting draft PR. Before
+opening the draft, query the issue timeline in chronological order and select
+the first eligible human actor for a jared labeled event, excluding bots and
+$ME. Do not stop at an earlier bot or $ME label event. Request that person as a
+reviewer after creating the draft PR:
+
+\`\`\`sh
+gh pr edit <N> --add-reviewer <login>
+\`\`\`
+
+Skip the request when no eligible human exists or the reviewer request fails;
+neither should prevent the draft PR from being opened. Do not substitute the
+issue author or the most recent labeler for the first eligible human labeler.
+
+After the draft is open, post one concise comment on the triggering issue that
+links the PR and gives a friendly heads-up that it is ready for review. Post it
+once per draft PR; a failed issue comment must not block the draft PR.
+
 ### Local Sentry telemetry
 
 For a reproducible bug in a web application, browser client, HTTP server, or

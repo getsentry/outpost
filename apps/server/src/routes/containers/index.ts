@@ -17,7 +17,7 @@
 
 import { formatError, type Logger } from "@jared/utils"
 import * as Sentry from "@sentry/cloudflare"
-import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNotNull, sql } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import { Hono } from "hono"
 import { streamSSE } from "hono/streaming"
@@ -504,7 +504,7 @@ const router = new Hono<BaseEnv>()
           updatedAt: dbSchema.agentSessions.updatedAt,
         })
         .from(dbSchema.agentSessions)
-        .orderBy(desc(dbSchema.agentSessions.updatedAt))
+        .orderBy(desc(dbSchema.agentSessions.createdAt), asc(dbSchema.agentSessions.entityKey))
         .limit(limit)
         .offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(dbSchema.agentSessions),

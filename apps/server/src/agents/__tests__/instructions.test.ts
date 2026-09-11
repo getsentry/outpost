@@ -33,6 +33,27 @@ describe("Jared autonomy contract", () => {
     )
   })
 
+  it("requests review from the human who first applied the jared label", () => {
+    const flueInstructions = readFileSync(
+      new URL("../../../container/flue/src/agents/instructions.ts", import.meta.url),
+      "utf8",
+    )
+    const resolveIssue = readFileSync(
+      new URL("../../../container/skills/resolve-issue/SKILL.md", import.meta.url),
+      "utf8",
+    )
+
+    for (const instructions of [JARED_INSTRUCTIONS, flueInstructions]) {
+      expect(instructions).toMatch(/first eligible\s+human who applied the jared label/)
+      expect(instructions).toContain("Do not stop at an earlier bot or $ME label event")
+      expect(instructions).toContain("gh pr edit <N> --add-reviewer <login>")
+      expect(instructions).toMatch(/Do not substitute the\s+issue author or the most recent labeler/)
+      expect(instructions).toContain("post one concise comment on the triggering issue")
+    }
+    expect(resolveIssue).toContain("Post a concise issue comment")
+    expect(resolveIssue).toContain("does not block the draft PR")
+  })
+
   it("gives durable human work priority over normal webhook triage", () => {
     const flueInstructions = readFileSync(
       new URL("../../../container/flue/src/agents/instructions.ts", import.meta.url),
