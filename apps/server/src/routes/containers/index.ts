@@ -24,7 +24,7 @@ import { Hono } from "hono"
 import { streamSSE } from "hono/streaming"
 import * as dbSchema from "@/db/schema"
 import { destroyAgentGeneration } from "@/lib/agents/lifecycle"
-import { canonicalWorkKey, formatExecutionContract, listOpenAgentWork, recordAgentWork } from "@/lib/agents/work-items"
+import { canonicalWorkKey } from "@/lib/agents/work-items"
 import {
   CHAT_STARTING_WINDOW_MS,
   createChatEntityKey,
@@ -33,14 +33,7 @@ import {
   isValidRepoSlug,
   MAX_CHAT_REPO_LENGTH,
 } from "@/lib/containers/chat-run"
-import {
-  applyGitHubAuth,
-  ensureSandboxReady,
-  FLUE_AGENT_MOUNT,
-  FLUE_PORT,
-  OPENCODE_PORT,
-  saveInitialSession,
-} from "@/lib/containers/dispatch"
+import { applyGitHubAuth, FLUE_AGENT_MOUNT, FLUE_PORT, OPENCODE_PORT } from "@/lib/containers/dispatch"
 import { parseOwnerRepo } from "@/lib/containers/do-prep"
 import {
   dispatchToFlueAgent,
@@ -53,10 +46,12 @@ import {
 import { isFlueHistoryBusy } from "@/lib/containers/flue-session-adapt"
 import { toAgentInstanceId } from "@/lib/containers/ids"
 import { SANDBOX_OPTS } from "@/lib/containers/sandbox-opts"
+import { getSessionController } from "@/lib/containers/session-controller"
 import {
   countSessionMessages,
   demoteBusyStatusesToIdle,
   deriveDisplayStatus,
+  isSessionCleanupPending,
   isStaleBusy,
   mergeSessionData,
   readSessionGeneration,
@@ -285,13 +280,16 @@ async function prepEntitySandbox(
   entityKey: string,
   access: RepoAccess,
   flueNative: boolean,
+  generation: number,
 ): Promise<void> {
   const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
-  await ensureSandboxReady(getSandbox(env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS), {
+  const controller = await getSessionController(env, entityKey)
+  await controller.prepareSession(entityKey, generation, {
     repo: access.slug,
     botLogin: access.botLogin,
     installationToken: access.installationToken,
     entityKey,
+    sessionGeneration: generation,
     openrouterApiKey: env.OPENROUTER_API_KEY,
     anthropicApiKey: env.ANTHROPIC_API_KEY,
     openaiApiKey: env.OPENAI_API_KEY,
@@ -305,16 +303,9 @@ async function prepEntitySandbox(
 /** Admit a prompt into the entity's conversation, Phase 2 (DO) or Phase 1 (in-container). */
 async function admitPrompt(
   env: BaseEnv["Bindings"],
-  opts: { entityKey: string; prompt: string; flueNative: boolean; logger: Logger },
+  opts: { entityKey: string; prompt: string; generation: number; flueNative: boolean; logger: Logger },
 ): Promise<{ conversationUrl?: string; submissionId?: string }> {
-  if (opts.flueNative) {
-    return dispatchToFlueAgent(env, { entityKey: opts.entityKey, prompt: opts.prompt, logger: opts.logger })
-  }
-  const submissionId = crypto.randomUUID()
-  const { dispatchPrompt } = await import("@/lib/containers/dispatch")
-  const sandbox = getSandbox(env.Sandbox, toAgentInstanceId(opts.entityKey), SANDBOX_OPTS)
-  await dispatchPrompt(sandbox, opts.entityKey, opts.prompt, submissionId)
-  return { submissionId }
+  return dispatchToFlueAgent(env, opts)
 }
 
 /**
@@ -324,6 +315,7 @@ async function admitPrompt(
 async function patchChatSessionMeta(
   db: DrizzleD1Database<typeof dbSchema>,
   entityKey: string,
+  generation: number,
   patch: { chatError?: string; chatAdmitted?: boolean },
 ): Promise<void> {
   const row = await db.query.agentSessions.findFirst({
@@ -347,7 +339,15 @@ async function patchChatSessionMeta(
   await db
     .update(dbSchema.agentSessions)
     .set({ sessionData: next })
-    .where(eq(dbSchema.agentSessions.entityKey, entityKey))
+    .where(
+      and(
+        eq(dbSchema.agentSessions.entityKey, entityKey),
+        sql`EXISTS (
+      SELECT 1 FROM agent_lifecycle WHERE instance_id = ${toAgentInstanceId(entityKey)}
+      AND generation = ${generation} AND destroyed_at IS NULL
+    )`,
+      ),
+    )
 }
 
 /**
@@ -410,11 +410,11 @@ const router = new Hono<BaseEnv>()
 
     const header = c.req.header(FLUE_INTERNAL_HEADER) ?? c.req.header("authorization")?.replace(/^Bearer\s+/i, "")
     const secret = await resolveFlueInternalToken(c.env)
-    if (!secret || !header || !(await verifySessionIngestToken(secret, header, body.entityKey))) {
+    const generation = await readSessionGeneration(db, body.entityKey)
+    if (!secret || !header || !(await verifySessionIngestToken(secret, header, body.entityKey, generation))) {
       return c.json({ error: "Unauthorized" }, 401)
     }
 
-    const generation = await readSessionGeneration(db, body.entityKey)
     if (!(await saveSession(db, body.entityKey, body.sessionData, generation)))
       return c.json({ error: "This agent run was destroyed" }, 410)
     return c.json({ ok: true })
@@ -616,7 +616,6 @@ const router = new Hono<BaseEnv>()
       return c.json({ error: "entityKey query parameter required" }, 400)
     }
     const generation = await readSessionGeneration(db, entityKey)
-    if (generation === null) return c.json({ error: "This agent run was destroyed" }, 410)
 
     const session = await db.query.agentSessions.findFirst({
       where: eq(dbSchema.agentSessions.entityKey, entityKey),
@@ -624,6 +623,19 @@ const router = new Hono<BaseEnv>()
 
     if (!session) {
       return c.json({ error: "Session not found" }, 404)
+    }
+    if (generation === null) {
+      if (await isSessionCleanupPending(db, entityKey)) {
+        return c.json(
+          formatSessionDetailPayload(
+            session,
+            parseSessionData(session.sessionData),
+            session.updatedAt,
+            "Cleanup is incomplete. Retry Destroy to finish deleting this run.",
+          ),
+        )
+      }
+      return c.json({ error: "This agent run was destroyed" }, 410)
     }
 
     const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
@@ -722,6 +734,9 @@ const router = new Hono<BaseEnv>()
         const session = await db.query.agentSessions.findFirst({
           where: eq(dbSchema.agentSessions.entityKey, entityKey),
         })
+        if (session && generation === null && (await isSessionCleanupPending(db, entityKey))) {
+          return { offset: null, ok: true }
+        }
         if (!session || generation === null) {
           await stream.writeSSE({ event: "gone", data: "session not found" })
           return { offset: null, ok: false }
@@ -738,6 +753,7 @@ const router = new Hono<BaseEnv>()
           const mergedRaw = session.sessionData ? mergeSessionData(session.sessionData, blob) : blob
           try {
             if (!(await saveSession(db, entityKey, blob, generation))) {
+              if (await isSessionCleanupPending(db, entityKey)) return { offset: null, ok: true }
               await stream.writeSSE({ event: "gone", data: "session destroyed" })
               return { offset: null, ok: false }
             }
@@ -817,6 +833,13 @@ const router = new Hono<BaseEnv>()
     const logger = c.get("logger").child({ ns: "containers.prompt", entity_key: entityKey })
     const repo = parseOwnerRepo(entityKey)?.slug
     let executionContract = ""
+    const controller = await getSessionController(c.env, entityKey)
+    let generation: number
+    try {
+      generation = await controller.startSession(entityKey)
+    } catch {
+      return c.json({ error: "Run cleanup is incomplete. Retry Destroy before sending a new prompt." }, 409)
+    }
 
     // Preserve imperative operator work outside the compactable conversation.
     // A status question continues as a normal chat turn and does not create a
@@ -824,7 +847,7 @@ const router = new Hono<BaseEnv>()
     if (repo && isDurableExecutionRequest(text)) {
       try {
         const workKey = canonicalWorkKey({ repo, entityKey })
-        await recordAgentWork(db, {
+        executionContract = await controller.recordSessionWork(entityKey, generation, {
           workKey,
           entityKey,
           repo,
@@ -832,17 +855,10 @@ const router = new Hono<BaseEnv>()
           sourceId: crypto.randomUUID(),
           goal: text,
         })
-        executionContract = formatExecutionContract(await listOpenAgentWork(db, { workKey, entityKey }))
       } catch (err) {
         logger.error({ error: formatError(err) }, "operator work persistence failed")
         return c.json({ error: "Couldn't save this task safely. Please try again." }, 503)
       }
-    }
-
-    try {
-      await saveInitialSession(db, entityKey)
-    } catch {
-      /* may already exist */
     }
 
     // Prep the sandbox (clone + skills + gh auth) BEFORE admitting. If this
@@ -853,7 +869,7 @@ const router = new Hono<BaseEnv>()
     try {
       const access = await resolveRepoAccess(c.env, entityKey)
       if (!access) throw new Error("could not resolve repository access for this entity")
-      await prepEntitySandbox(c.env, entityKey, access, flueNative)
+      await prepEntitySandbox(c.env, entityKey, access, flueNative, generation)
     } catch (err) {
       // Surface the reason (repo-access denial vs sandbox clone/verify failure) —
       // the route only logged before, so the 503 the operator saw had no traceable
@@ -865,6 +881,7 @@ const router = new Hono<BaseEnv>()
 
     const { conversationUrl, submissionId } = await admitPrompt(c.env, {
       entityKey,
+      generation,
       prompt: formatOperatorPrompt(text, executionContract),
       flueNative,
       logger,
@@ -923,13 +940,14 @@ const router = new Hono<BaseEnv>()
       return c.json({ error: `Can't access ${repo}. Check that the GitHub App is installed on it.` }, 400)
     }
 
-    await saveInitialSession(db, entityKey)
+    const controller = await getSessionController(c.env, entityKey)
+    const generation = await controller.startSession(entityKey)
 
     let executionContract = ""
     if (isDurableExecutionRequest(text)) {
       try {
         const workKey = canonicalWorkKey({ repo, entityKey })
-        await recordAgentWork(db, {
+        executionContract = await controller.recordSessionWork(entityKey, generation, {
           workKey,
           entityKey,
           repo,
@@ -937,7 +955,6 @@ const router = new Hono<BaseEnv>()
           sourceId: crypto.randomUUID(),
           goal: text,
         })
-        executionContract = formatExecutionContract(await listOpenAgentWork(db, { workKey, entityKey }))
       } catch (err) {
         logger.error({ error: formatError(err) }, "chat work persistence failed")
         return c.json({ error: "Couldn't save this task safely. Please try again." }, 503)
@@ -960,15 +977,15 @@ const router = new Hono<BaseEnv>()
     c.executionCtx.waitUntil(
       (async () => {
         try {
-          await prepEntitySandbox(c.env, entityKey, access, flueNative)
+          await prepEntitySandbox(c.env, entityKey, access, flueNative, generation)
         } catch (err) {
           // Recoverable — Jared re-preps the sandbox on its first turn.
           logger.warn({ error: formatError(err) }, "chat run sandbox prep failed — continuing admit")
         }
         try {
-          await admitPrompt(c.env, { entityKey, prompt, flueNative, logger })
+          await admitPrompt(c.env, { entityKey, generation, prompt, flueNative, logger })
           try {
-            await patchChatSessionMeta(db, entityKey, { chatAdmitted: true })
+            await patchChatSessionMeta(db, entityKey, generation, { chatAdmitted: true })
           } catch {
             /* best effort — gate also clears once Flue history syncs */
           }
@@ -977,7 +994,7 @@ const router = new Hono<BaseEnv>()
           const message = formatError(err)
           logger.error({ error: message }, "chat run admit failed")
           try {
-            await patchChatSessionMeta(db, entityKey, { chatError: message })
+            await patchChatSessionMeta(db, entityKey, generation, { chatError: message })
           } catch {
             /* best effort */
           }
@@ -1211,37 +1228,17 @@ const router = new Hono<BaseEnv>()
     const entityKey = c.req.param("entityKey")
     const db = c.get("db")
     const instanceId = toAgentInstanceId(entityKey)
-    const binding = c.env.FLUE_JARED_AGENT
-    const native = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
-    if (native && !binding) return c.json({ error: "Native agent runtime is unavailable; nothing was deleted" }, 503)
+    if (!c.env.FLUE_JARED_AGENT)
+      return c.json({ error: "Agent lifecycle runtime is unavailable; nothing was deleted" }, 503)
 
-    let stage = "fence"
     try {
-      await destroyAgentGeneration(db, instanceId)
-      if (binding) {
-        stage = "conversation"
-        // Inherited Agents SDK teardown clears ALL durable storage (including
-        // Flue history and attachments), schedules, and aborts the old isolate.
-        const agent = binding.get(binding.idFromName(instanceId)) as unknown as {
-          destroy(): Promise<void>
-        }
-        await agent.destroy()
-      }
-      stage = "sandbox"
-      await getSandbox(c.env.Sandbox, instanceId, SANDBOX_OPTS).destroy()
-      stage = "records"
-      // Keep the lifecycle tombstone. The atomic write fence stops history
-      // requests that started before teardown from recreating these rows.
-      await db.batch([
-        db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
-        db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
-        db
-          .delete(dbSchema.githubDiscussionObligations)
-          .where(eq(dbSchema.githubDiscussionObligations.entityKey, entityKey)),
-        db.delete(dbSchema.agentWorkItems).where(eq(dbSchema.agentWorkItems.entityKey, entityKey)),
-      ])
+      const lifecycle = await db.query.agentLifecycle.findFirst({
+        where: eq(dbSchema.agentLifecycle.instanceId, instanceId),
+      })
+      const controller = await getSessionController(c.env, entityKey)
+      await controller.destroySession(entityKey, lifecycle?.generation ?? 0)
     } catch {
-      console.warn("jared: run destruction incomplete", { entityKey, stage })
+      console.warn("jared: run destruction incomplete", { entityKey })
       return c.json(
         { error: "Could not finish deleting this run. Some cleanup may have completed; retry Destroy." },
         503,

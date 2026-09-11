@@ -13,10 +13,12 @@
 
 import { createFlueClient } from "@flue/sdk"
 import type { Logger } from "@jared/utils"
+import * as Sentry from "@sentry/cloudflare"
 import { resolveFlueInternalToken } from "@/middlewares/flue-auth"
 import type { BaseEnvBindings } from "@/types/env/base"
 import { AGENT } from "./dispatch"
 import { toAgentInstanceId } from "./ids"
+import { getSessionController } from "./session-controller"
 
 /** Re-export adapt helpers used by routes / tests. */
 export {
@@ -44,6 +46,7 @@ export async function dispatchToFlueAgent(
   opts: {
     entityKey: string
     prompt: string
+    generation: number
     logger?: Logger
   },
 ): Promise<{ conversationUrl: string; submissionId?: string }> {
@@ -53,13 +56,13 @@ export async function dispatchToFlueAgent(
 
   opts.logger?.info({ entity_key: opts.entityKey, instance_id: id }, "flue.dispatch.send")
 
-  const { dispatch } = await import("@flue/runtime")
-  const { Jared } = await import("@/agents/jared.ts")
-
-  const receipt = await dispatch(Jared, {
-    id,
-    message: { kind: "user", body: opts.prompt },
-  })
+  const controller = await getSessionController(env, opts.entityKey)
+  const receipt = await controller.admitSession(
+    opts.entityKey,
+    opts.generation,
+    { kind: "user", body: opts.prompt },
+    Sentry.getTraceData({ propagateTraceparent: true }),
+  )
 
   const submissionId =
     typeof receipt === "object" && receipt && "submissionId" in receipt

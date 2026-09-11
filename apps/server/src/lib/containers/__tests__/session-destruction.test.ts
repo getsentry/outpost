@@ -45,4 +45,14 @@ describe("destroyed session persistence", () => {
     expect(row?.sessionData).toContain('"new"')
     expect(row?.sessionData).not.toContain('"old"')
   })
+
+  it("refuses a new start while destruction is incomplete, including after a cleanup failure", async () => {
+    const { db, close } = await testDb()
+    closes.push(close)
+    await startAgentGeneration(db, instanceId)
+    await saveSession(db, entityKey, history("old"), 1)
+    await destroyAgentGeneration(db, instanceId, true)
+    await expect(startAgentGeneration(db, instanceId)).rejects.toThrow(/cleanup/i)
+    expect((await db.query.agentLifecycle.findFirst())?.destroyedAt).not.toBeNull()
+  })
 })

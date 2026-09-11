@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 
@@ -22,48 +22,30 @@ export function mayRunFollowUpFromRecord(record: AgentLifecycleRecord | null, ge
 }
 
 export async function startAgentGeneration(db: Db, instanceId: string): Promise<number> {
-  const existing = await db.query.agentLifecycle.findFirst({
-    where: eq(dbSchema.agentLifecycle.instanceId, instanceId),
-  })
-  const now = new Date()
-  if (!existing) {
-    await db.insert(dbSchema.agentLifecycle).values({
-      instanceId,
-      generation: 1,
-      destroyedAt: null,
-      updatedAt: now,
-    })
-    return 1
-  }
-
-  const generation = nextGenerationAfterStart(existing)
-  if (generation !== existing.generation || existing.destroyedAt) {
-    await db
-      .update(dbSchema.agentLifecycle)
-      .set({ generation, destroyedAt: null, updatedAt: now })
-      .where(eq(dbSchema.agentLifecycle.instanceId, instanceId))
-  }
-  return generation
+  const now = Math.floor(Date.now() / 1000)
+  const rows = await db.all<{ generation: number }>(sql`
+    INSERT INTO agent_lifecycle (instance_id, generation, destroyed_at, cleanup_pending, updated_at)
+    VALUES (${instanceId}, 1, NULL, 0, ${now})
+    ON CONFLICT(instance_id) DO UPDATE SET
+      generation = CASE WHEN destroyed_at IS NULL THEN generation ELSE generation + 1 END,
+      destroyed_at = NULL, updated_at = excluded.updated_at
+    WHERE cleanup_pending = 0
+    RETURNING generation
+  `)
+  if (!rows[0]) throw new Error("Run cleanup is incomplete; retry Destroy before starting again")
+  return rows[0].generation
 }
 
-export async function destroyAgentGeneration(db: Db, instanceId: string): Promise<void> {
-  const existing = await db.query.agentLifecycle.findFirst({
-    where: eq(dbSchema.agentLifecycle.instanceId, instanceId),
-  })
-  const now = new Date()
-  if (!existing) {
-    await db.insert(dbSchema.agentLifecycle).values({
-      instanceId,
-      generation: 1,
-      destroyedAt: now,
-      updatedAt: now,
-    })
-    return
-  }
-  await db
-    .update(dbSchema.agentLifecycle)
-    .set({ destroyedAt: now, updatedAt: now })
-    .where(eq(dbSchema.agentLifecycle.instanceId, instanceId))
+export async function destroyAgentGeneration(db: Db, instanceId: string, cleanupPending = false): Promise<void> {
+  const now = Math.floor(Date.now() / 1000)
+  await db.run(sql`
+    INSERT INTO agent_lifecycle (instance_id, generation, destroyed_at, cleanup_pending, updated_at)
+    VALUES (${instanceId}, 1, ${now}, ${cleanupPending ? 1 : 0}, ${now})
+    ON CONFLICT(instance_id) DO UPDATE SET
+      destroyed_at = excluded.destroyed_at,
+      cleanup_pending = MAX(cleanup_pending, excluded.cleanup_pending),
+      updated_at = excluded.updated_at
+  `)
 }
 
 export async function mayRunFollowUp(db: Db, instanceId: string, generation: number): Promise<boolean> {

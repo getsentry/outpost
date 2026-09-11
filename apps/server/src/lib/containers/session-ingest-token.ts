@@ -49,12 +49,18 @@ function decodeEntityKey(encoded: string): string | null {
 }
 
 /**
- * Mint `v1.<entityKeyB64url>.<expUnixSec>.<hmacHex>` scoped to one entity.
+ * Mint a token scoped to one entity AND run generation.
  */
-export async function mintSessionIngestToken(secret: string, entityKey: string, now = Date.now()): Promise<string> {
+export async function mintSessionIngestToken(
+  secret: string,
+  entityKey: string,
+  generation: number,
+  now = Date.now(),
+): Promise<string> {
+  if (!Number.isSafeInteger(generation) || generation < 0) throw new Error("Invalid session generation")
   const exp = Math.floor((now + SESSION_INGEST_TOKEN_TTL_MS) / 1000)
-  const mac = await hmacSha256Hex(secret, `${entityKey}:${exp}`)
-  return `v1.${encodeEntityKey(entityKey)}.${exp}.${mac}`
+  const mac = await hmacSha256Hex(secret, `v2:${entityKey}:${generation}:${exp}`)
+  return `v2.${encodeEntityKey(entityKey)}.${exp}.${generation}.${mac}`
 }
 
 /**
@@ -64,11 +70,17 @@ export async function verifySessionIngestToken(
   secret: string,
   token: string,
   entityKey: string,
+  generation: number | null,
   now = Date.now(),
 ): Promise<boolean> {
+  if (generation === null || !Number.isSafeInteger(generation) || generation < 0) return false
   const parts = token.split(".")
-  if (parts.length !== 4 || parts[0] !== "v1") return false
-  const [, ekEnc, expStr, mac] = parts
+  const legacy = parts[0] === "v1" && parts.length === 4
+  // Legacy reporters have no run identity: valid only before the first reset.
+  if (legacy ? generation > 1 : parts[0] !== "v2" || parts.length !== 5) return false
+  const [, ekEnc, expStr] = parts
+  const mac = parts.at(-1)
+  if (!legacy && String(generation) !== parts[3]) return false
   if (!ekEnc || !expStr || !mac) return false
 
   const exp = Number(expStr)
@@ -77,6 +89,9 @@ export async function verifySessionIngestToken(
   const decoded = decodeEntityKey(ekEnc)
   if (!decoded || !timingSafeEqualString(decoded, entityKey)) return false
 
-  const expectedMac = await hmacSha256Hex(secret, `${entityKey}:${exp}`)
+  const expectedMac = await hmacSha256Hex(
+    secret,
+    legacy ? `${entityKey}:${exp}` : `v2:${entityKey}:${generation}:${exp}`,
+  )
   return timingSafeEqualString(mac, expectedMac)
 }

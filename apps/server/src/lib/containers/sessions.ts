@@ -22,6 +22,18 @@ export async function readSessionGeneration(
   return lifecycle?.destroyedAt ? null : (lifecycle?.generation ?? 0)
 }
 
+/** Keep failed/pending cleanup visible so an operator can retry Destroy. */
+export async function isSessionCleanupPending(
+  db: DrizzleD1Database<typeof dbSchema>,
+  entityKey: string,
+): Promise<boolean> {
+  const lifecycle = await db.query.agentLifecycle.findFirst({
+    where: (table, { eq }) => eq(table.instanceId, toAgentInstanceId(entityKey)),
+    columns: { cleanupPending: true },
+  })
+  return lifecycle?.cleanupPending ?? false
+}
+
 /**
  * Merge a previously-stored session blob with an incoming one. Pure function so
  * it can be unit-tested independently of D1.

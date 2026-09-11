@@ -43,6 +43,13 @@
       "when": 1788779488374,
       "tag": "0005_fluffy_baron_strucker",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1789101185058,
+      "tag": "0006_fearless_senator_kelly",
+      "breakpoints": true
     }
   ]
 }

@@ -12,11 +12,10 @@
 //   4. Determine GitHub repo from Sentry project
 //   5. Format prompt with error context and dispatch to container
 
-import { getSandbox } from "@cloudflare/sandbox"
 import { formatError } from "@jared/utils"
 import * as Sentry from "@sentry/cloudflare"
 import { Hono } from "hono"
-import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
+import { getSessionController } from "@/lib/containers/session-controller"
 import type { BaseEnv } from "@/types"
 
 // The Sentry team whose assignment triggers the agent
@@ -263,15 +262,11 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
 
   // Dispatch in waitUntil so we return 200 quickly
   const envBindings = c.env
-  const db = c.get("db")
   const containerKey = `sentry/${projectSlug}#${issueId}`
 
   // Save initial session immediately so the container appears in the UI
-  try {
-    await saveInitialSession(db, containerKey)
-  } catch {
-    /* best effort — may conflict with existing row */
-  }
+  const controller = await getSessionController(c.env, containerKey)
+  const generation = await controller.startSession(containerKey)
 
   c.executionCtx.waitUntil(
     (async () => {
@@ -289,9 +284,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
         const { toAgentInstanceId } = await import("@/lib/containers/ids")
         const { createGitHubApp } = await import("@/lib/github/app")
         const { resolveFlueInternalToken } = await import("@/middlewares/flue-auth")
-        const { SANDBOX_OPTS } = await import("@/lib/containers/sandbox-opts")
         const sandboxId = toAgentInstanceId(containerKey)
-        const sandbox = getSandbox(envBindings.Sandbox, sandboxId, SANDBOX_OPTS)
 
         // Mint a GitHub App installation token for the guessed repo so git/gh work.
         let installationToken = ""
@@ -316,7 +309,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           "sentry.dispatch.sandbox_ready.start",
         )
         const flueNative = envBindings.FLUE_NATIVE === "1" || envBindings.FLUE_NATIVE === "true"
-        await ensureSandboxReady(sandbox, {
+        await controller.prepareSession(containerKey, generation, {
           repo: repo || null,
           botLogin,
           installationToken,
@@ -324,6 +317,7 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
           anthropicApiKey: envBindings.ANTHROPIC_API_KEY,
           openaiApiKey: envBindings.OPENAI_API_KEY,
           entityKey: containerKey,
+          sessionGeneration: generation,
           appUrl: envBindings.APP_URL,
           thinSandbox: flueNative,
           loreGatewayUrl: envBindings.LORE_GATEWAY_URL,
@@ -342,14 +336,9 @@ const router = new Hono<BaseEnv>().post("/", async (c) => {
         })
 
         logger.info({ issue_id: issueId, container_key: containerKey }, "sentry.dispatch.prompt.start")
-        const eventId = crypto.randomUUID()
         // Admit the prompt without blocking waitUntil on agent startup.
-        if (flueNative) {
-          const { dispatchToFlueAgent } = await import("@/lib/containers/flue-dispatch")
-          await dispatchToFlueAgent(envBindings, { entityKey: containerKey, prompt, logger })
-        } else {
-          await dispatchPrompt(sandbox, containerKey, prompt, eventId)
-        }
+        const { dispatchToFlueAgent } = await import("@/lib/containers/flue-dispatch")
+        await dispatchToFlueAgent(envBindings, { entityKey: containerKey, generation, prompt, logger })
         logger.info({ issue_id: issueId, container_key: containerKey }, "sentry issue dispatched")
       } catch (err) {
         logger.error(

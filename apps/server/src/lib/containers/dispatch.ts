@@ -46,6 +46,7 @@ export type SandboxSetupOpts = {
   anthropicApiKey?: string
   openaiApiKey?: string
   entityKey: string
+  sessionGeneration?: number
   /** Public base URL of this Worker, so the in-container reporter can POST session data back. */
   appUrl?: string
   /**
@@ -212,6 +213,7 @@ export async function ensureSandboxReady(
   // — it simply polls until Flue answers.
   await startSessionReporter(sandbox, {
     entityKey: opts.entityKey,
+    sessionGeneration: opts.sessionGeneration,
     appUrl: opts.appUrl,
     flueInternalToken: opts.flueInternalToken,
   })
@@ -418,7 +420,7 @@ async function verifyThinSandboxPrepped(sandbox: ReturnType<typeof getSandbox>):
 
 async function ensureSessionReporterRunning(
   sandbox: ReturnType<typeof getSandbox>,
-  opts: { entityKey: string; appUrl?: string; flueInternalToken?: string },
+  opts: { entityKey: string; sessionGeneration?: number; appUrl?: string; flueInternalToken?: string },
 ): Promise<void> {
   const check = await sandbox.exec("pgrep -f 'session-reporter.sh' > /dev/null 2>&1", { cwd: "/workspace" })
   if (check.success) return
@@ -435,17 +437,17 @@ async function ensureSessionReporterRunning(
  */
 async function startSessionReporter(
   sandbox: ReturnType<typeof getSandbox>,
-  opts: { entityKey: string; appUrl?: string; flueInternalToken?: string },
+  opts: { entityKey: string; sessionGeneration?: number; appUrl?: string; flueInternalToken?: string },
 ): Promise<void> {
   if (!opts.appUrl) return
-  if (!opts.flueInternalToken) {
+  if (!opts.flueInternalToken || opts.sessionGeneration === undefined) {
     // Without a signing secret we cannot authenticate ingest — skip reporter.
     return
   }
 
   const ingestUrl = `${opts.appUrl.replace(/\/$/, "")}/api/containers/sessions`
   const conversationId = toAgentInstanceId(opts.entityKey)
-  const ingestToken = await mintSessionIngestToken(opts.flueInternalToken, opts.entityKey)
+  const ingestToken = await mintSessionIngestToken(opts.flueInternalToken, opts.entityKey, opts.sessionGeneration)
 
   const reporterScript = [
     "#!/bin/bash",

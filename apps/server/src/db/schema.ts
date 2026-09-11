@@ -165,6 +165,7 @@ export const agentLifecycle = sqliteTable("agent_lifecycle", {
   instanceId: text("instance_id").primaryKey(),
   generation: integer("generation").notNull().default(1),
   destroyedAt: integer("destroyed_at", { mode: "timestamp" }),
+  cleanupPending: integer("cleanup_pending", { mode: "boolean" }).notNull().default(false),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 })
 
