@@ -15,6 +15,7 @@ import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
 import { startAgentGeneration } from "@/lib/agents/lifecycle"
 import { FLUE_INTERNAL_HEADER, resolveFlueInternalToken } from "@/middlewares/flue-auth"
+import { GITHUB_COMMAND_ENV } from "./command-environment"
 import { toAgentInstanceId } from "./ids"
 import type { getSandbox } from "./sandbox-client"
 import { isTransientSandboxError } from "./sandbox-errors"
@@ -157,10 +158,6 @@ export async function ensureSandboxReady(
       await sandbox.writeFile(envSource, buildEnvFileContents(opts, opts.installationToken))
       const result = await sandbox.exec(buildThinSandboxPrepScript(opts, envSource), { cwd: "/workspace" })
       if (!result.success) throw new Error(`thin sandbox prep failed: ${result.stderr}`)
-      // Sourcing the file only authenticates the prep shell. Native Flue runs
-      // later commands in separate shells, so give them the installation token
-      // through the Sandbox API as well (never interpolate it into exec).
-      await sandbox.setEnvVars({ GH_TOKEN: opts.installationToken || undefined })
     }, 5)
 
     // Guard against a "successful" prep that silently dropped work: a mid-exec
@@ -339,6 +336,8 @@ export function buildThinSandboxPrepScript(opts: SandboxSetupOpts, envSource = "
     `REPO=${shellQuote(repo)}`,
     `CLONE_URL=${shellQuote(cloneUrl)}`,
     `ENV_SOURCE=${shellQuote(envSource)}`,
+    `GITHUB_ENV_FILE=${shellQuote(GITHUB_COMMAND_ENV)}`,
+    "GITHUB_ENV_PENDING=",
     `BOT_LOGIN=${shellQuote(opts.botLogin)}`,
     `BOT_EMAIL=${shellQuote(botEmail)}`,
     "LOCK=/workspace/.thin-sandbox-prep.lock",
@@ -349,10 +348,12 @@ export function buildThinSandboxPrepScript(opts: SandboxSetupOpts, envSource = "
     "  i=$((i+1)); sleep 1",
     "done",
     'if [ "$HELD" != 1 ]; then echo "sandbox prep lock timed out" >&2; exit 75; fi',
-    'cleanup() { rm -f "$ENV_SOURCE"; [ "$HELD" = 1 ] && rmdir "$LOCK" 2>/dev/null || true; }',
+    'cleanup() { rm -f "$ENV_SOURCE"; [ -z "$GITHUB_ENV_PENDING" ] || rm -f "$GITHUB_ENV_PENDING"; [ "$HELD" = 1 ] && rmdir "$LOCK" 2>/dev/null || true; }',
     "trap cleanup EXIT",
     "",
     'test -f "$ENV_SOURCE"',
+    // Never let a previous BASH_ENV bootstrap mask missing fresh credentials.
+    "unset GH_TOKEN GITHUB_TOKEN",
     'source "$ENV_SOURCE"',
     `TOKEN="\${GH_TOKEN:-}"`,
     "",
@@ -385,6 +386,11 @@ export function buildThinSandboxPrepScript(opts: SandboxSetupOpts, envSource = "
     'mv "$ENV_SOURCE" /tmp/flue-env.sh.tmp',
     "mv /tmp/flue-env.sh.tmp /tmp/flue-env.sh",
     "chmod 600 /tmp/flue-env.sh",
+    // Bash loads this for each implicit command, even after the Sandbox DO is
+    // evicted. Publish only GitHub auth, never the provider keys in flue-env.sh.
+    "GITHUB_ENV_PENDING=$(mktemp /tmp/jared-github-env.XXXXXX)",
+    `printf 'export GH_TOKEN=%q\\nunset BASH_ENV\\n' "$TOKEN" > "$GITHUB_ENV_PENDING"`,
+    'test ! -d "$GITHUB_ENV_FILE" && mv "$GITHUB_ENV_PENDING" "$GITHUB_ENV_FILE"',
     "mkdir -p /workspace/repo/.agents",
     "[ -d /root/.agents/skills ] && copy_workspace_file -R /root/.agents/skills /workspace/repo/.agents/ || true",
     "[ -f /root/AGENTS.md ] && copy_workspace_file /root/AGENTS.md /workspace/repo/AGENTS.md || true",
@@ -409,6 +415,7 @@ async function writeEnvFile(sandbox: ReturnType<typeof getSandbox>, opts: Sandbo
 export const THIN_SANDBOX_READY_CHECK =
   "test -d /workspace/repo/.git && " +
   '[ -n "$(ls -A /workspace/repo/.agents/skills 2>/dev/null)" ] && ' +
+  `test -s ${GITHUB_COMMAND_ENV} && ` +
   `test -n "\${GH_TOKEN:-}" && ` +
   "grep -q '^export GH_TOKEN=' /tmp/flue-env.sh"
 

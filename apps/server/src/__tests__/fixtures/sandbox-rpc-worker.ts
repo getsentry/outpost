@@ -1,9 +1,20 @@
 import { DurableObject } from "cloudflare:workers"
-import { getSandbox as getCloudflareSandbox, type Sandbox } from "@cloudflare/sandbox"
+import { getSandbox as getCloudflareSandbox, Sandbox } from "@cloudflare/sandbox"
 import { freshRpc } from "../../lib/containers/fresh-rpc"
 import { getSandbox } from "../../lib/containers/sandbox-client"
 
 export class ResettableSandbox extends DurableObject {
+  envVars: Record<string, string | undefined> = {}
+
+  setEnvVars(vars: Record<string, string | undefined>): Promise<void> {
+    // Exercise the installed SDK's environment storage, not a durable mock of it.
+    return Sandbox.prototype.setEnvVars.call(this as unknown as Sandbox, vars)
+  }
+
+  hasCommandAuth() {
+    return !!this.envVars.GH_TOKEN
+  }
+
   async configure(configuration: Record<string, unknown>) {
     await this.ctx.storage.put("configuration", configuration)
   }
@@ -78,6 +89,13 @@ export default {
       return checkSdkConfigurationOrder(env.Sandbox, mode === "/sdk-fresh")
     }
     const connect = () => env.Sandbox.getByName(mode)
+    if (mode === "/volatile-env") {
+      const client = freshRpc(connect)
+      await client.setEnvVars({ GH_TOKEN: "test-only" })
+      const before = await client.hasCommandAuth()
+      await client.mutateAndReset().catch(() => {})
+      return Response.json({ before, after: await client.hasCommandAuth() })
+    }
     const stub = mode === "/fresh" ? freshRpc(connect) : connect()
     // Capture before the reset, like a long-lived tool or retry callback.
     const read = stub.readCount.bind(stub)
