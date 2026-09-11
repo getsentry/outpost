@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { testDb } from "@/__tests__/test-db"
@@ -87,8 +87,8 @@ async function fixture(authenticated = true) {
       await next()
     })
     .route("/", router)
-  const request = (binding = true) =>
-    app.request("/sessions?mode=all", { method: "DELETE" }, {
+  const request = (binding = true, mode = "all") =>
+    app.request(`/sessions?mode=${mode}`, { method: "DELETE" }, {
       FLUE_NATIVE: "1",
       ...(binding ? { FLUE_JARED_AGENT: {} } : {}),
     } as BaseEnv["Bindings"])
@@ -96,6 +96,24 @@ async function fixture(authenticated = true) {
 }
 
 describe("Clear All runs", () => {
+  it("keeps idle clearing records-only and leaves working runs alone", async () => {
+    const f = await fixture()
+    await f.seed("acme/app#42")
+    await f.seed("acme/app#99")
+    await f.db
+      .update(schema.agentSessions)
+      .set({
+        sessionData: JSON.stringify({ sessionStatus: { "acme-app-42": { type: "idle" } } }),
+      })
+      .where(eq(schema.agentSessions.entityKey, "acme/app#42"))
+    const response = await f.request(false, "idle")
+    expect(await response.json()).toEqual({ ok: true, mode: "idle", deleted: 1, destroyed: 0 })
+    expect(getController).not.toHaveBeenCalled()
+    expect(f.agent).not.toHaveBeenCalled()
+    expect(f.sandbox).not.toHaveBeenCalled()
+    expect((await f.db.query.agentSessions.findMany()).map((r) => r.entityKey)).toEqual(["acme/app#99"])
+  })
+
   it("bounds concurrent cleanup and still attempts every selected run", async () => {
     const f = await fixture()
     for (let i = 0; i < 12; i++) await f.seed(`acme/app#${i}`)

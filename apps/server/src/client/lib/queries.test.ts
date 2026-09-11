@@ -42,7 +42,7 @@ it("removes only successfully cleared detail caches and refreshes failures and r
 })
 
 it("refreshes uncertain bulk cleanup after a network failure without discarding cached history", async () => {
-  const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+  const client = new QueryClient({ defaultOptions: { mutations: { retry: 2, retryDelay: 0 } } })
   const key = ["sessionDetail", "acme/app#42"]
   client.setQueryData(key, { messages: ["saved"] })
   client.setQueryData(["sessions"], { data: [] })
