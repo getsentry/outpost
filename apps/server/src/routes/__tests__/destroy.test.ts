@@ -69,6 +69,16 @@ async function fixture(authenticated = true) {
   const detail = () =>
     app.request("/sessions/detail?entityKey=acme%2Fapp%2342", {}, { FLUE_NATIVE: "1" } as BaseEnv["Bindings"])
   const list = () => app.request("/sessions", {}, {} as BaseEnv["Bindings"])
+  const streamSnapshot = () => {
+    // Seed one snapshot, then end the test stream instead of entering its long-poll loop.
+    const abort = new AbortController()
+    abort.abort()
+    return app.request(
+      "/sessions/stream?entityKey=acme%2Fapp%2342",
+      { signal: abort.signal },
+      { FLUE_NATIVE: "1" } as BaseEnv["Bindings"],
+    )
+  }
   const ingest = (token: string, text: string) =>
     app.request(
       "/sessions",
@@ -82,7 +92,7 @@ async function fixture(authenticated = true) {
       },
       { FLUE_INTERNAL_TOKEN: "test-secret" } as BaseEnv["Bindings"],
     )
-  return { request, detail, list, ingest, db, durableDestroy, binding }
+  return { request, detail, list, streamSnapshot, ingest, db, durableDestroy, binding }
 }
 
 describe("Destroy run", () => {
@@ -193,6 +203,12 @@ describe("Destroy run", () => {
     expect(
       (await list.json()).data.find((row: { entityKey: string }) => row.entityKey === "acme/app#42"),
     ).toMatchObject({ status: "cleanup_pending", activityPreview: { state: "cleanup_pending" } })
+    const stream = await f.streamSnapshot()
+    expect(stream.status).toBe(200)
+    const frame = await stream.text()
+    expect(frame).toContain("event: snapshot")
+    const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6)
+    expect(JSON.parse(data ?? "{}")).toMatchObject({ status: "cleanup_pending", cleanupPending: true })
     expect(historyRead).not.toHaveBeenCalled()
   })
 
