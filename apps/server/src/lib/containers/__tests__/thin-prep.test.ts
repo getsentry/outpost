@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { getSandbox } from "@cloudflare/sandbox"
 import { afterEach, describe, expect, it } from "vitest"
+import { GITHUB_COMMAND_ENV, withGitHubCommandEnv } from "../command-environment"
 import {
   buildThinSandboxPrepScript,
   ensureSandboxReady,
@@ -17,6 +18,8 @@ const baseOpts: SandboxSetupOpts = {
   installationToken: "ghs_exampletoken1234567890",
   entityKey: "getsentry/cli#1365",
   openaiApiKey: "openai-test-key",
+  anthropicApiKey: "anthropic-test-key",
+  openrouterApiKey: "openrouter-test-key",
 }
 
 const fixtureDirs: string[] = []
@@ -56,11 +59,12 @@ printf '%s' "$GH_TOKEN" > "$TEST_AUTH_RECEIPT"
     value
       .replaceAll("/workspace", join(dir, "workspace"))
       .replaceAll("/tmp/flue-env", join(dir, "tmp/flue-env"))
+      .replaceAll("/tmp/jared-github-env", join(dir, "tmp/jared-github-env"))
       .replaceAll("/root/", `${dir}/root/`)
       .replaceAll("/opt/flue/", `${dir}/opt/flue/`)
       .replaceAll("https://github.com/getsentry/cli.git", join(dir, "seed.git"))
   const commandEnv: Record<string, string | undefined> = {}
-  const exec = (command: string, fail = false) =>
+  const exec = (command: string, fail = false, env: Record<string, string | undefined> = {}) =>
     spawnSync("/bin/bash", ["--noprofile", "--norc", "-c", mapPaths(command)], {
       encoding: "utf8",
       timeout: 5_000,
@@ -75,6 +79,7 @@ printf '%s' "$GH_TOKEN" > "$TEST_AUTH_RECEIPT"
         TEST_AUTH_RECEIPT: join(dir, "auth-receipt"),
         TEST_SETUP_FAIL: fail ? "1" : "0",
         ...commandEnv,
+        ...Object.fromEntries(Object.entries(env).map(([key, value]) => [key, value && mapPaths(value)])),
       },
     })
   const run = (token: string, fail = false) => {
@@ -88,8 +93,8 @@ printf '%s' "$GH_TOKEN" > "$TEST_AUTH_RECEIPT"
     setEnvVars: async (vars: Record<string, string | undefined>) => {
       Object.assign(commandEnv, vars)
     },
-    exec: async (command: string) => {
-      const result = exec(command)
+    exec: async (command: string, options?: { env?: Record<string, string | undefined> }) => {
+      const result = exec(command, false, withGitHubCommandEnv(options)?.env)
       return { success: result.status === 0, stderr: result.stderr, stdout: result.stdout, exitCode: result.status }
     },
   } as unknown as ReturnType<typeof getSandbox>
@@ -123,17 +128,49 @@ describe("buildThinSandboxPrepScript", () => {
     expect(readFileSync(skill, "utf8")).toBe("local agent edit")
     expect(readFileSync(join(f.dir, "workspace/repo/.agents/skills/new.md"), "utf8")).toBe("new skill")
   })
-  it("authenticates later commands and detects lost command auth after a DO reset", async () => {
-    const { sandbox } = prepFixture()
+  it("keeps command auth after DO memory is lost without exposing provider keys", async () => {
+    const { dir, sandbox } = prepFixture()
     for (const token of ["initial-installation-token", "refreshed-installation-token"]) {
       await ensureSandboxReady(sandbox, { ...baseOpts, installationToken: token, thinSandbox: true })
       const command = await sandbox.exec('printf "%s" "$GH_TOKEN"')
       expect(command.success).toBe(true)
       expect(command.stdout).toBe(token)
+      await sandbox.setEnvVars({ GH_TOKEN: undefined })
+      expect((await sandbox.exec(THIN_SANDBOX_READY_CHECK)).success).toBe(true)
+      expect((await sandbox.exec('printf "%s" "$GH_TOKEN"')).stdout).toBe(token)
+      const bootstrap = readFileSync(join(dir, "tmp/jared-github-env.sh"), "utf8")
+      expect(bootstrap).not.toContain(baseOpts.openaiApiKey!)
+      expect(bootstrap).not.toContain(baseOpts.anthropicApiKey!)
+      expect(bootstrap).not.toContain(baseOpts.openrouterApiKey!)
+      expect(statSync(join(dir, "tmp/jared-github-env.sh")).mode & 0o777).toBe(0o600)
+      expect((await sandbox.exec(`test -z "\${OPENAI_API_KEY:-}"`)).success).toBe(true)
+      expect(
+        (await sandbox.exec(`test -z "\${ANTHROPIC_API_KEY:-}" && test -z "\${OPENROUTER_API_KEY:-}"`)).success,
+      ).toBe(true)
+      expect((await sandbox.exec(`test -z "\${BASH_ENV:-}"`)).success).toBe(true)
     }
-    await sandbox.setEnvVars({ GH_TOKEN: undefined })
-    expect((await sandbox.exec("test -d /workspace/repo/.git")).success).toBe(true)
+    expect((await sandbox.exec('printf "%s" "$GH_TOKEN"', { env: { GH_TOKEN: "explicit-token" } })).stdout).toBe(
+      "explicit-token",
+    )
+    expect((await sandbox.exec("exit 44")).exitCode).toBe(44)
+    expect(GITHUB_COMMAND_ENV).toBe("/tmp/jared-github-env.sh")
+  })
+
+  it("does not consider a legacy in-memory token ready without the command bootstrap", async () => {
+    const { dir, sandbox } = prepFixture()
+    await ensureSandboxReady(sandbox, { ...baseOpts, thinSandbox: true })
+    await sandbox.setEnvVars({ GH_TOKEN: "legacy-token" })
+    rmSync(join(dir, "tmp/jared-github-env.sh"))
     expect((await sandbox.exec(THIN_SANDBOX_READY_CHECK)).success).toBe(false)
+  })
+
+  it("does not reuse stale bootstrap credentials when fresh preparation has no token", async () => {
+    const { sandbox } = prepFixture()
+    await ensureSandboxReady(sandbox, { ...baseOpts, thinSandbox: true })
+    await expect(
+      ensureSandboxReady(sandbox, { ...baseOpts, installationToken: "", thinSandbox: true }),
+    ).rejects.toThrow()
+    expect((await sandbox.exec('test -z "$GH_TOKEN"')).success).toBe(true)
   })
 
   it("configures headless auth with fresh tokens on cold and warm workspaces", () => {
