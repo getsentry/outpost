@@ -33,6 +33,7 @@ import {
   isValidRepoSlug,
   MAX_CHAT_REPO_LENGTH,
 } from "@/lib/containers/chat-run"
+import type { ClearSessionsResult } from "@/lib/containers/clear-sessions-result"
 import { applyGitHubAuth, FLUE_AGENT_MOUNT, FLUE_PORT, OPENCODE_PORT } from "@/lib/containers/dispatch"
 import { parseOwnerRepo } from "@/lib/containers/do-prep"
 import {
@@ -1122,11 +1123,55 @@ const router = new Hono<BaseEnv>()
   })
 
   // Clear agent sessions.
-  //   ?mode=all  (default) — destroy every sandbox, then delete all D1 rows
+  //   ?mode=all  (default) — guarded destruction of a snapshot of current runs
   //   ?mode=idle           — delete non-working rows (idle / historical / stale busy); no destroy
   .delete("/sessions", async (c) => {
     const db = c.get("db")
     const mode = c.req.query("mode") === "idle" ? "idle" : "all"
+
+    if (mode === "all") {
+      if (!c.env.FLUE_JARED_AGENT)
+        return c.json({ error: "Agent lifecycle runtime is unavailable; nothing was deleted" }, 503)
+
+      // D1 batch is atomic: capture keys AND generations before starting cleanup.
+      // Reading generations later could accidentally target a replacement run.
+      const [selected, lifecycles] = await db.batch([
+        db.select({ entityKey: dbSchema.agentSessions.entityKey }).from(dbSchema.agentSessions),
+        db
+          .select({ instanceId: dbSchema.agentLifecycle.instanceId, generation: dbSchema.agentLifecycle.generation })
+          .from(dbSchema.agentLifecycle),
+      ])
+      const generations = new Map(lifecycles.map((row) => [row.instanceId, row.generation]))
+      const deletedKeys: string[] = []
+      const failed: string[] = []
+      // Bound concurrent DO/sandbox operations instead of opening one per run.
+      const concurrency = 5
+      for (let offset = 0; offset < selected.length; offset += concurrency) {
+        await Promise.all(
+          selected.slice(offset, offset + concurrency).map(async ({ entityKey }) => {
+            try {
+              const controller = await getSessionController(c.env, entityKey)
+              await controller.destroySession(entityKey, generations.get(toAgentInstanceId(entityKey)) ?? 0)
+              deletedKeys.push(entityKey)
+            } catch (error) {
+              console.warn("jared: run destruction incomplete", { entityKey, stage: cleanupFailureStage(error) })
+              failed.push(entityKey)
+            }
+          }),
+        )
+      }
+      return c.json(
+        {
+          ok: failed.length === 0,
+          mode,
+          deleted: deletedKeys.length,
+          destroyed: deletedKeys.length,
+          deletedKeys,
+          failed,
+        } satisfies ClearSessionsResult,
+        failed.length ? 207 : 200,
+      )
+    }
 
     const rows = await db
       .select({
@@ -1178,28 +1223,6 @@ const router = new Hono<BaseEnv>()
       )
       return c.json({ ok: true, mode, deleted: idleKeys.length, destroyed: 0 })
     }
-
-    // Destroy sandboxes first so a dead container can't re-report into D1.
-    const destroyResults = await Promise.allSettled(
-      rows.map(async (row) => {
-        const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(row.entityKey), SANDBOX_OPTS)
-        await sandbox.destroy()
-      }),
-    )
-    const destroyed = destroyResults.filter((r) => r.status === "fulfilled").length
-
-    if (rows.length > 0) {
-      // Clear both the session snapshots and the stored webhook events so a full
-      // wipe leaves no D1 residue to resurface on the next trigger.
-      await Promise.all([
-        ...rows.map((row) => destroyAgentGeneration(db, toAgentInstanceId(row.entityKey))),
-        db.delete(dbSchema.agentSessions),
-        db.delete(dbSchema.webhookEvents),
-        db.delete(dbSchema.githubDiscussionObligations),
-      ])
-    }
-
-    return c.json({ ok: true, mode, deleted: rows.length, destroyed })
   })
 
   // Delete a single agent session from D1

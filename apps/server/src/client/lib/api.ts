@@ -1,3 +1,4 @@
+import type { ClearSessionsResult } from "@/lib/containers/clear-sessions-result"
 import type { DisplayRunStatus } from "@/lib/containers/run-status"
 import type { ActivityPreview } from "@/lib/containers/transcript-presentation"
 import { endpoint } from "@/lib/endpoint"
@@ -231,8 +232,12 @@ export const api = {
 
   async clearSessions(mode: "all" | "idle" = "all") {
     const res = await fetch(`/api/containers/sessions?mode=${mode}`, { method: "DELETE" })
-    if (!res.ok) throw new Error(`Failed to clear sessions: ${res.status}`)
-    return res.json() as Promise<{ ok: true; mode: string; deleted: number; destroyed: number }>
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null
+      throw new Error(body?.error ?? "Could not confirm cleanup. Check the remaining runs before trying again.")
+    }
+    // 207 is a completed attempt with per-run failures, not an all-clear.
+    return res.json() as Promise<ClearSessionsResult>
   },
 
   async deleteSession(entityKey: string) {
