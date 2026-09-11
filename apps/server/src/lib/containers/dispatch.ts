@@ -390,7 +390,8 @@ export function buildThinSandboxPrepScript(opts: SandboxSetupOpts, envSource = "
     // evicted. Publish only GitHub auth, never the provider keys in flue-env.sh.
     "GITHUB_ENV_PENDING=$(mktemp /tmp/jared-github-env.XXXXXX)",
     `printf 'export GH_TOKEN=%q\\nunset BASH_ENV\\n' "$TOKEN" > "$GITHUB_ENV_PENDING"`,
-    'test ! -d "$GITHUB_ENV_FILE" && mv "$GITHUB_ENV_PENDING" "$GITHUB_ENV_FILE"',
+    'if test -d "$GITHUB_ENV_FILE"; then echo "GitHub command auth path is a directory" >&2; exit 73; fi',
+    'mv "$GITHUB_ENV_PENDING" "$GITHUB_ENV_FILE"',
     "mkdir -p /workspace/repo/.agents",
     "[ -d /root/.agents/skills ] && copy_workspace_file -R /root/.agents/skills /workspace/repo/.agents/ || true",
     "[ -f /root/AGENTS.md ] && copy_workspace_file /root/AGENTS.md /workspace/repo/AGENTS.md || true",

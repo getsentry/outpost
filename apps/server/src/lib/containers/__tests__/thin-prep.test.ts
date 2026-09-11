@@ -173,6 +173,18 @@ describe("buildThinSandboxPrepScript", () => {
     expect((await sandbox.exec('test -z "$GH_TOKEN"')).success).toBe(true)
   })
 
+  it("fails closed without deleting an existing directory at the credential path", () => {
+    const { dir, run } = prepFixture()
+    const target = join(dir, "tmp/jared-github-env.sh")
+    mkdirSync(target)
+    writeFileSync(join(target, "preserved"), "existing data")
+    const result = run("test-token")
+    expect(result.status).toBe(73)
+    expect(result.stderr).toContain("GitHub command auth path is a directory")
+    expect(readFileSync(join(target, "preserved"), "utf8")).toBe("existing data")
+    expect(existsSync(join(dir, "workspace/.thin-sandbox-prep.lock"))).toBe(false)
+  })
+
   it("configures headless auth with fresh tokens on cold and warm workspaces", () => {
     const { dir, run } = prepFixture()
     for (const token of ["first-installation-token", "refreshed-installation-token"]) {
