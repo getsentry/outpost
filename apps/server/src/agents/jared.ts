@@ -134,12 +134,10 @@ Jared.agentName = "jared"
  * - Sentry instrumentation of the generated Durable Object
  */
 export const cloudflare = extend({
-  base: (Base) => {
-    // Flue's extension type omits these inherited Agents SDK members.
-    const SdkBase = Base as unknown as new (
-      ...args: ConstructorParameters<typeof Base>
-    ) => InstanceType<typeof Base> & { readonly name: string; destroy(): Promise<void> }
-    return class extends SdkBase {
+  base: (Base) =>
+    class extends Base {
+      // Flue's extension type omits this inherited Agents SDK getter.
+      declare readonly name: string
       private ownerQueue = new SerialQueue()
       private closing = false
       private controller: SessionController | undefined
@@ -187,8 +185,8 @@ export const cloudflare = extend({
         return this.controller
       }
 
-      startSession(entityKey: string) {
-        return this.controllerFor(entityKey).startSession()
+      startSession(entityKey: string, sourceEventId?: string) {
+        return this.controllerFor(entityKey).startSession(sourceEventId)
       }
       prepareSession(entityKey: string, generation: number, options: SandboxSetupOpts) {
         return this.controllerFor(entityKey).prepareSession(generation, options)
@@ -209,9 +207,11 @@ export const cloudflare = extend({
         return this.controllerFor(entityKey).destroySession(generation)
       }
 
-      override async destroy() {
+      async destroy() {
         this.closing = true
-        await this.ownerQueue.run(() => super.destroy())
+        // The installed Agents SDK supplies destroy(), though Flue's narrowed
+        // base type does not expose it. Invoke the inherited implementation.
+        await this.ownerQueue.run(() => (Base.prototype as { destroy(): Promise<void> }).destroy.call(this))
       }
 
       /** Called only by the authenticated operator route after settlement. */
@@ -290,8 +290,7 @@ export const cloudflare = extend({
           },
         )
       }
-    }
-  },
+    },
   wrap: (Final) =>
     Sentry.instrumentDurableObjectWithSentry((bindings: Env) => cloudflareSentryOptions(bindings), Final),
 })

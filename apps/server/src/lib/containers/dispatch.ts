@@ -194,6 +194,7 @@ export async function ensureSandboxReady(
     await applyGitHubAuth(sandbox, opts)
     await ensureSessionReporterRunning(sandbox, {
       entityKey: opts.entityKey,
+      sessionGeneration: opts.sessionGeneration,
       appUrl: opts.appUrl,
       flueInternalToken: opts.flueInternalToken,
     })

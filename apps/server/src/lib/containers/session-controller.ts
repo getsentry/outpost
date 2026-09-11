@@ -58,8 +58,17 @@ export class SessionController {
     this.dependencies = dependencies
   }
 
-  startSession(): Promise<number> {
-    return this.queue.run(() => saveInitialSession(this.db, this.entityKey))
+  startSession(sourceEventId?: string): Promise<number> {
+    return this.queue.run(async () => {
+      if (sourceEventId) {
+        const event = await this.db.query.webhookEvents.findFirst({
+          where: eq(schema.webhookEvents.id, sourceEventId),
+          columns: { entityKey: true },
+        })
+        if (event?.entityKey !== this.entityKey) throw new Error("Source event was deleted; cannot resend it")
+      }
+      return saveInitialSession(this.db, this.entityKey)
+    })
   }
 
   private active<T>(generation: number, operation: () => Promise<T>): Promise<T> {

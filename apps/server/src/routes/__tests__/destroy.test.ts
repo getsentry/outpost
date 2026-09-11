@@ -85,6 +85,14 @@ async function fixture(authenticated = true) {
 }
 
 describe("Destroy run", () => {
+  it("does not return a stale D1 fallback when history fails after deletion", async () => {
+    const f = await fixture()
+    historyRead.mockImplementationOnce(async () => {
+      expect((await f.request()).status).toBe(200)
+      return { ok: false, error: "history unavailable" }
+    })
+    expect((await f.detail()).status).toBe(410)
+  })
   it("rejects an old reporter token after restart without changing the new history", async () => {
     const f = await fixture()
     const oldGeneration = await startAgentGeneration(f.db, "acme-app-42")

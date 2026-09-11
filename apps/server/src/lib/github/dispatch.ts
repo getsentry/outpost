@@ -34,7 +34,7 @@ export type GitHubEventDispatch = {
   /** The webhook_events row id (used to update status). */
   eventId: string
   containerKey: string
-  generation?: number
+  generation: number
   event: string
   action: string | null
   deliveryId: string
@@ -98,7 +98,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
 
   try {
     const controller = await getSessionController(env, containerKey)
-    const generation = evt.generation ?? (await controller.startSession(containerKey))
+    const generation = evt.generation
     logger.info({ entity_key: containerKey, event_id: eventId, flue_native: flueNative }, "dispatch.start")
 
     await mark("d:boot")

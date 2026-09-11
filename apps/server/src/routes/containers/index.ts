@@ -703,6 +703,9 @@ const router = new Hono<BaseEnv>()
       }
     }
 
+    if ((await readSessionGeneration(db, entityKey)) !== generation) {
+      return c.json({ error: "This agent run was destroyed" }, 410)
+    }
     return c.json(formatSessionDetailPayload(session, parsed, updatedAt, syncError))
   })
 
@@ -768,6 +771,11 @@ const router = new Hono<BaseEnv>()
           syncError = hist.error
         }
 
+        if ((await readSessionGeneration(db, entityKey)) !== generation) {
+          if (await isSessionCleanupPending(db, entityKey)) return { offset: null, ok: true }
+          await stream.writeSSE({ event: "gone", data: "session destroyed" })
+          return { offset: null, ok: false }
+        }
         await stream.writeSSE({
           event: "snapshot",
           data: JSON.stringify(formatSessionDetailPayload(session, parsed, updatedAt, syncError)),

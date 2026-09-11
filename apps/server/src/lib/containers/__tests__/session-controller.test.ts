@@ -24,6 +24,22 @@ async function fixture() {
 }
 
 describe("session lifecycle owner", () => {
+  it("cannot restart from a resend whose source event was removed by Destroy", async () => {
+    const f = await fixture()
+    await f.controller.recordSessionEvent(f.generation, {
+      id: "event",
+      entityKey,
+      event: "issues",
+      deliveryId: "delivery",
+      payload: "{}",
+      status: "pending",
+      createdAt: new Date(),
+    })
+    expect(await f.controller.startSession("event")).toBe(f.generation)
+    await f.controller.destroySession(f.generation)
+    await expect(f.controller.startSession("event")).rejects.toThrow(/event/i)
+    expect(await f.db.query.agentSessions.findMany()).toHaveLength(0)
+  })
   it("orders cleanup after in-flight preparation and rejects its late admission", async () => {
     const f = await fixture()
     const entered = Promise.withResolvers<void>()

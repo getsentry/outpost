@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest"
 
 const { dispatchGitHubEvent } = vi.hoisted(() => ({ dispatchGitHubEvent: vi.fn().mockResolvedValue(undefined) }))
 vi.mock("@/lib/github/dispatch", () => ({ dispatchGitHubEvent }))
+const startSession = vi.hoisted(() => vi.fn().mockResolvedValue(3))
+vi.mock("@/lib/containers/session-controller", () => ({ getSessionController: async () => ({ startSession }) }))
 
 import { DISCUSSION_RETRY_DELAY_MS, retryOpenDiscussionObligations, shouldRetryDiscussion } from "../discussion-retry"
 
@@ -59,7 +61,16 @@ describe("shouldRetryDiscussion", () => {
 
     expect(result).toEqual({ retried: 1, needsHuman: 0 })
     expect(dispatchGitHubEvent).toHaveBeenCalledTimes(1)
+    expect(startSession).toHaveBeenCalledWith("getsentry/cli#1484", "event-1")
+    expect(dispatchGitHubEvent.mock.calls[0]?.[3]).toMatchObject({ generation: 3 })
     expect(prepare.mock.calls[0]?.[0]).toContain("earlier.pr_number = o.pr_number")
     expect(prepare.mock.calls[1]?.[0]).toContain("WHERE repo = ? AND pr_number = ?")
+    // A row selected before Destroy is not permission to recreate its run.
+    startSession.mockRejectedValueOnce(new Error("Source event was deleted"))
+    expect(await retryOpenDiscussionObligations({ ENV: "test", DB: { prepare } } as never, now)).toEqual({
+      retried: 0,
+      needsHuman: 0,
+    })
+    expect(dispatchGitHubEvent).toHaveBeenCalledTimes(1)
   })
 })
