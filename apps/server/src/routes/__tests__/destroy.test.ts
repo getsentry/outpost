@@ -73,11 +73,9 @@ async function fixture(authenticated = true) {
     // Seed one snapshot, then end the test stream instead of entering its long-poll loop.
     const abort = new AbortController()
     abort.abort()
-    return app.request(
-      "/sessions/stream?entityKey=acme%2Fapp%2342",
-      { signal: abort.signal },
-      { FLUE_NATIVE: "1" } as BaseEnv["Bindings"],
-    )
+    return app.request("/sessions/stream?entityKey=acme%2Fapp%2342", { signal: abort.signal }, {
+      FLUE_NATIVE: "1",
+    } as BaseEnv["Bindings"])
   }
   const ingest = (token: string, text: string) =>
     app.request(
@@ -207,7 +205,10 @@ describe("Destroy run", () => {
     expect(stream.status).toBe(200)
     const frame = await stream.text()
     expect(frame).toContain("event: snapshot")
-    const data = frame.split("\n").find((line) => line.startsWith("data: "))?.slice(6)
+    const data = frame
+      .split("\n")
+      .find((line) => line.startsWith("data: "))
+      ?.slice(6)
     expect(JSON.parse(data ?? "{}")).toMatchObject({ status: "cleanup_pending", cleanupPending: true })
     expect(historyRead).not.toHaveBeenCalled()
   })

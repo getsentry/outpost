@@ -184,6 +184,14 @@ export function useDestroyContainer() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (entityKey: string) => api.destroyContainer(entityKey),
+    onError: async (_error, entityKey) => {
+      // Destroy may fail after installing its durable cleanup fence. Refresh the
+      // authoritative state immediately, but retain the transcript for retry.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sessionDetail", entityKey], exact: true }),
+        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+      ])
+    },
     onSuccess: async (_data, entityKey) => {
       const queryKey = ["sessionDetail", entityKey]
       await queryClient.cancelQueries({ queryKey, exact: true })
