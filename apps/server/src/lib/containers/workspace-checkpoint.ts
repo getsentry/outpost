@@ -1,6 +1,6 @@
-import type { getSandbox } from "@cloudflare/sandbox"
 import { THIN_SANDBOX_READY_CHECK } from "./dispatch"
 import { type DoPrepEnv, ensureDoSandboxPrepped } from "./do-prep"
+import type { getSandbox } from "./sandbox-client"
 import { WorkspaceProbeError } from "./workspace-probe"
 import type { WorkspaceSnapshot, WorkspaceState, WorkspaceStore } from "./workspace-recovery"
 

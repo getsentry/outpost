@@ -7,12 +7,12 @@
 // so `git`/`gh` would fail. This closes that gap by re-cloning + re-authing at the
 // start of such turns. Idempotent and fail-closed when preparation is incomplete.
 
-import { getSandbox } from "@cloudflare/sandbox"
 import { desc, eq, isNull } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
 import { createGitHubApp } from "@/lib/github/app"
 import { ensureSandboxReady, THIN_SANDBOX_READY_CHECK } from "./dispatch"
+import { getSandbox } from "./sandbox-client"
 import { SANDBOX_OPTS } from "./sandbox-opts"
 
 export type DoPrepEnv = {

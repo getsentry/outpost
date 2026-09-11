@@ -11,12 +11,12 @@
 // write files, start background processes) and let a container-side script
 // poll for Flue readiness and send the prompt autonomously.
 
-import type { getSandbox } from "@cloudflare/sandbox"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
 import { startAgentGeneration } from "@/lib/agents/lifecycle"
 import { FLUE_INTERNAL_HEADER, resolveFlueInternalToken } from "@/middlewares/flue-auth"
 import { toAgentInstanceId } from "./ids"
+import type { getSandbox } from "./sandbox-client"
 import { isTransientSandboxError } from "./sandbox-errors"
 import { mintSessionIngestToken } from "./session-ingest-token"
 import { saveSession } from "./sessions"
