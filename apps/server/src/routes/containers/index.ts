@@ -742,20 +742,27 @@ const router = new Hono<BaseEnv>()
       const clientAbort = c.req.raw.signal
       const startedAt = Date.now()
 
+      type SnapshotResult = { offset: string | null; ok: boolean; cleanupPending?: boolean }
+      const pushCleanupSnapshot = async (
+        session: typeof dbSchema.agentSessions.$inferSelect,
+      ): Promise<SnapshotResult> => {
+        await stream.writeSSE({
+          event: "snapshot",
+          data: JSON.stringify(
+            formatSessionDetailPayload(session, parseSessionData(session.sessionData), session.updatedAt, null, true),
+          ),
+        })
+        return { offset: null, ok: true, cleanupPending: true }
+      }
+
       // Emit the current merged detail payload; return the stream head offset.
-      const pushSnapshot = async (): Promise<{ offset: string | null; ok: boolean }> => {
+      const pushSnapshot = async (): Promise<SnapshotResult> => {
         const generation = await readSessionGeneration(db, entityKey)
         const session = await db.query.agentSessions.findFirst({
           where: eq(dbSchema.agentSessions.entityKey, entityKey),
         })
         if (session && generation === null && (await isSessionCleanupPending(db, entityKey))) {
-          await stream.writeSSE({
-            event: "snapshot",
-            data: JSON.stringify(
-              formatSessionDetailPayload(session, parseSessionData(session.sessionData), session.updatedAt, null, true),
-            ),
-          })
-          return { offset: null, ok: true }
+          return pushCleanupSnapshot(session)
         }
         if (!session || generation === null) {
           await stream.writeSSE({ event: "gone", data: "session not found" })
@@ -773,7 +780,7 @@ const router = new Hono<BaseEnv>()
           const mergedRaw = session.sessionData ? mergeSessionData(session.sessionData, blob) : blob
           try {
             if (!(await saveSession(db, entityKey, blob, generation))) {
-              if (await isSessionCleanupPending(db, entityKey)) return { offset: null, ok: true }
+              if (await isSessionCleanupPending(db, entityKey)) return pushCleanupSnapshot(session)
               await stream.writeSSE({ event: "gone", data: "session destroyed" })
               return { offset: null, ok: false }
             }
@@ -789,7 +796,7 @@ const router = new Hono<BaseEnv>()
         }
 
         if ((await readSessionGeneration(db, entityKey)) !== generation) {
-          if (await isSessionCleanupPending(db, entityKey)) return { offset: null, ok: true }
+          if (await isSessionCleanupPending(db, entityKey)) return pushCleanupSnapshot(session)
           await stream.writeSSE({ event: "gone", data: "session destroyed" })
           return { offset: null, ok: false }
         }
@@ -804,6 +811,19 @@ const router = new Hono<BaseEnv>()
       let offset = seed.offset
 
       while (seed.ok && !clientAbort.aborted && Date.now() - startedAt < MAX_STREAM_MS) {
+        if (seed.cleanupPending) {
+          // Cleanup fences the transcript. Watch only its small lifecycle flag,
+          // not the stored history or DO, until deletion finishes or a new run starts.
+          await sleep(HEARTBEAT_MS, clientAbort)
+          if (clientAbort.aborted) break
+          if (await isSessionCleanupPending(db, entityKey)) {
+            await stream.writeSSE({ event: "ping", data: String(Date.now()) })
+            continue
+          }
+          seed = await pushSnapshot()
+          offset = seed.offset
+          continue
+        }
         if (!offset) {
           // No durable stream yet (history unavailable or not materialized). Back
           // off, then re-snapshot so a run that starts mid-connection lights up.

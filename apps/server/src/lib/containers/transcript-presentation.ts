@@ -223,13 +223,16 @@ export function summarizeRunActivity(messages: TranscriptMessage[], status: stri
         : shortText(input.text)
 
   const notice = runStatusNotice(status)
+  const lastKnownSummary = answer ? shortText(answer) : inputSummary
   return {
     source: input.source,
     state:
       notice?.state ??
       (working ? "working" : latestAssistant && isSkippedAssistantMessage(latestAssistant) ? "skipped" : "updated"),
     summary: notice
-      ? notice.description
+      ? status === "sync_unavailable" && lastKnownSummary
+        ? `Last known update: ${lastKnownSummary}`
+        : notice.description
       : working
         ? (inputSummary ?? (answer ? shortText(answer) : null))
         : answer
