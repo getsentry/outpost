@@ -21,6 +21,7 @@ vi.mock("@cloudflare/sandbox", () => ({ getSandbox: () => ({ destroy: sandboxDes
 vi.mock("@/lib/containers/flue-dispatch", async (original) => ({
   ...(await original<typeof import("@/lib/containers/flue-dispatch")>()),
   fetchFlueHistoryResult: historyRead,
+  readFlueHistoryInProcess: historyRead,
 }))
 
 const closes: Array<() => void> = []
@@ -68,6 +69,15 @@ async function fixture(authenticated = true) {
     } as unknown as BaseEnv["Bindings"])
   const detail = () =>
     app.request("/sessions/detail?entityKey=acme%2Fapp%2342", {}, { FLUE_NATIVE: "1" } as BaseEnv["Bindings"])
+  const list = () => app.request("/sessions", {}, {} as BaseEnv["Bindings"])
+  const streamSnapshot = (signal?: AbortSignal) => {
+    // Seed one snapshot, then end the test stream instead of entering its long-poll loop.
+    const abort = new AbortController()
+    abort.abort()
+    return app.request("/sessions/stream?entityKey=acme%2Fapp%2342", { signal: signal ?? abort.signal }, {
+      FLUE_NATIVE: "1",
+    } as BaseEnv["Bindings"])
+  }
   const ingest = (token: string, text: string) =>
     app.request(
       "/sessions",
@@ -81,7 +91,7 @@ async function fixture(authenticated = true) {
       },
       { FLUE_INTERNAL_TOKEN: "test-secret" } as BaseEnv["Bindings"],
     )
-  return { request, detail, ingest, db, durableDestroy, binding }
+  return { request, detail, list, streamSnapshot, ingest, db, durableDestroy, binding }
 }
 
 describe("Destroy run", () => {
@@ -187,7 +197,20 @@ describe("Destroy run", () => {
     expect(await f.db.query.agentSessions.findMany()).toHaveLength(2)
     const detail = await f.detail()
     expect(detail.status).toBe(200)
-    expect(await detail.text()).toContain("Cleanup is incomplete")
+    expect(await detail.json()).toMatchObject({ status: "cleanup_pending", cleanupPending: true })
+    const list = await f.list()
+    expect(
+      (await list.json()).data.find((row: { entityKey: string }) => row.entityKey === "acme/app#42"),
+    ).toMatchObject({ status: "cleanup_pending", activityPreview: { state: "cleanup_pending" } })
+    const stream = await f.streamSnapshot()
+    expect(stream.status).toBe(200)
+    const frame = await stream.text()
+    expect(frame).toContain("event: snapshot")
+    const data = frame
+      .split("\n")
+      .find((line) => line.startsWith("data: "))
+      ?.slice(6)
+    expect(JSON.parse(data ?? "{}")).toMatchObject({ status: "cleanup_pending", cleanupPending: true })
     expect(historyRead).not.toHaveBeenCalled()
   })
 
@@ -196,6 +219,55 @@ describe("Destroy run", () => {
     expect((await f.request({})).status).toBe(503)
     expect(sandboxDestroy).not.toHaveBeenCalled()
     expect(await f.db.query.agentSessions.findMany()).toHaveLength(2)
+  })
+
+  it("heartbeats incomplete cleanup without resending history, then reports completed deletion", async () => {
+    const f = await fixture()
+    f.durableDestroy.mockRejectedValueOnce(new Error("temporary cleanup failure"))
+    expect((await f.request()).status).toBe(503)
+    const abort = new AbortController()
+    vi.useFakeTimers()
+    const response = await f.streamSnapshot(abort.signal)
+    const reader = response.body!.getReader()
+    const decode = (value?: Uint8Array) => new TextDecoder().decode(value)
+    const sessionRead = vi.spyOn(f.db.query.agentSessions, "findFirst")
+    try {
+      expect(decode((await reader.read()).value)).toContain("event: snapshot")
+      sessionRead.mockClear()
+      const heartbeat = reader.read()
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(decode((await heartbeat).value)).toContain("event: ping")
+      expect(sessionRead).not.toHaveBeenCalled()
+      expect(historyRead).not.toHaveBeenCalled()
+
+      expect((await f.request()).status).toBe(200)
+      const gone = reader.read()
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(decode((await gone).value)).toContain("event: gone")
+      expect((await reader.read()).done).toBe(true)
+    } finally {
+      abort.abort()
+      await reader.cancel()
+      sessionRead.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it.each([true, false])("emits cleanup state when Destroy races a history read (ok=%s)", async (ok) => {
+    const f = await fixture()
+    historyRead.mockImplementationOnce(async () => {
+      f.durableDestroy.mockRejectedValueOnce(new Error("temporary cleanup failure"))
+      expect((await f.request()).status).toBe(503)
+      return ok
+        ? { ok: true, history: { messages: [{ role: "assistant", body: "late response" }] } }
+        : { ok: false, error: "history unavailable" }
+    })
+    const response = await f.streamSnapshot()
+    const frame = await response.text()
+    expect(frame).toContain("event: snapshot")
+    expect(frame).toContain('"cleanupPending":true')
+    expect(frame).not.toContain("event: gone")
+    expect(frame).not.toContain("late response")
   })
 
   it("does not claim success if stopping the sandbox fails", async () => {

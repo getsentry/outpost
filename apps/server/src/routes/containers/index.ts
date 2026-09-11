@@ -18,7 +18,7 @@
 import { getSandbox } from "@cloudflare/sandbox"
 import { formatError, type Logger } from "@jared/utils"
 import * as Sentry from "@sentry/cloudflare"
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm"
+import { and, desc, eq, inArray, isNotNull, sql } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import { Hono } from "hono"
 import { streamSSE } from "hono/streaming"
@@ -185,6 +185,7 @@ function formatSessionDetailPayload(
   parsed: Record<string, unknown>,
   updatedAt: Date | string,
   syncError: string | null,
+  cleanupPending = false,
 ) {
   const statusObservedAt = typeof updatedAt === "string" ? updatedAt : new Date(updatedAt).toISOString()
   const chatError = typeof parsed.chatError === "string" && parsed.chatError ? parsed.chatError : null
@@ -194,7 +195,8 @@ function formatSessionDetailPayload(
     updatedAt,
     statusObservedAt,
     sandboxHint: SANDBOX_RUNTIME_NOTE,
-    status: deriveDisplayStatus(parsed, updatedAt, { syncError }),
+    status: deriveDisplayStatus(parsed, updatedAt, { syncError, cleanupPending }),
+    cleanupPending,
     sessions: parsed.sessions ?? [],
     sessionStatus: parsed.sessionStatus ?? {},
     messages: parsed.messages ?? {},
@@ -508,6 +510,17 @@ const router = new Hono<BaseEnv>()
     ])
 
     const total = countResult[0]?.count ?? 0
+    const pendingCleanup =
+      sessions.length > 0
+        ? await db.query.agentLifecycle.findMany({
+            where: inArray(
+              dbSchema.agentLifecycle.instanceId,
+              sessions.map((s) => toAgentInstanceId(s.entityKey)),
+            ),
+            columns: { instanceId: true, cleanupPending: true },
+          })
+        : []
+    const cleanupIds = new Set(pendingCleanup.filter((row) => row.cleanupPending).map((row) => row.instanceId))
 
     // Phase 2: list view has no session-reporter push — kick a background Flue
     // history pull for stale rows on this page so status/message counts catch up
@@ -582,6 +595,9 @@ const router = new Hono<BaseEnv>()
       }, 0)
 
       const statusObservedAt = typeof s.updatedAt === "string" ? s.updatedAt : new Date(s.updatedAt).toISOString()
+      const status = deriveDisplayStatus(parsed, s.updatedAt, {
+        cleanupPending: cleanupIds.has(toAgentInstanceId(s.entityKey)),
+      })
 
       return {
         entityKey: s.entityKey,
@@ -593,12 +609,12 @@ const router = new Hono<BaseEnv>()
         sessionCount: sessionList.length,
         messageCount: totalMessages,
         totalCost: totalCost > 0 ? totalCost : summary.cost,
-        status: deriveDisplayStatus(parsed, s.updatedAt),
+        status,
         // Root session metadata as a preview
         title: (rootSession?.title as string) ?? null,
         agent: summary.agent,
         model: summary.model,
-        activityPreview: summarizeRunActivity(allMessages, deriveDisplayStatus(parsed, s.updatedAt)),
+        activityPreview: summarizeRunActivity(allMessages, status),
       }
     })
 
@@ -627,12 +643,7 @@ const router = new Hono<BaseEnv>()
     if (generation === null) {
       if (await isSessionCleanupPending(db, entityKey)) {
         return c.json(
-          formatSessionDetailPayload(
-            session,
-            parseSessionData(session.sessionData),
-            session.updatedAt,
-            "Cleanup is incomplete. Retry Destroy to finish deleting this run.",
-          ),
+          formatSessionDetailPayload(session, parseSessionData(session.sessionData), session.updatedAt, null, true),
         )
       }
       return c.json({ error: "This agent run was destroyed" }, 410)
@@ -731,14 +742,27 @@ const router = new Hono<BaseEnv>()
       const clientAbort = c.req.raw.signal
       const startedAt = Date.now()
 
+      type SnapshotResult = { offset: string | null; ok: boolean; cleanupPending?: boolean }
+      const pushCleanupSnapshot = async (
+        session: typeof dbSchema.agentSessions.$inferSelect,
+      ): Promise<SnapshotResult> => {
+        await stream.writeSSE({
+          event: "snapshot",
+          data: JSON.stringify(
+            formatSessionDetailPayload(session, parseSessionData(session.sessionData), session.updatedAt, null, true),
+          ),
+        })
+        return { offset: null, ok: true, cleanupPending: true }
+      }
+
       // Emit the current merged detail payload; return the stream head offset.
-      const pushSnapshot = async (): Promise<{ offset: string | null; ok: boolean }> => {
+      const pushSnapshot = async (): Promise<SnapshotResult> => {
         const generation = await readSessionGeneration(db, entityKey)
         const session = await db.query.agentSessions.findFirst({
           where: eq(dbSchema.agentSessions.entityKey, entityKey),
         })
         if (session && generation === null && (await isSessionCleanupPending(db, entityKey))) {
-          return { offset: null, ok: true }
+          return pushCleanupSnapshot(session)
         }
         if (!session || generation === null) {
           await stream.writeSSE({ event: "gone", data: "session not found" })
@@ -756,7 +780,7 @@ const router = new Hono<BaseEnv>()
           const mergedRaw = session.sessionData ? mergeSessionData(session.sessionData, blob) : blob
           try {
             if (!(await saveSession(db, entityKey, blob, generation))) {
-              if (await isSessionCleanupPending(db, entityKey)) return { offset: null, ok: true }
+              if (await isSessionCleanupPending(db, entityKey)) return pushCleanupSnapshot(session)
               await stream.writeSSE({ event: "gone", data: "session destroyed" })
               return { offset: null, ok: false }
             }
@@ -772,7 +796,7 @@ const router = new Hono<BaseEnv>()
         }
 
         if ((await readSessionGeneration(db, entityKey)) !== generation) {
-          if (await isSessionCleanupPending(db, entityKey)) return { offset: null, ok: true }
+          if (await isSessionCleanupPending(db, entityKey)) return pushCleanupSnapshot(session)
           await stream.writeSSE({ event: "gone", data: "session destroyed" })
           return { offset: null, ok: false }
         }
@@ -787,6 +811,19 @@ const router = new Hono<BaseEnv>()
       let offset = seed.offset
 
       while (seed.ok && !clientAbort.aborted && Date.now() - startedAt < MAX_STREAM_MS) {
+        if (seed.cleanupPending) {
+          // Cleanup fences the transcript. Watch only its small lifecycle flag,
+          // not the stored history or DO, until deletion finishes or a new run starts.
+          await sleep(HEARTBEAT_MS, clientAbort)
+          if (clientAbort.aborted) break
+          if (await isSessionCleanupPending(db, entityKey)) {
+            await stream.writeSSE({ event: "ping", data: String(Date.now()) })
+            continue
+          }
+          seed = await pushSnapshot()
+          offset = seed.offset
+          continue
+        }
         if (!offset) {
           // No durable stream yet (history unavailable or not materialized). Back
           // off, then re-snapshot so a run that starts mid-connection lights up.

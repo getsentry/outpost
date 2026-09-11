@@ -41,6 +41,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { chatEntityRepo } from "@/lib/containers/chat-run"
+import { runStatusLabel, runStatusNotice } from "@/lib/containers/run-status"
 
 const PAGE_SIZES = [10, 25, 50] as const
 
@@ -56,6 +57,8 @@ function activitySourceLabel(source: NonNullable<SessionListItem["activityPrevie
 }
 
 function StatusIndicator({ status }: { status: string }) {
+  const notice = runStatusNotice(status)
+  if (notice) return <Badge variant={status === "sync_unavailable" ? "outline" : "destructive"}>{notice.title}</Badge>
   const config: Record<string, { bg: string; dot: string; label: string }> = {
     working: {
       bg: "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
@@ -72,16 +75,6 @@ function StatusIndicator({ status }: { status: string }) {
       bg: "bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300",
       dot: "bg-green-500",
       label: "Idle",
-    },
-    sync_unavailable: {
-      bg: "border border-amber-300 bg-transparent text-amber-800 dark:border-amber-700 dark:text-amber-200",
-      dot: "bg-amber-500",
-      label: "Sync unavailable",
-    },
-    blocked: {
-      bg: "bg-red-50 text-red-700 dark:bg-red-950/50 dark:text-red-300",
-      dot: "bg-red-500",
-      label: "Blocked: workspace recovery",
     },
     historical: {
       bg: "bg-muted text-muted-foreground",
@@ -443,13 +436,15 @@ export default function SessionsPage() {
                               <div className="space-y-0.5 text-xs">
                                 <div className="flex items-center gap-1.5">
                                   <Badge variant="secondary" className="text-[10px]">
-                                    {session.activityPreview.state === "working"
-                                      ? "Working"
-                                      : session.activityPreview.state === "skipped"
-                                        ? "No action"
-                                        : session.activityPreview.source === "github"
-                                          ? "GitHub"
-                                          : "Operator"}
+                                    {runStatusNotice(session.activityPreview.state)
+                                      ? runStatusLabel(session.activityPreview.state)
+                                      : session.activityPreview.state === "working"
+                                        ? "Working"
+                                        : session.activityPreview.state === "skipped"
+                                          ? "No action"
+                                          : session.activityPreview.source === "github"
+                                            ? "GitHub"
+                                            : "Operator"}
                                   </Badge>
                                   {session.activityPreview.eventLabel && (
                                     <span className="truncate font-mono text-[10px] text-muted-foreground">

@@ -23,11 +23,16 @@ export function flueHistoryToSessionData(entityKey: string, history: Record<stri
     .filter((m): m is AnyRecord => m !== null)
 
   const latest = settlements.at(-1)
-  const status = deriveFlueBusyStatus(rawMessages, settlements)
+  const settledStatus = latest ? statusForSettlement(latest) : null
+  const status = deriveFlueBusyStatus(rawMessages, settlements, { ignoreSettledParts: true })
     ? "busy"
-    : latest && statusForSettlement(latest) === "failed:workspace_lost"
+    : settledStatus === "failed:workspace_lost"
       ? "blocked"
-      : "idle"
+      : settledStatus === "failed:runtime"
+        ? "failed"
+        : settledStatus === "failed:aborted"
+          ? "interrupted"
+          : "idle"
   const totalCost = messages.reduce((sum, m) => {
     const cost = (m.info as AnyRecord | undefined)?.cost
     return sum + (typeof cost === "number" ? cost : 0)
@@ -79,7 +84,9 @@ export function normalizeFlueSessionBlob(entityKey: string, raw: string): string
 
   // Empty placeholder (saveInitialSession): keep busy/idle from the blob, but
   // always key the session under the canonical conversation id.
-  if (!hasMessages) {
+  const hasSettlements =
+    extractSettlements(historyFromBlob).length > 0 || (Array.isArray(data.settlements) && data.settlements.length > 0)
+  if (!hasMessages && !hasSettlements) {
     const statuses = (data.sessionStatus ?? {}) as Record<string, AnyRecord>
     const anyBusy = Object.values(statuses).some((st) => st?.type === "busy")
     return JSON.stringify({
@@ -229,7 +236,11 @@ export function isFlueHistoryBusy(history: Record<string, unknown> | null): bool
  * Busy when any submission is still open, or any part is still streaming /
  * waiting on a tool result.
  */
-export function deriveFlueBusyStatus(rawMessages: unknown[], settlements: AnyRecord[]): boolean {
+export function deriveFlueBusyStatus(
+  rawMessages: unknown[],
+  settlements: AnyRecord[],
+  opts?: { ignoreSettledParts?: boolean },
+): boolean {
   const settled = new Set(
     settlements
       .map((s) => (typeof s.submissionId === "string" ? s.submissionId : null))
@@ -243,6 +254,10 @@ export function deriveFlueBusyStatus(rawMessages: unknown[], settlements: AnyRec
     if (submissionId && !settled.has(submissionId) && (m.role === "user" || m.purpose === "user")) {
       return true
     }
+
+    // Dashboard-only: a terminal receipt can survive best-effort tool repair.
+    // Keep the runtime admission guard conservative by default.
+    if (opts?.ignoreSettledParts && submissionId && settled.has(submissionId)) continue
 
     const parts = Array.isArray(m.parts) ? (m.parts as AnyRecord[]) : []
     for (const p of parts) {

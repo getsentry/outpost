@@ -8,6 +8,9 @@ import type * as dbSchema from "@/db/schema"
 import { agentSessions } from "@/db/schema"
 import { normalizeFlueSessionBlob } from "./flue-session-adapt"
 import { toAgentInstanceId } from "./ids"
+import type { DisplayRunStatus } from "./run-status"
+
+export type { DisplayRunStatus } from "./run-status"
 
 type AnyRecord = Record<string, unknown>
 
@@ -221,10 +224,7 @@ export async function saveSession(
  * Used for Clear Idle filtering and demotion decisions — not shown in the UI.
  * Any busy child → busy; otherwise idle if we have status entries, else unknown.
  */
-export type OverallSessionStatus = "busy" | "idle" | "blocked" | "unknown"
-
-/** Operator-facing status for list/detail (accounts for stale busy + sync failures). */
-export type DisplayRunStatus = "working" | "idle" | "blocked" | "sync_unavailable" | "historical" | "unknown"
+export type OverallSessionStatus = "busy" | "idle" | "blocked" | "failed" | "interrupted" | "unknown"
 
 /** Busy placeholders older than this are treated as stale (not truly working). */
 export const STALE_BUSY_MS = 30 * 60 * 1000
@@ -262,6 +262,8 @@ export function deriveOverallStatus(sessionData: string | AnyRecord): OverallSes
   const statusValues = statuses ? Object.values(statuses) : []
   if (statusValues.some((st) => st?.type === "busy")) return "busy"
   if (statusValues.some((st) => st?.type === "blocked")) return "blocked"
+  if (statusValues.some((st) => st?.type === "failed")) return "failed"
+  if (statusValues.some((st) => st?.type === "interrupted")) return "interrupted"
   if (statusValues.length > 0) return "idle"
   return "unknown"
 }
@@ -285,15 +287,16 @@ export function countSessionMessages(sessionData: string | Record<string, unknow
 export function deriveDisplayStatus(
   sessionData: string | Record<string, unknown>,
   updatedAt: Date | string | number,
-  opts?: { syncError?: string | null; now?: number },
+  opts?: { syncError?: string | null; cleanupPending?: boolean; now?: number },
 ): DisplayRunStatus {
+  if (opts?.cleanupPending) return "cleanup_pending"
   const overall = deriveOverallStatus(sessionData)
   const now = opts?.now ?? Date.now()
   const age = Math.max(0, now - toUpdatedAtMs(updatedAt))
   const syncError = opts?.syncError ?? null
   const hasSyncError = typeof syncError === "string" && syncError.length > 0
 
-  if (overall === "blocked") return "blocked"
+  if (overall === "blocked" || overall === "failed" || overall === "interrupted") return overall
 
   if (overall === "busy") {
     if (age >= STALE_BUSY_MS) return "sync_unavailable"

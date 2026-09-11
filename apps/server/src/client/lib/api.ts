@@ -1,4 +1,8 @@
+import type { DisplayRunStatus } from "@/lib/containers/run-status"
+import type { ActivityPreview } from "@/lib/containers/transcript-presentation"
 import { endpoint } from "@/lib/endpoint"
+
+export type { DisplayRunStatus } from "@/lib/containers/run-status"
 
 export type EventsParams = {
   page?: number
@@ -86,8 +90,6 @@ export type SessionMessage = {
   parts?: MessagePart[]
 }
 
-export type DisplayRunStatus = "working" | "idle" | "sync_unavailable" | "historical" | "unknown"
-
 export type SessionDetailResponse = {
   entityKey: string
   createdAt: string
@@ -98,6 +100,8 @@ export type SessionDetailResponse = {
   sandboxHint?: string
   /** Operator-facing run status (stale busy → sync_unavailable, etc.). */
   status?: DisplayRunStatus
+  /** A Destroy operation still owns this run; only cleanup may proceed. */
+  cleanupPending?: boolean
   sessions: SessionInfo[]
   sessionStatus: Record<string, { type: string }>
   messages: Record<string, SessionMessage[]>
@@ -140,13 +144,7 @@ export type SessionListItem = {
   title: string | null
   agent: string | null
   model: string | null
-  activityPreview?: {
-    source: "github" | "operator" | "unknown"
-    state: "working" | "updated" | "skipped"
-    summary: string | null
-    eventLabel?: string
-    sender?: string | null
-  }
+  activityPreview?: ActivityPreview
 }
 
 export const api = {

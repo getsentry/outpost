@@ -84,6 +84,48 @@ describe("groupTranscriptMessages", () => {
 })
 
 describe("summarizeRunActivity", () => {
+  it("previews the last prose part instead of the beginning of the turn", () => {
+    expect(
+      summarizeRunActivity(
+        [
+          {
+            info: { role: "assistant" },
+            parts: [
+              { type: "text", text: "Starting the investigation." },
+              { type: "tool", tool: "bash" },
+              { type: "text", text: "The tests now pass." },
+            ],
+          },
+        ],
+        "idle",
+      ).summary,
+    ).toBe("The tests now pass.")
+  })
+
+  it.each([
+    "blocked",
+    "failed",
+    "interrupted",
+    "cleanup_pending",
+  ])("does not present old success prose as the current %s state", (status) => {
+    const preview = summarizeRunActivity(
+      [{ info: { role: "assistant" }, parts: [{ type: "text", text: "Everything is healthy." }] }],
+      status,
+    )
+    expect(preview.state).toBe(status)
+    expect(preview.summary).not.toContain("Everything is healthy")
+  })
+
+  it("labels saved activity as last known when live sync is unavailable", () => {
+    expect(
+      summarizeRunActivity(
+        [{ info: { role: "assistant" }, parts: [{ type: "text", text: "Everything is healthy." }] }],
+        "sync_unavailable",
+      ),
+    ).toMatchObject({ state: "sync_unavailable", summary: "Last known update: Everything is healthy." })
+    expect(summarizeRunActivity([], "sync_unavailable").summary).toContain("saved snapshot")
+  })
+
   it("uses the latest final answer rather than reasoning as the list preview", () => {
     const summary = summarizeRunActivity(
       [

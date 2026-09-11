@@ -1,4 +1,5 @@
 import { operatorText } from "./chat-run"
+import { type AttentionRunStatus, runStatusNotice } from "./run-status"
 
 type MessagePart = { type?: string; text?: string; tool?: string; toolName?: string; state?: unknown }
 export type TranscriptMessage = {
@@ -45,7 +46,7 @@ export type TranscriptGroup =
 
 export type ActivityPreview = {
   source: "github" | "operator" | "unknown"
-  state: "working" | "updated" | "skipped"
+  state: "working" | "updated" | "skipped" | AttentionRunStatus
   summary: string | null
   eventLabel?: string
   sender?: string | null
@@ -212,7 +213,7 @@ export function summarizeRunActivity(messages: TranscriptMessage[], status: stri
     ? classifyInboundMessage((inbound.parts ?? []).map((part) => part.text ?? "").join(""))
     : { source: "unknown" as const, text: "" }
   const latestAssistant = [...chronological].reverse().find((message) => transcriptMessageRole(message) === "assistant")
-  const answer = latestAssistant ? assistantVisibleText(latestAssistant) : ""
+  const answer = latestAssistant?.parts?.findLast((part) => part.type === "text" && part.text?.trim())?.text ?? ""
   const working = status === "working" || status === "busy"
   const inputSummary =
     input.source === "operator"
@@ -221,14 +222,22 @@ export function summarizeRunActivity(messages: TranscriptMessage[], status: stri
         ? (input.excerpt ?? input.subject)
         : shortText(input.text)
 
+  const notice = runStatusNotice(status)
+  const lastKnownSummary = answer ? shortText(answer) : inputSummary
   return {
     source: input.source,
-    state: working ? "working" : latestAssistant && isSkippedAssistantMessage(latestAssistant) ? "skipped" : "updated",
-    summary: working
-      ? (inputSummary ?? (answer ? shortText(answer) : null))
-      : answer
-        ? shortText(answer)
-        : inputSummary,
+    state:
+      notice?.state ??
+      (working ? "working" : latestAssistant && isSkippedAssistantMessage(latestAssistant) ? "skipped" : "updated"),
+    summary: notice
+      ? status === "sync_unavailable" && lastKnownSummary
+        ? `Last known update: ${lastKnownSummary}`
+        : notice.description
+      : working
+        ? (inputSummary ?? (answer ? shortText(answer) : null))
+        : answer
+          ? shortText(answer)
+          : inputSummary,
     ...(input.source === "github" ? { eventLabel: input.label, sender: input.sender } : {}),
   }
 }
