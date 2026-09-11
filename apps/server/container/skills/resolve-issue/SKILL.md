@@ -148,6 +148,9 @@ and respond to feedback.
     - What was tested (test command, results).
     - The CI check count from step 3 (for dynamic cron scheduling).
     - The issue number for linking (`Closes #<number>`).
+    - **Post a concise issue comment** after the draft is opened, linking the PR
+      and letting collaborators know it is ready for review. Post only one such
+      comment per draft PR. A failed comment does not block the draft PR.
 
 ## Conflict resolution
 

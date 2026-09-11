@@ -46,6 +46,13 @@ import { runStatusLabel, runStatusNotice } from "@/lib/containers/run-status"
 
 const PAGE_SIZES = [10, 25, 50] as const
 
+export function sortSessionsByCreatedAt(sessions: SessionListItem[]): SessionListItem[] {
+  return sessions.slice().sort((a, b) => {
+    const byCreatedAt = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    return byCreatedAt || a.entityKey.localeCompare(b.entityKey)
+  })
+}
+
 function activitySourceLabel(source: NonNullable<SessionListItem["activityPreview"]>["source"]): string {
   switch (source) {
     case "github":
@@ -126,8 +133,8 @@ export default function SessionsPage() {
   const setPage = (p: number) => updateParams({ page: String(p) })
   const setLimit = (l: number) => updateParams({ limit: String(l), page: "1" })
 
-  const filtered = data?.data
-    .filter((session: SessionListItem) => {
+  const filtered = sortSessionsByCreatedAt(
+    (data?.data ?? []).filter((session: SessionListItem) => {
       if (!searchInput) return true
       const q = searchInput.toLowerCase()
       return (
@@ -135,16 +142,8 @@ export default function SessionsPage() {
         (session.title ?? "").toLowerCase().includes(q) ||
         (session.agent ?? "").toLowerCase().includes(q)
       )
-    })
-    // Active runs float to the top; after that, newest activity is the useful
-    // navigation order rather than an arbitrary entity-key sort.
-    .slice()
-    .sort((a, b) => {
-      const rank = (s: SessionListItem) => (s.status === "working" || s.status === "busy" ? 0 : 1)
-      const byActive = rank(a) - rank(b)
-      if (byActive !== 0) return byActive
-      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    })
+    }),
+  )
 
   const pagination = data?.pagination
   const clearing = clearSessions.isPending
@@ -401,12 +400,12 @@ export default function SessionsPage() {
 
               {/* Desktop: full table. */}
               <div className="hidden w-full overflow-x-auto md:block">
-                <Table>
+                <Table className="min-w-[940px] table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="min-w-[240px]">Entity</TableHead>
-                      <TableHead className="min-w-[220px]">Latest activity</TableHead>
-                      <TableHead className="min-w-[140px]">Agent</TableHead>
+                      <TableHead className="w-[240px] min-w-[240px]">Entity</TableHead>
+                      <TableHead className="w-[180px] min-w-[180px]">Latest activity</TableHead>
+                      <TableHead className="w-[140px] min-w-[140px]">Agent</TableHead>
                       <TableHead className="w-[90px] text-center">Status</TableHead>
                       <TableHead className="w-[80px] text-center">
                         <span className="inline-flex items-center gap-1">
@@ -456,7 +455,7 @@ export default function SessionsPage() {
                               )}
                             </div>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className="w-[180px] min-w-[180px] whitespace-normal">
                             {session.activityPreview ? (
                               <div className="space-y-0.5 text-xs">
                                 <div className="flex items-center gap-1.5">
