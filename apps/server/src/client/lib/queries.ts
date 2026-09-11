@@ -162,10 +162,38 @@ export function useStartChat() {
 
 export function useClearSessions() {
   const queryClient = useQueryClient()
+  const refreshLists = () =>
+    Promise.all(
+      ["sessions", "events", "eventsGrouped", "eventStats", "agentWork"].map((key) =>
+        queryClient.invalidateQueries({ queryKey: [key] }),
+      ),
+    )
   return useMutation({
     mutationFn: (mode: "all" | "idle" = "all") => api.clearSessions(mode),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] })
+    // Retrying the endpoint would select new runs without a new confirmation.
+    retry: false,
+    onError: async () => {
+      // A lost response may hide partial cleanup. Keep saved history until a
+      // fresh authoritative read confirms its state.
+      await Promise.all([refreshLists(), queryClient.invalidateQueries({ queryKey: ["sessionDetail"] })])
+    },
+    onSuccess: async (result) => {
+      if (result.mode === "all") {
+        await Promise.all(
+          result.deletedKeys.map(async (entityKey) => {
+            const queryKey = ["sessionDetail", entityKey]
+            await queryClient.cancelQueries({ queryKey, exact: true })
+            // Cache removal also stops the detail view's SSE subscription.
+            queryClient.removeQueries({ queryKey, exact: true })
+          }),
+        )
+        await Promise.all(
+          result.failed.map((entityKey) =>
+            queryClient.invalidateQueries({ queryKey: ["sessionDetail", entityKey], exact: true }),
+          ),
+        )
+      }
+      await refreshLists()
     },
   })
 }

@@ -9,11 +9,12 @@ import {
   Trash,
   X,
 } from "@phosphor-icons/react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import type { SessionListItem } from "@/client/lib/api"
 import { entityGitHubUrl, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
 import { useClearSessions, useSessions } from "@/client/lib/queries"
+import { ClearSessionsFeedback } from "@/components/clear-sessions-feedback"
 import { GitHubLink } from "@/components/github-link"
 import { LastUpdated } from "@/components/last-updated"
 import { NewChatDialog } from "@/components/new-chat-dialog"
@@ -147,6 +148,16 @@ export default function SessionsPage() {
 
   const pagination = data?.pagination
   const clearing = clearSessions.isPending
+  const clearAttemptFinished = clearSessions.isError || clearSessions.isSuccess
+  const closeClearRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    // The focused submit button disappears after a partial/failed attempt.
+    if (clearAttemptFinished) closeClearRef.current?.focus()
+  }, [clearAttemptFinished])
+  const confirmClear = (mode: ClearMode) => {
+    clearSessions.reset()
+    setClearMode(mode)
+  }
 
   return (
     <div className="space-y-4">
@@ -166,7 +177,7 @@ export default function SessionsPage() {
               variant="outline"
               size="sm"
               disabled={clearing || !pagination?.total}
-              onClick={() => setClearMode("all")}
+              onClick={() => confirmClear("all")}
             >
               <Trash className="mr-1.5 size-4" />
               {clearing && clearMode === "all" ? "Clearing..." : "Clear All"}
@@ -181,45 +192,59 @@ export default function SessionsPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-48">
                 <DropdownMenuGroup>
-                  <DropdownMenuItem onClick={() => setClearMode("idle")}>Clear idle entries</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => confirmClear("idle")}>Clear idle entries</DropdownMenuItem>
                 </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
           </ButtonGroup>
-          <AlertDialog open={clearMode !== null} onOpenChange={(open) => !open && setClearMode(null)}>
+          <AlertDialog open={clearMode !== null} onOpenChange={(open) => !open && !clearing && setClearMode(null)}>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>
-                  {clearMode === "idle" ? "Clear idle agent runs?" : "Destroy all agent runs?"}
+                  {clearAttemptFinished
+                    ? "Cleanup results"
+                    : clearMode === "idle"
+                      ? "Clear idle agent runs?"
+                      : "Destroy all agent runs?"}
                 </AlertDialogTitle>
                 <AlertDialogDescription>
-                  {clearMode === "idle" ? (
+                  {clearAttemptFinished ? (
+                    <>Review the results below. No further runs will be deleted from this dialog.</>
+                  ) : clearMode === "idle" ? (
                     <>
                       This will permanently delete Idle, Historical, and Sync unavailable run records. Working runs are
                       left alone, and no sandboxes will be destroyed. This action cannot be undone.
                     </>
                   ) : (
                     <>
-                      This will destroy every running sandbox and permanently delete all {pagination?.total ?? 0} agent
-                      run records from the database. This action cannot be undone.
+                      This will permanently delete the current agent runs, including chat history, files, scheduled
+                      work, and stored events. There are currently {pagination?.total ?? 0} runs. New runs started
+                      during cleanup are left alone. This action cannot be undone.
                     </>
                   )}
                 </AlertDialogDescription>
               </AlertDialogHeader>
+              <ClearSessionsFeedback result={clearSessions.data} error={clearSessions.error} />
               <AlertDialogFooter>
-                <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  disabled={clearing}
-                  onClick={(e) => {
-                    e.preventDefault()
-                    if (!clearMode) return
-                    clearSessions.mutate(clearMode, {
-                      onSettled: () => setClearMode(null),
-                    })
-                  }}
-                >
-                  {clearing ? "Clearing..." : clearMode === "idle" ? "Clear Idle Entries" : "Destroy All Runs"}
-                </AlertDialogAction>
+                <AlertDialogCancel ref={closeClearRef} disabled={clearing}>
+                  {clearAttemptFinished ? "Close" : "Cancel"}
+                </AlertDialogCancel>
+                {!clearAttemptFinished && (
+                  <AlertDialogAction
+                    disabled={clearing}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      if (!clearMode) return
+                      clearSessions.mutate(clearMode, {
+                        onSuccess: (result) => {
+                          if (result.ok) setClearMode(null)
+                        },
+                      })
+                    }}
+                  >
+                    {clearing ? "Clearing..." : clearMode === "idle" ? "Clear Idle Entries" : "Destroy All Runs"}
+                  </AlertDialogAction>
+                )}
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
