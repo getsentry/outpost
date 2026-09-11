@@ -34,6 +34,14 @@ function createRuntime() {
 }
 
 describe("Sandbox connections across real Workers RPC resets", () => {
+  it("reproduces the SDK command environment being lost on DO reset", async () => {
+    const runtime = createRuntime()
+    expect(await (await runtime.dispatchFetch("https://test/volatile-env")).json()).toEqual({
+      before: true,
+      after: false,
+    })
+  }, 30_000)
+
   it("reproduces a permanently broken stub and reconnects without replaying a write", async () => {
     const runtime = createRuntime()
     expect(await (await runtime.dispatchFetch("https://test/stale")).json()).toEqual({
@@ -63,7 +71,11 @@ describe("Sandbox connections across real Workers RPC resets", () => {
       nonThenable: true,
       command: "probe",
       sessionToken: "__DISABLE_SESSION__",
-      options: { cwd: "/review", timeout: 123 },
+      options: {
+        cwd: "/review",
+        timeout: 123,
+        ...(mode === "fresh" ? { env: { BASH_ENV: "/tmp/jared-github-env.sh" } } : {}),
+      },
       configuration: { sandboxName: { name: `sdk-${mode}`, normalizeId: true }, sleepAfter: "10m" },
     })
   }, 30_000)

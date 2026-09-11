@@ -42,10 +42,14 @@ function fixture() {
     writeFileSync(join(repo, ".agents/skills/test.md"), "test skill")
     writeFileSync(join(repo, ".git/jared-workspace-generation"), `${generation}\n`)
     writeFileSync(join(dir, "flue-env.sh"), "export GH_TOKEN='test-only'\n")
+    writeFileSync(join(dir, "jared-github-env.sh"), "export GH_TOKEN='test-only'\nunset BASH_ENV\n")
   }
   seed("generation-1")
   const map = (script: string) =>
-    script.replaceAll("/workspace", join(dir, "workspace")).replaceAll("/tmp/flue-env.sh", join(dir, "flue-env.sh"))
+    script
+      .replaceAll("/workspace", join(dir, "workspace"))
+      .replaceAll("/tmp/flue-env.sh", join(dir, "flue-env.sh"))
+      .replaceAll("/tmp/jared-github-env.sh", join(dir, "jared-github-env.sh"))
   const sandbox = {
     exec: async (command: string, options: { cwd?: string } = {}) => {
       const result = spawnSync("/bin/bash", ["--noprofile", "--norc", "-c", map(command)], {

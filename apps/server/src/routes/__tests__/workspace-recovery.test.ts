@@ -32,6 +32,31 @@ function fixture(authenticated = true) {
 }
 
 describe("operator workspace acknowledgement", () => {
+  it.each([
+    { type: "dynamic-tool", state: "input-available" },
+    { type: "text", state: "streaming" },
+    { type: "tool", state: { status: "running" } },
+  ])("can acknowledge a settled failure with an unfinished historical part: %j", async (part) => {
+    const f = fixture()
+    const messages = [{ role: "assistant", submissionId: "sub_one", parts: [part] }]
+    const settlements = [{ submissionId: "sub_one", outcome: "failed", error: { type: "workspace_lost" } }]
+    read.mockResolvedValue({ ok: true, history: { messages, settlements } })
+    expect((await f.request({ runId: "sub_one", acknowledgeDataLoss: true })).status).toBe(200)
+    expect(f.acknowledge).toHaveBeenCalledExactlyOnceWith("sub_one")
+
+    // The DO is still authoritative if a new admission races the history read.
+    f.acknowledge.mockResolvedValue(false)
+    expect((await f.request({ runId: "sub_one", acknowledgeDataLoss: true })).status).toBe(409)
+
+    f.acknowledge.mockClear()
+    read.mockResolvedValue({
+      ok: true,
+      history: { messages: [...messages, { role: "user", submissionId: "sub_new", parts: [] }], settlements },
+    })
+    expect((await f.request({ runId: "sub_one", acknowledgeDataLoss: true })).status).toBe(409)
+    expect(f.acknowledge).not.toHaveBeenCalled()
+  })
+
   it("can acknowledge an exact durable blocker after Flue terminalizes an interruption", async () => {
     for (const receipt of [
       { submissionId: "sub_one", outcome: "aborted" },
