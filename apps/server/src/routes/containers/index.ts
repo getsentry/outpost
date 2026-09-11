@@ -59,6 +59,7 @@ import {
   deriveDisplayStatus,
   isStaleBusy,
   mergeSessionData,
+  readSessionGeneration,
   SANDBOX_RUNTIME_NOTE,
   saveSession,
   summarizeSession,
@@ -413,7 +414,9 @@ const router = new Hono<BaseEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
 
-    await saveSession(db, body.entityKey, body.sessionData)
+    const generation = await readSessionGeneration(db, body.entityKey)
+    if (!(await saveSession(db, body.entityKey, body.sessionData, generation)))
+      return c.json({ error: "This agent run was destroyed" }, 410)
     return c.json({ ok: true })
   })
 
@@ -520,8 +523,10 @@ const router = new Hono<BaseEnv>()
           (async () => {
             for (const entityKey of staleKeys) {
               try {
+                const generation = await readSessionGeneration(db, entityKey)
+                if (generation === null) continue
                 const history = await fetchFlueHistory(c.env, entityKey)
-                if (history) await saveSession(db, entityKey, flueHistoryToSessionData(entityKey, history))
+                if (history) await saveSession(db, entityKey, flueHistoryToSessionData(entityKey, history), generation)
               } catch {
                 /* best effort */
               }
@@ -610,6 +615,8 @@ const router = new Hono<BaseEnv>()
     if (!entityKey) {
       return c.json({ error: "entityKey query parameter required" }, 400)
     }
+    const generation = await readSessionGeneration(db, entityKey)
+    if (generation === null) return c.json({ error: "This agent run was destroyed" }, 410)
 
     const session = await db.query.agentSessions.findFirst({
       where: eq(dbSchema.agentSessions.entityKey, entityKey),
@@ -633,7 +640,8 @@ const router = new Hono<BaseEnv>()
         // drop prior sessions/messages that Flue no longer reports.
         const mergedRaw = session.sessionData ? mergeSessionData(session.sessionData, blob) : blob
         try {
-          await saveSession(db, entityKey, blob)
+          if (!(await saveSession(db, entityKey, blob, generation)))
+            return c.json({ error: "This agent run was destroyed" }, 410)
         } catch {
           /* best effort persist */
         }
@@ -659,7 +667,7 @@ const router = new Hono<BaseEnv>()
               const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
               const freshData = await collectContainerData(sandbox, entityKey)
               if (freshData) {
-                await saveSession(db, entityKey, freshData)
+                await saveSession(db, entityKey, freshData, generation)
               } else if (isStaleBusy(session.sessionData, session.updatedAt)) {
                 await persistStaleBusyDemotion(db, entityKey)
               }
@@ -710,10 +718,11 @@ const router = new Hono<BaseEnv>()
 
       // Emit the current merged detail payload; return the stream head offset.
       const pushSnapshot = async (): Promise<{ offset: string | null; ok: boolean }> => {
+        const generation = await readSessionGeneration(db, entityKey)
         const session = await db.query.agentSessions.findFirst({
           where: eq(dbSchema.agentSessions.entityKey, entityKey),
         })
-        if (!session) {
+        if (!session || generation === null) {
           await stream.writeSSE({ event: "gone", data: "session not found" })
           return { offset: null, ok: false }
         }
@@ -728,7 +737,10 @@ const router = new Hono<BaseEnv>()
           const blob = flueHistoryToSessionData(entityKey, hist.history)
           const mergedRaw = session.sessionData ? mergeSessionData(session.sessionData, blob) : blob
           try {
-            await saveSession(db, entityKey, blob)
+            if (!(await saveSession(db, entityKey, blob, generation))) {
+              await stream.writeSSE({ event: "gone", data: "session destroyed" })
+              return { offset: null, ok: false }
+            }
           } catch {
             /* best-effort persist */
           }
@@ -774,8 +786,8 @@ const router = new Hono<BaseEnv>()
         if (clientAbort.aborted) break
 
         if (upd.ok && upd.hasNew) {
-          const next = await pushSnapshot()
-          offset = next.offset ?? upd.nextOffset
+          seed = await pushSnapshot()
+          offset = seed.offset ?? upd.nextOffset
         } else if (upd.ok) {
           offset = upd.nextOffset
           await stream.writeSSE({ event: "ping", data: String(Date.now()) })
@@ -981,13 +993,16 @@ const router = new Hono<BaseEnv>()
     const entityKey = decodeURIComponent(c.req.param("entityKey"))
     const flueNative = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
     const db = c.get("db")
+    const generation = await readSessionGeneration(db, entityKey)
+    if (generation === null) return c.json({ error: "This agent run was destroyed" }, 410)
 
     try {
       if (flueNative) {
         const history = await fetchFlueHistory(c.env, entityKey)
         if (history) {
           try {
-            await saveSession(db, entityKey, flueHistoryToSessionData(entityKey, history))
+            if (!(await saveSession(db, entityKey, flueHistoryToSessionData(entityKey, history), generation)))
+              return c.json({ error: "This agent run was destroyed" }, 410)
           } catch {
             /* best effort */
           }
@@ -1020,7 +1035,8 @@ const router = new Hono<BaseEnv>()
       const freshData = await collectContainerData(sandbox, entityKey)
       if (freshData) {
         try {
-          await saveSession(db, entityKey, freshData)
+          if (!(await saveSession(db, entityKey, freshData, generation)))
+            return c.json({ error: "This agent run was destroyed" }, 410)
         } catch {
           /* best effort */
         }
@@ -1192,27 +1208,44 @@ const router = new Hono<BaseEnv>()
 
   // Force-destroy a container and clean up session data
   .post("/:entityKey/destroy", async (c) => {
-    const entityKey = decodeURIComponent(c.req.param("entityKey"))
+    const entityKey = c.req.param("entityKey")
     const db = c.get("db")
-    await destroyAgentGeneration(db, toAgentInstanceId(entityKey))
-    const sandbox = getSandbox(c.env.Sandbox, toAgentInstanceId(entityKey), SANDBOX_OPTS)
+    const instanceId = toAgentInstanceId(entityKey)
+    const binding = c.env.FLUE_JARED_AGENT
+    const native = c.env.FLUE_NATIVE === "1" || c.env.FLUE_NATIVE === "true"
+    if (native && !binding) return c.json({ error: "Native agent runtime is unavailable; nothing was deleted" }, 503)
+
+    let stage = "fence"
     try {
-      await sandbox.destroy()
-    } catch {
-      // Container might already be dead — continue with D1 cleanup
-    }
-    // Clean up session data + stored webhook events from D1 so a re-trigger
-    // starts clean (past events used to resurface after a destroy).
-    try {
-      await Promise.all([
+      await destroyAgentGeneration(db, instanceId)
+      if (binding) {
+        stage = "conversation"
+        // Inherited Agents SDK teardown clears ALL durable storage (including
+        // Flue history and attachments), schedules, and aborts the old isolate.
+        const agent = binding.get(binding.idFromName(instanceId)) as unknown as {
+          destroy(): Promise<void>
+        }
+        await agent.destroy()
+      }
+      stage = "sandbox"
+      await getSandbox(c.env.Sandbox, instanceId, SANDBOX_OPTS).destroy()
+      stage = "records"
+      // Keep the lifecycle tombstone. The atomic write fence stops history
+      // requests that started before teardown from recreating these rows.
+      await db.batch([
         db.delete(dbSchema.agentSessions).where(eq(dbSchema.agentSessions.entityKey, entityKey)),
         db.delete(dbSchema.webhookEvents).where(eq(dbSchema.webhookEvents.entityKey, entityKey)),
         db
           .delete(dbSchema.githubDiscussionObligations)
           .where(eq(dbSchema.githubDiscussionObligations.entityKey, entityKey)),
+        db.delete(dbSchema.agentWorkItems).where(eq(dbSchema.agentWorkItems.entityKey, entityKey)),
       ])
     } catch {
-      /* best effort */
+      console.warn("jared: run destruction incomplete", { entityKey, stage })
+      return c.json(
+        { error: "Could not finish deleting this run. Some cleanup may have completed; retry Destroy." },
+        503,
+      )
     }
     return c.json({ ok: true, entityKey, action: "destroyed" })
   })

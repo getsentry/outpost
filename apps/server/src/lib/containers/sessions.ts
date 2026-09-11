@@ -2,7 +2,7 @@
 // Used by both the HTTP endpoint (POST /api/containers/sessions)
 // and background sync paths (detail stale sync / Phase 1 reporter).
 
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
 import { agentSessions } from "@/db/schema"
@@ -10,6 +10,17 @@ import { normalizeFlueSessionBlob } from "./flue-session-adapt"
 import { toAgentInstanceId } from "./ids"
 
 type AnyRecord = Record<string, unknown>
+
+/** Capture before reading remote history, not after it returns. Null is destroyed. */
+export async function readSessionGeneration(
+  db: DrizzleD1Database<typeof dbSchema>,
+  entityKey: string,
+): Promise<number | null> {
+  const lifecycle = await db.query.agentLifecycle.findFirst({
+    where: (table, { eq }) => eq(table.instanceId, toAgentInstanceId(entityKey)),
+  })
+  return lifecycle?.destroyedAt ? null : (lifecycle?.generation ?? 0)
+}
 
 /**
  * Merge a previously-stored session blob with an incoming one. Pure function so
@@ -160,7 +171,9 @@ export async function saveSession(
   db: DrizzleD1Database<typeof dbSchema>,
   entityKey: string,
   sessionData: string,
-): Promise<void> {
+  generation: number | null,
+): Promise<boolean> {
+  if (generation === null) return false
   // Normalize Flue-shaped blobs (raw reporter / history) into the OpenCode-like
   // `{ info, parts }` contract the dashboard renders before merging into D1.
   const normalized = normalizeFlueSessionBlob(entityKey, sessionData)
@@ -174,24 +187,21 @@ export async function saveSession(
 
   // Canonical Flue/sandbox id — do-prep and affinity lookups key on this column.
   const sessionId = toAgentInstanceId(entityKey)
-  const now = new Date()
-  await db
-    .insert(agentSessions)
-    .values({
-      entityKey,
-      sessionId,
-      sessionData: mergedData,
-      createdAt: now,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: agentSessions.entityKey,
-      set: {
-        sessionId,
-        sessionData: mergedData,
-        updatedAt: now,
-      },
-    })
+  const now = Math.floor(Date.now() / 1000)
+  // The fence and upsert must be one SQLite statement: checking before an
+  // awaited write leaves a window for Destroy (or a fresh generation) to win.
+  const saved = await db.all<{ entity_key: string }>(sql`
+    INSERT INTO agent_sessions (entity_key, session_id, session_data, created_at, updated_at)
+    SELECT ${entityKey}, ${sessionId}, ${mergedData}, ${now}, ${now}
+    WHERE COALESCE((SELECT generation FROM agent_lifecycle WHERE instance_id = ${sessionId}), 0) = ${generation}
+      AND NOT EXISTS (SELECT 1 FROM agent_lifecycle WHERE instance_id = ${sessionId} AND destroyed_at IS NOT NULL)
+    ON CONFLICT(entity_key) DO UPDATE SET
+      session_id = excluded.session_id,
+      session_data = excluded.session_data,
+      updated_at = excluded.updated_at
+    RETURNING entity_key
+  `)
+  return saved.length > 0
 }
 
 /**

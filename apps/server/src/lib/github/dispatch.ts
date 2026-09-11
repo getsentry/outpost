@@ -11,7 +11,6 @@ import * as Sentry from "@sentry/cloudflare"
 import { eq } from "drizzle-orm"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import * as dbSchema from "@/db/schema"
-import { startAgentGeneration } from "@/lib/agents/lifecycle"
 import { canonicalWorkKey, formatExecutionContract, listOpenAgentWork } from "@/lib/agents/work-items"
 import { dispatchPrompt, ensureSandboxReady, saveInitialSession } from "@/lib/containers/dispatch"
 import { dispatchToFlueAgent } from "@/lib/containers/flue-dispatch"
@@ -88,7 +87,7 @@ export async function dispatchGitHubEvent(env: Env, db: Db, logger: Logger, evt:
   }
 
   try {
-    await Promise.all([startAgentGeneration(db, sandboxId), saveInitialSession(db, containerKey)])
+    await saveInitialSession(db, containerKey)
   } catch {
     /* best effort — may conflict with an existing row */
   }

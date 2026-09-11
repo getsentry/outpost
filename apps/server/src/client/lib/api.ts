@@ -245,7 +245,10 @@ export const api = {
 
   async destroyContainer(entityKey: string) {
     const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/destroy`, { method: "POST" })
-    if (!res.ok) throw new Error(`Failed to destroy container: ${res.status}`)
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null
+      throw new Error(body?.error ?? "Could not finish deleting this run. Please retry Destroy.")
+    }
     return res.json()
   },
 

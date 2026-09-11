@@ -14,6 +14,7 @@
 import type { getSandbox } from "@cloudflare/sandbox"
 import type { DrizzleD1Database } from "drizzle-orm/d1"
 import type * as dbSchema from "@/db/schema"
+import { startAgentGeneration } from "@/lib/agents/lifecycle"
 import { FLUE_INTERNAL_HEADER, resolveFlueInternalToken } from "@/middlewares/flue-auth"
 import { toAgentInstanceId } from "./ids"
 import { isTransientSandboxError } from "./sandbox-errors"
@@ -562,15 +563,20 @@ export async function dispatchPrompt(
  * Save an initial session record to D1 so the container appears immediately.
  * Uses the canonical Flue conversation id so later history syncs merge cleanly.
  */
-export async function saveInitialSession(db: DrizzleD1Database<typeof dbSchema>, containerKey: string): Promise<void> {
+export async function saveInitialSession(
+  db: DrizzleD1Database<typeof dbSchema>,
+  containerKey: string,
+): Promise<number> {
   const sessionId = toAgentInstanceId(containerKey)
+  const generation = await startAgentGeneration(db, sessionId)
   const initialData = JSON.stringify({
     sessionStatus: { [sessionId]: { type: "busy" } },
     sessions: [{ id: sessionId, title: containerKey, agent: AGENT }],
     messages: {},
     flue: true,
   })
-  await saveSession(db, containerKey, initialData)
+  if (!(await saveSession(db, containerKey, initialData, generation))) throw new Error("Agent run was destroyed")
+  return generation
 }
 
 /** Re-export for callers that already import from dispatch. */
