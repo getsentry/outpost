@@ -121,12 +121,13 @@ It reports only the current phase (`ready`, `preparing`, `mutation_pending`,
 attempt count, and the submission id. It never returns commands, repository
 contents, credentials, or raw provider errors.
 
-**Restart sandbox** is available only after the dashboard has read an inactive,
-authoritative lifecycle state. The server repeats that check against Flue's
-submission table and puts a short durable maintenance fence in place before it
-destroys the disposable Sandbox, so an active or mutating run is rejected rather
-than interrupted. A restart is successful only after the API confirms the
-destruction; a failed destruction returns an error and leaves the dialog open.
+**Restart sandbox** is available only when the dashboard indicates an inactive
+lifecycle state. That view can be stale: the server makes the authoritative
+decision against Flue's submission table and puts a short durable maintenance
+fence in place before it destroys the disposable Sandbox, so an active or
+mutating run is rejected rather than interrupted. A restart is successful only
+after the API confirms the destruction; a failed destruction returns an error
+and leaves the dialog open.
 It preserves the Durable Object conversation and stored event history. It does
 not resend an event, replay a command, or clear a blocker. A `mutation_pending`
 or `blocked` state still requires effect inspection and, when appropriate,

@@ -38,11 +38,13 @@ failure class only. `jared.flue.admit`, follow-up scheduling/admission, and
 also persists its existing `maintenance_runs` heartbeat in D1.
 
 Cloudflare logs emit a matching `jared: workspace lifecycle` record for guard
-claim, preparation, operation-completion, and block transitions. Every record
-also creates a metadata-only `jared.workspace.lifecycle` Sentry span, including
-recovery after the initial agent-start span has completed. Join the two using
-`run_id` / `flue.submission.id`; the log and span contain only transition,
-phase, checkpoint availability, and recovery count.
+claim, preparation, operation-completion, and block transitions. Each record
+attempts a metadata-only `jared.workspace.lifecycle` Sentry span, including
+recovery after the initial agent-start span has completed; whether it is visible
+depends on trace sampling. Join the two using `run_id` / `flue.submission.id`.
+Use Cloudflare logs as the complete lifecycle source when no matching Sentry
+span was sampled. The log and span contain only transition, phase, checkpoint
+availability, and recovery count.
 
 ## Data policy
 
