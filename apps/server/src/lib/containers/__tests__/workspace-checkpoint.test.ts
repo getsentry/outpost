@@ -3,14 +3,19 @@ import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, wri
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   inspectWorkspace,
+  prepareWorkspace,
   restoreCheckpointCommand,
   WORKSPACE_CHECKPOINT_COMMAND,
   workspaceStore,
 } from "../workspace-checkpoint"
 import { WorkspaceRecovery } from "../workspace-recovery"
+
+vi.mock("../do-prep", () => ({
+  ensureDoSandboxPrepped: vi.fn(async () => {}),
+}))
 
 const dirs: string[] = []
 afterEach(() => {
@@ -37,12 +42,15 @@ function fixture() {
   const remote = join(dir, "remote.git")
   git("clone", "--bare", repo, remote)
   git("remote", "add", "origin", remote)
-  const seed = (generation: string) => {
+  const seedRuntime = () => {
     mkdirSync(join(repo, ".agents/skills"), { recursive: true })
     writeFileSync(join(repo, ".agents/skills/test.md"), "test skill")
-    writeFileSync(join(repo, ".git/jared-workspace-generation"), `${generation}\n`)
     writeFileSync(join(dir, "flue-env.sh"), "export GH_TOKEN='test-only'\n")
     writeFileSync(join(dir, "jared-github-env.sh"), "export GH_TOKEN='test-only'\nunset BASH_ENV\n")
+  }
+  const seed = (generation: string) => {
+    seedRuntime()
+    writeFileSync(join(repo, ".git/jared-workspace-generation"), `${generation}\n`)
   }
   seed("generation-1")
   const map = (script: string) =>
@@ -61,6 +69,10 @@ function fixture() {
       if (result.error) throw result.error
       return { stdout: result.stdout, stderr: result.stderr, exitCode: result.status!, success: result.status === 0 }
     },
+    writeFile: async (path: string, contents: string) => {
+      writeFileSync(map(path), contents)
+    },
+    setEnvVars: async () => {},
   }
   return {
     dir,
@@ -73,6 +85,11 @@ function fixture() {
       rmSync(repo, { recursive: true, force: true })
       execFileSync("git", ["clone", "--branch", "main", remote, repo], { env, stdio: "ignore" })
       seed("generation-2")
+    },
+    recreateUntracked: () => {
+      rmSync(repo, { recursive: true, force: true })
+      execFileSync("git", ["clone", "--branch", "main", remote, repo], { env, stdio: "ignore" })
+      seedRuntime()
     },
   }
 }
@@ -154,6 +171,26 @@ describe("real Git workspace checkpoints", () => {
     })
     expect(f.git("symbolic-ref", "--short", "HEAD")).toBe("fix/saved-branch")
     sqlDb.close()
+  })
+  it("restores a checkpoint when preparation stopped after cloning the default branch", async () => {
+    const f = fixture()
+    const inspect = () => inspectWorkspace(f.sandbox as Parameters<typeof inspectWorkspace>[0])
+    const checkpoint = await inspect()
+    expect(checkpoint).not.toBeNull()
+
+    // A reset can occur after thin-sandbox prep cloned main but before the
+    // recovery guard checks out its saved checkpoint. That clone is safe to
+    // replace because it has no Jared generation marker yet.
+    f.recreateUntracked()
+    await expect(inspect()).resolves.toMatchObject({ generation: "untracked", branch: "main", ready: true })
+
+    await prepareWorkspace({} as never, "instance", f.sandbox as never, inspect, checkpoint!)
+
+    await expect(inspect()).resolves.toMatchObject({
+      head: checkpoint!.head,
+      branch: checkpoint!.branch,
+      fingerprint: checkpoint!.fingerprint,
+    })
   })
   it("fingerprints tracked and untracked edits without persisting their contents", async () => {
     const f = fixture()
