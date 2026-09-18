@@ -17,6 +17,8 @@ export type WorkspaceInFlight = false | true | "preparing" | "mutation"
 
 export type WorkspaceState = {
   owner?: string
+  /** Operator-held fence while a disposable sandbox is being replaced. */
+  maintenance?: string
   checkpoint?: WorkspaceSnapshot
   inFlight: WorkspaceInFlight
   recoveries: number
@@ -27,7 +29,7 @@ export type WorkspaceState = {
 export type WorkspaceStore = { read(): WorkspaceState | undefined; write(state: WorkspaceState): void }
 
 export type WorkspaceHealth = {
-  phase: "ready" | "preparing" | "mutation_pending" | "blocked" | "unknown"
+  phase: "ready" | "preparing" | "mutation_pending" | "restarting" | "blocked" | "unknown"
   checkpoint: "available" | "missing"
   recoveries: number
   runId: string | null
@@ -52,13 +54,15 @@ export function workspaceHealth(state: WorkspaceState | undefined): WorkspaceHea
   return {
     phase: !state
       ? "unknown"
-      : state.blocked
-        ? "blocked"
-        : state.inFlight === "preparing"
-          ? "preparing"
-          : isUncertainMutation(state.inFlight)
-            ? "mutation_pending"
-            : "ready",
+      : state.maintenance
+        ? "restarting"
+        : state.blocked
+          ? "blocked"
+          : state.inFlight === "preparing"
+            ? "preparing"
+            : isUncertainMutation(state.inFlight)
+              ? "mutation_pending"
+              : "ready",
     checkpoint: state?.checkpoint ? "available" : "missing",
     recoveries: state?.recoveries ?? 0,
     runId: state?.runId ?? null,
@@ -79,34 +83,36 @@ export class WorkspaceRecovery {
     // older failed setup records may safely retry even if they kept a blocker.
     // A possibly mutating operation always retains its blocker.
     options.store.write(
-      saved?.inFlight === "preparing"
-        ? {
-            ...saved,
-            owner: this.owner,
-            inFlight: false,
-            runId: options.runId,
-            blocked: undefined,
-            probeFailure: undefined,
-          }
-        : saved?.blocked || (saved && isUncertainMutation(saved.inFlight))
+      saved?.maintenance
+        ? { ...saved, owner: this.owner }
+        : saved?.inFlight === "preparing"
           ? {
               ...saved,
               owner: this.owner,
-              blocked:
-                saved.blocked ||
-                (isUncertainMutation(saved.inFlight)
-                  ? "An earlier operation has an unknown outcome. Inspect its effects before continuing."
-                  : undefined),
+              inFlight: false,
+              runId: options.runId,
+              blocked: undefined,
+              probeFailure: undefined,
             }
-          : saved?.runId === options.runId
-            ? { ...saved, owner: this.owner }
-            : {
+          : saved?.blocked || (saved && isUncertainMutation(saved.inFlight))
+            ? {
+                ...saved,
                 owner: this.owner,
-                checkpoint: saved?.checkpoint,
-                inFlight: false,
-                runId: options.runId,
-                recoveries: 0,
-              },
+                blocked:
+                  saved.blocked ||
+                  (isUncertainMutation(saved.inFlight)
+                    ? "An earlier operation has an unknown outcome. Inspect its effects before continuing."
+                    : undefined),
+              }
+            : saved?.runId === options.runId
+              ? { ...saved, owner: this.owner }
+              : {
+                  owner: this.owner,
+                  checkpoint: saved?.checkpoint,
+                  inFlight: false,
+                  runId: options.runId,
+                  recoveries: 0,
+                },
     )
   }
 
@@ -127,6 +133,11 @@ export class WorkspaceRecovery {
 
   assertUsable() {
     const state = this.state()
+    if (state.maintenance)
+      throw new WorkspaceLostError(
+        "A sandbox restart is in progress. Wait for it to finish before starting work.",
+        state.runId,
+      )
     if (state.blocked) throw new WorkspaceLostError(state.blocked, state.runId, state.probeFailure)
   }
 

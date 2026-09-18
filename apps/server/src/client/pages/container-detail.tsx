@@ -28,7 +28,7 @@ import {
   useAgentWork,
   useDestroyContainer,
   useEvents,
-  useRecycleSandbox,
+  useRestartSandbox,
   useSendPrompt,
   useSessionDetail,
   useWorkspaceHealth,
@@ -809,7 +809,7 @@ export default function ContainerDetailPage() {
   const navigate = useNavigate()
   const { data, isLoading, isError, isFetching, refetch, dataUpdatedAt, streaming } = useSessionDetail(entityKey)
   const destroyContainer = useDestroyContainer()
-  const recycleSandbox = useRecycleSandbox()
+  const restartSandbox = useRestartSandbox()
   const workspaceHealth = useWorkspaceHealth(entityKey)
   const sendPrompt = useSendPrompt(entityKey)
   // Chat runs are started from the dashboard, so no webhook ever targets them.
@@ -821,7 +821,7 @@ export default function ContainerDetailPage() {
   // on phones, where a 224px rail would otherwise swallow the screen.
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [destroyOpen, setDestroyOpen] = useState(false)
-  const [recycleOpen, setRecycleOpen] = useState(false)
+  const [restartOpen, setRestartOpen] = useState(false)
   const [draft, setDraft] = useState("")
   const [optimistic, setOptimistic] = useState<SessionMessage[]>([])
   const [renderLimit, setRenderLimit] = useState(80)
@@ -839,6 +839,13 @@ export default function ContainerDetailPage() {
   const chatAdmitted = detail?.chatAdmitted === true
   const runIsActive =
     detail?.status === "working" || Object.values(sessionStatus).some((status) => status.type === "busy")
+  const restartUnavailable =
+    cleanupPending ||
+    runIsActive ||
+    restartSandbox.isPending ||
+    !workspaceHealth.data ||
+    workspaceHealth.isError ||
+    !["ready", "blocked"].includes(workspaceHealth.data.phase)
 
   const orderedSessions = useMemo(() => {
     const rootSessions = sessions.filter((s) => !s.parentID)
@@ -905,8 +912,8 @@ export default function ContainerDetailPage() {
     })
   }
 
-  const handleRecycle = () => {
-    recycleSandbox.mutate(entityKey, {
+  const handleRestart = () => {
+    restartSandbox.mutate(entityKey, {
       onSuccess: () => setRecycleOpen(false),
     })
   }
@@ -918,19 +925,19 @@ export default function ContainerDetailPage() {
   const headerActions = (
     <div className="flex items-center gap-1">
       <AlertDialog
-        open={recycleOpen}
+        open={restartOpen}
         onOpenChange={(open) => {
-          if (recycleSandbox.isPending) return
-          if (open) recycleSandbox.reset()
-          setRecycleOpen(open)
+          if (restartSandbox.isPending) return
+          if (open) restartSandbox.reset()
+          setRestartOpen(open)
         }}
       >
         <AlertDialogTrigger
           render={
-            <Button variant="outline" size="xs" disabled={cleanupPending || runIsActive || recycleSandbox.isPending}>
+            <Button variant="outline" size="xs" disabled={restartUnavailable}>
               <ArrowClockwise data-icon="inline-start" />
               Restart sandbox
-              <span className="sr-only">preserves the durable conversation, event history, and queued work.</span>
+              <span className="sr-only">requires a settled workspace lifecycle.</span>
             </Button>
           }
         />
@@ -938,23 +945,23 @@ export default function ContainerDetailPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Restart this sandbox?</AlertDialogTitle>
             <AlertDialogDescription>
-              This replaces only the disposable sandbox. It preserves the durable conversation, event history, and
-              queued work. It does not resend an event, replay a command, or clear an uncertain workspace operation.
+              This replaces only the disposable sandbox. It preserves the durable conversation and event history. It
+              does not resend an event, replay a command, or clear an uncertain workspace operation.
             </AlertDialogDescription>
-            {recycleSandbox.isError && (
-              <AlertDialogDescription role="alert">{recycleSandbox.error.message}</AlertDialogDescription>
+            {restartSandbox.isError && (
+              <AlertDialogDescription role="alert">{restartSandbox.error.message}</AlertDialogDescription>
             )}
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={recycleSandbox.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={restartSandbox.isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={recycleSandbox.isPending}
+              disabled={restartSandbox.isPending}
               onClick={(e) => {
                 e.preventDefault()
-                handleRecycle()
+                handleRestart()
               }}
             >
-              {recycleSandbox.isPending ? "Restarting…" : "Restart sandbox"}
+              {restartSandbox.isPending ? "Restarting…" : "Restart sandbox"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -233,10 +233,10 @@ export function useDestroyContainer() {
   })
 }
 
-export function useRecycleSandbox() {
+export function useRestartSandbox() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (entityKey: string) => api.recycleSandbox(entityKey),
+    mutationFn: (entityKey: string) => api.restartSandbox(entityKey),
     onSuccess: async (_data, entityKey) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["sessionDetail", entityKey], exact: true }),

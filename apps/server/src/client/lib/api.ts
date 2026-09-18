@@ -115,7 +115,7 @@ export type SessionDetailResponse = {
 }
 
 export type WorkspaceHealth = {
-  phase: "ready" | "preparing" | "mutation_pending" | "blocked" | "unknown"
+  phase: "ready" | "preparing" | "mutation_pending" | "restarting" | "blocked" | "unknown"
   checkpoint: "available" | "missing"
   recoveries: number
   runId: string | null
@@ -262,13 +262,13 @@ export const api = {
     return res.json()
   },
 
-  async recycleSandbox(entityKey: string) {
-    const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/recycle`, { method: "POST" })
+  async restartSandbox(entityKey: string) {
+    const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/workspace/restart`, { method: "POST" })
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as { error?: string } | null
       throw new Error(body?.error ?? "Could not restart the sandbox. The run and its history were left intact.")
     }
-    return res.json() as Promise<{ ok: true; entityKey: string; destroyed: boolean; purged: false }>
+    return res.json() as Promise<{ ok: true; entityKey: string; restarted: true }>
   },
 
   async getWorkspaceHealth(entityKey: string): Promise<WorkspaceHealth & { entityKey: string }> {

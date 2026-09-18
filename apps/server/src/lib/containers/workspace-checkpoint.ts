@@ -2,7 +2,7 @@ import { THIN_SANDBOX_READY_CHECK } from "./dispatch"
 import { type DoPrepEnv, ensureDoSandboxPrepped } from "./do-prep"
 import type { getSandbox } from "./sandbox-client"
 import { WorkspaceProbeError } from "./workspace-probe"
-import type { WorkspaceSnapshot, WorkspaceState, WorkspaceStore } from "./workspace-recovery"
+import { type WorkspaceSnapshot, type WorkspaceState, type WorkspaceStore, workspaceHealth } from "./workspace-recovery"
 
 const MARKER = "/workspace/repo/.git/jared-workspace-generation"
 const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
@@ -155,5 +155,37 @@ export function acknowledgeWorkspaceLoss(store: WorkspaceStore, runId: string, s
   const state = store.read()
   if (!state?.blocked || state.runId !== runId) return false
   store.write({ runId, inFlight: false, recoveries: 0 })
+  return true
+}
+
+export type WorkspaceRestartResult =
+  | { ok: true; restartId: string }
+  | { ok: false; reason: "active_submission" | "workspace_busy" | "workspace_unknown" }
+
+/**
+ * Atomically fence new workspace work before an operator destroys the disposable sandbox.
+ * Unknown Flue schemas fail closed rather than risk interrupting an active submission.
+ */
+export function beginWorkspaceRestart(store: WorkspaceStore, sql: Sql): WorkspaceRestartResult {
+  try {
+    if (sql.exec("SELECT 1 FROM flue_agent_submissions WHERE status != 'settled' LIMIT 1").toArray().length)
+      return { ok: false, reason: "active_submission" }
+  } catch {
+    return { ok: false, reason: "active_submission" }
+  }
+  const state = store.read()
+  if (!state) return { ok: false, reason: "workspace_unknown" }
+  const health = workspaceHealth(state)
+  if (!["ready", "blocked"].includes(health.phase)) return { ok: false, reason: "workspace_busy" }
+  const restartId = crypto.randomUUID()
+  store.write({ ...state, maintenance: restartId })
+  return { ok: true, restartId }
+}
+
+/** Clears only the exact maintenance fence created by this restart attempt. */
+export function finishWorkspaceRestart(store: WorkspaceStore, restartId: string): boolean {
+  const state = store.read()
+  if (!state || state.maintenance !== restartId) return false
+  store.write({ ...state, maintenance: undefined })
   return true
 }

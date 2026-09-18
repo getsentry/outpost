@@ -70,10 +70,10 @@ describe("run transcript rendering", () => {
     expect(html).toContain("Cleanup incomplete")
   })
 
-  it("offers a non-destructive sandbox restart for a blocked run", () => {
+  it("keeps sandbox restart disabled until authoritative lifecycle health is available", () => {
     const html = renderRun([], { status: "blocked" } as Partial<SessionDetailResponse>)
     expect(html).toContain("Restart sandbox")
-    expect(html).toContain("preserves the durable conversation, event history, and queued work")
+    expect(html).toMatch(/disabled=""[^>]*>[\s\S]*?Restart sandbox/)
   })
 
   it("does not show an empty settled assistant as working", () => {

@@ -17,6 +17,22 @@ export default new Hono<BaseEnv>()
     }
     return c.json({ entityKey, ...(await stub.workspaceHealth()) })
   })
+  .post("/:entityKey/workspace/restart", isAuthenticated(), async (c) => {
+    const binding = c.env.FLUE_JARED_AGENT
+    if (!binding) return c.json({ error: "Native agent runtime is unavailable" }, 503)
+    const entityKey = c.req.param("entityKey")
+    const stub = binding.get(binding.idFromName(toAgentInstanceId(entityKey))) as DurableObjectStub & {
+      restartWorkspaceSandbox(): Promise<
+        | { restarted: true }
+        | { restarted: false; reason: "active_submission" | "workspace_busy" | "workspace_unknown" | "destroy_failed" }
+      >
+    }
+    const result = await stub.restartWorkspaceSandbox()
+    if (result.restarted) return c.json({ ok: true, entityKey, restarted: true })
+    if (result.reason === "destroy_failed")
+      return c.json({ error: "Could not restart the sandbox. No work was replayed." }, 502)
+    return c.json({ error: "A sandbox restart is only available after active work settles." }, 409)
+  })
   .post("/:entityKey/workspace/acknowledge", isAuthenticated(), async (c) => {
     const body: unknown = await c.req.json().catch(() => null)
     if (
