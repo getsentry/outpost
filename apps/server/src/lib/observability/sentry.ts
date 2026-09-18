@@ -41,6 +41,7 @@ const SAFE_LOG_ATTRIBUTE = new Set([
   "jared.workspace.phase",
   "jared.workspace.checkpoint",
   "jared.workspace.recoveries",
+  "jared.workspace.transition",
   "flue.submission.id",
   "flue.instance.id",
   "flue.agent.name",
@@ -159,14 +160,18 @@ export function sandboxPreparationAttributes(correlation: JaredCorrelation): Rec
 }
 
 /** Metadata-only workspace state attached to a preparation span. */
-export function workspaceLifecycleAttributes(health: {
-  phase: string
-  checkpoint: string
-  recoveries: number
-  runId: string | null
-}): Record<string, string | number> {
+export function workspaceLifecycleAttributes(
+  health: {
+    phase: string
+    checkpoint: string
+    recoveries: number
+    runId: string | null
+  },
+  transition?: string,
+): Record<string, string | number> {
   return {
     ...(health.runId ? { "flue.submission.id": health.runId } : {}),
+    ...(transition ? { "jared.workspace.transition": transition } : {}),
     "jared.workspace.phase": health.phase,
     "jared.workspace.checkpoint": health.checkpoint,
     "jared.workspace.recoveries": health.recoveries,

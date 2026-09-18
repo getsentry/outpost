@@ -43,6 +43,7 @@ type Options = {
   ): Promise<void>
   store: WorkspaceStore
   runId: string
+  onLifecycle?: (transition: string, health: WorkspaceHealth) => void
 }
 
 function isUncertainMutation(inFlight: WorkspaceInFlight): boolean {
@@ -143,6 +144,7 @@ export class WorkspaceRecovery {
       checkpoint: health.checkpoint,
       recoveries: health.recoveries,
     })
+    this.options.onLifecycle?.(transition, health)
   }
 
   assertUsable() {
