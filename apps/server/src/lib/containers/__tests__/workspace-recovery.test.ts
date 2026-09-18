@@ -182,7 +182,7 @@ describe("workspace recovery", () => {
     expect(await result).toMatchObject({ name: "AbortError" })
     expect(write).toHaveBeenCalledTimes(1)
     expect(f.inspect).toHaveBeenCalledTimes(2)
-    expect(f.store.read()?.inFlight).toBe(true)
+    expect(f.store.read()?.inFlight).toBe("mutation")
     expect(() => f.guard.finish()).toThrow(/blocked/)
   })
 
@@ -190,6 +190,23 @@ describe("workspace recovery", () => {
     const f = fixture({ checkpoint: clean, inFlight: true, recoveries: 0, runId: "old-run" })
     expect(() => f.guard.assertUsable()).toThrow(/blocked/)
     expect(f.store.read()?.blocked).toBeTruthy()
+  })
+
+  it("retries an interrupted workspace preparation for the next delivery", async () => {
+    const f = fixture({
+      checkpoint: clean,
+      // Preparation only creates or restores the disposable workspace. It has
+      // no GitHub-side effect, so a DO restart must not strand later deliveries.
+      inFlight: "preparing",
+      recoveries: 0,
+      runId: "old-run",
+    })
+
+    await expect(f.guard.start(true)).resolves.toBeUndefined()
+
+    expect(f.prepare).toHaveBeenCalledOnce()
+    expect(f.store.read()).toMatchObject({ runId: "run-1", inFlight: false })
+    expect(f.store.read()?.blocked).toBeUndefined()
   })
 
   it("does not start preparation after a health probe is cancelled", async () => {
@@ -254,7 +271,7 @@ describe("workspace recovery", () => {
       const result = expect(f.guard.start(false)).rejects.toMatchObject({ type: "workspace_lost" })
       await vi.advanceTimersByTimeAsync(180_001)
       await result
-      expect(f.store.read()?.inFlight).toBe(true)
+      expect(f.store.read()?.inFlight).toBe("preparing")
     } finally {
       vi.useRealTimers()
     }
@@ -290,7 +307,7 @@ describe("workspace recovery", () => {
     finish()
     await expect(abandoned).rejects.toMatchObject({ type: "workspace_lost" })
     expect(f.store.read()).toEqual(blocked)
-    expect(f.store.read()?.inFlight).toBe(true)
+    expect(f.store.read()?.inFlight).toBe("mutation")
   })
   it("does not prepare or inspect a workspace when an earlier mutation is uncertain", async () => {
     const f = fixture({ checkpoint: clean, inFlight: true, recoveries: 0, runId: "old-run" })
