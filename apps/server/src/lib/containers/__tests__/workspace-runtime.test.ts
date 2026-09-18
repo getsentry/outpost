@@ -127,7 +127,7 @@ describe("Flue workspace integration", () => {
       meta: { workspaceProbe: { kind: "transport", attempts: 3 } },
     })
     expect(mocks.prep).not.toHaveBeenCalled()
-    expect(workspaceStore(f.sql).read()?.inFlight).toBe(true)
+    expect(workspaceStore(f.sql).read()?.inFlight).toBe("preparing")
   })
 
   it.each([

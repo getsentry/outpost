@@ -101,9 +101,10 @@ export async function prepareWorkspace(
   } as ReturnType<typeof getSandbox>
   const before = await inspect()
   await ensureDoSandboxPrepped(env, id, true, sandbox)
-  // Only a missing repo may be reconstructed. A repo populated by another
-  // caller is verified by the guard, never reset over somebody else's work.
-  if (!before && checkpoint) {
+  // A missing repo, or an untracked clone produced before a reset, can be
+  // restored to the guard's saved checkpoint. A generated workspace is left
+  // intact so a different active run is never reset over its work.
+  if (checkpoint && (!before || before.generation === "untracked")) {
     const result = await sandbox.exec(restoreCheckpointCommand(checkpoint), { cwd: "/", timeout: 120_000 })
     if (!result.success) throw new Error("Checkpoint commit is not recoverable from origin")
     // Restore versioned skill overlays after switching to the saved commit.

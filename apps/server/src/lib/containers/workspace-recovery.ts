@@ -8,10 +8,17 @@ export type WorkspaceSnapshot = {
   fingerprint: string
   ready: boolean
 }
+
+/**
+ * A preparation only mutates the disposable sandbox. A command/write can have
+ * an externally visible effect, so legacy `true` values remain fail-closed.
+ */
+export type WorkspaceInFlight = false | true | "preparing" | "mutation"
+
 export type WorkspaceState = {
   owner?: string
   checkpoint?: WorkspaceSnapshot
-  inFlight: boolean
+  inFlight: WorkspaceInFlight
   recoveries: number
   runId: string
   blocked?: string
@@ -29,6 +36,10 @@ type Options = {
   runId: string
 }
 
+function isUncertainMutation(inFlight: WorkspaceInFlight): boolean {
+  return inFlight === true || inFlight === "mutation"
+}
+
 export class WorkspaceRecovery {
   private queue: Promise<unknown> = Promise.resolve()
   private readonly options: Options
@@ -38,27 +49,36 @@ export class WorkspaceRecovery {
   constructor(options: Options) {
     this.options = options
     const saved = options.store.read()
-    const retained = saved && (saved.runId === options.runId || saved.blocked || saved.inFlight)
     // Claim ownership synchronously; abandoned continuations cannot overwrite
-    // this invocation. Blockers retain their original id until acknowledged.
+    // this invocation. Only a possibly mutating operation retains a blocker:
+    // setup can safely be rerun after a Durable Object restart.
     options.store.write(
-      retained
+      saved?.blocked || (saved && isUncertainMutation(saved.inFlight))
         ? {
             ...saved,
             owner: this.owner,
             blocked:
               saved.blocked ||
-              (saved.inFlight
+              (isUncertainMutation(saved.inFlight)
                 ? "An earlier operation has an unknown outcome. Inspect its effects before continuing."
                 : undefined),
           }
-        : {
-            owner: this.owner,
-            checkpoint: saved?.checkpoint,
-            inFlight: false,
-            runId: options.runId,
-            recoveries: 0,
-          },
+        : saved?.inFlight === "preparing"
+          ? {
+              ...saved,
+              owner: this.owner,
+              inFlight: false,
+              runId: options.runId,
+            }
+          : saved?.runId === options.runId
+            ? { ...saved, owner: this.owner }
+            : {
+                owner: this.owner,
+                checkpoint: saved?.checkpoint,
+                inFlight: false,
+                runId: options.runId,
+                recoveries: 0,
+              },
     )
   }
 
@@ -152,7 +172,11 @@ export class WorkspaceRecovery {
       const recovering = !!state.checkpoint && (!current?.ready || replaced)
       if (recovering && state.recoveries >= 2) this.block("Workspace recovery was exhausted after two attempts.")
       // Commit the budget before external work so a DO restart cannot reset it.
-      this.options.store.write({ ...this.state(), inFlight: true, recoveries: state.recoveries + Number(recovering) })
+      this.options.store.write({
+        ...this.state(),
+        inFlight: "preparing",
+        recoveries: state.recoveries + Number(recovering),
+      })
       try {
         await withWorkspaceDeadline(
           180_000,
@@ -190,7 +214,7 @@ export class WorkspaceRecovery {
         this.block("An earlier command has an unknown outcome. Inspect its effects before continuing.")
       const before = await this.ensureReady(false, activeSignal)
       activeSignal.throwIfAborted()
-      if (mutating) this.options.store.write({ ...this.state(), inFlight: true })
+      if (mutating) this.options.store.write({ ...this.state(), inFlight: "mutation" })
       let result: T
       try {
         result = await operation()
