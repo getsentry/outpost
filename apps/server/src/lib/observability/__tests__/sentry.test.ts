@@ -9,6 +9,7 @@ import {
   sandboxPreparationAttributes,
   terminalFailureCorrelationTags,
   workflowCorrelationTags,
+  workspaceLifecycleAttributes,
 } from "../sentry"
 
 describe("Jared Sentry observability policy", () => {
@@ -78,6 +79,17 @@ describe("Jared Sentry observability policy", () => {
     expect(classifySandboxPreparationFailure(new Error("thin sandbox prep failed: git clone failed"))).toBe(
       "preparation_failed",
     )
+  })
+
+  it("keeps workspace lifecycle attributes safe for Sentry traces", () => {
+    expect(
+      workspaceLifecycleAttributes({ phase: "preparing", checkpoint: "available", recoveries: 1, runId: "sub_123" }),
+    ).toEqual({
+      "flue.submission.id": "sub_123",
+      "jared.workspace.phase": "preparing",
+      "jared.workspace.checkpoint": "available",
+      "jared.workspace.recoveries": 1,
+    })
   })
 
   it("redacts secrets and keeps model/tool content disabled by default", () => {

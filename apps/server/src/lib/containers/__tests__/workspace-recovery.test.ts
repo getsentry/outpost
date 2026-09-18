@@ -51,6 +51,23 @@ describe("workspace recovery", () => {
     expect(f.prepare).not.toHaveBeenCalled()
   })
 
+  it("logs a sanitized preparation lifecycle for Cloudflare correlation", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => {})
+    const f = fixture()
+
+    await f.guard.start(true)
+
+    expect(info).toHaveBeenCalledWith(
+      "jared: workspace lifecycle",
+      expect.objectContaining({ run_id: "run-1", transition: "preparing", phase: "preparing" }),
+    )
+    expect(info).toHaveBeenCalledWith(
+      "jared: workspace lifecycle",
+      expect.objectContaining({ run_id: "run-1", transition: "prepared", phase: "ready" }),
+    )
+    expect(JSON.stringify(info.mock.calls)).not.toContain(clean.fingerprint)
+  })
+
   it("retries a transient preflight probe before starting a command exactly once", async () => {
     vi.useFakeTimers()
     const f = fixture()

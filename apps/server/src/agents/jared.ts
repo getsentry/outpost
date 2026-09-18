@@ -47,6 +47,7 @@ import {
   classifySandboxPreparationFailure,
   sandboxPreparationAttributes,
   workflowCorrelationTags,
+  workspaceLifecycleAttributes,
 } from "@/lib/observability/sentry"
 import type { BaseEnvBindings } from "@/types/env/base"
 import "./sentry.ts"
@@ -114,9 +115,12 @@ export function Jared({ id }: AgentProps) {
       },
       async (span) => {
         try {
+          span.setAttributes(workspaceLifecycleAttributes(currentWorkspace().health()))
           await currentWorkspace().start(delivery?.kind !== "user", signal)
+          span.setAttributes(workspaceLifecycleAttributes(currentWorkspace().health()))
           span.setAttribute("jared.sandbox.outcome", "prepared")
         } catch (error) {
+          span.setAttributes(workspaceLifecycleAttributes(currentWorkspace().health()))
           span.setAttribute("jared.sandbox.outcome", "failed")
           span.setAttribute("jared.sandbox.failure_class", classifySandboxPreparationFailure(error))
           throw error
