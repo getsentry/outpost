@@ -107,6 +107,29 @@ After inspection and acknowledgement, send explicit operator guidance or resend
 the desired event separately. Without acknowledgement, an uncertain mutation
 continues to block automatic work.
 
+## Operator panel
+
+The run-detail panel separates non-destructive recovery from **Destroy**. Its
+Sandbox lifecycle strip is backed by this authenticated, read-only endpoint:
+
+```http
+GET /api/containers/<URL-encoded-entity-key>/workspace/health
+```
+
+It reports only the current phase (`ready`, `preparing`, `mutation_pending`,
+`blocked`, or `unknown`), whether a checkpoint is available, the recovery
+attempt count, and the submission id. It never returns commands, repository
+contents, credentials, or raw provider errors.
+
+**Restart sandbox** is available only when the run is inactive. It replaces the
+disposable Sandbox but preserves the Durable Object conversation, stored event
+history, and queued work. It does not resend an event, replay a command, or
+clear a blocker. A `mutation_pending` or `blocked` state still requires effect
+inspection and, when appropriate, explicit acknowledgement.
+
+Use **Destroy** only when a new conversation is intended: it deletes history,
+events, scheduled work, and the retained workspace state.
+
 ## Validation and rollout
 
 Tests reproduce a missing cwd with a real shell, recover an exact Git branch and

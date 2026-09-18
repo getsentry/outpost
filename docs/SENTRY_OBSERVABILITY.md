@@ -27,11 +27,19 @@ synchronous trace. Join those surfaces using these tags instead:
 | `jared.lifecycle_status` | preparing, admitting, admitted, scheduled, dropped, settled, or failed |
 | `jared.sandbox_id` | thin Sandbox identity |
 | `jared.source` | Worker dispatch, reconciliation, cron, or Durable Object boundary |
+| `jared.workspace.phase` | safe workspace state: ready, preparing, mutation pending, blocked, or unknown |
+| `jared.workspace.checkpoint` | whether a recoverable checkpoint exists |
+| `jared.workspace.recoveries` | durable recovery attempts for the submission |
 
 `jared.sandbox.prepare` records duration, phase, identity, outcome, and a stable
 failure class only. `jared.flue.admit`, follow-up scheduling/admission, and
 `jared.maintenance.heartbeat` make lifecycle progress visible. The cron handler
 also persists its existing `maintenance_runs` heartbeat in D1.
+
+Cloudflare logs emit a matching `jared: workspace lifecycle` record for guard
+claim, preparation, operation-completion, and block transitions. Join it to the
+Sentry preparation span using `run_id` / `flue.submission.id`; the log contains
+only transition, phase, checkpoint availability, and recovery count.
 
 ## Data policy
 
@@ -106,6 +114,12 @@ Useful transaction/span names are `jared.sandbox.prepare`, `jared.flue.admit`,
 `exception.type:FlueTerminalFailure` with `flue.submission.id`; there should be
 one captured event for that terminal submission. Browser requests should only
 show propagation to the configured Jared API origin.
+
+For the matching Cloudflare view, tail the Worker while reproducing a single
+submission and filter for `jared: workspace lifecycle` plus its `run_id`. A
+healthy recovery has `preparing` followed by `prepared`; a transition to
+`mutation_started` without `operation_completed` is intentionally uncertain and
+must be reconciled before any retry.
 
 ## Local collector workflow
 
