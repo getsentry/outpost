@@ -24,7 +24,15 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import remarkGfm from "remark-gfm"
 import type { MessagePart, SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
 import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
-import { useAgentWork, useDestroyContainer, useEvents, useSendPrompt, useSessionDetail } from "@/client/lib/queries"
+import {
+  useAgentWork,
+  useDestroyContainer,
+  useEvents,
+  useRecycleSandbox,
+  useSendPrompt,
+  useSessionDetail,
+  useWorkspaceHealth,
+} from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
 import { StatusBadge } from "@/components/status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
@@ -801,6 +809,8 @@ export default function ContainerDetailPage() {
   const navigate = useNavigate()
   const { data, isLoading, isError, isFetching, refetch, dataUpdatedAt, streaming } = useSessionDetail(entityKey)
   const destroyContainer = useDestroyContainer()
+  const recycleSandbox = useRecycleSandbox()
+  const workspaceHealth = useWorkspaceHealth(entityKey)
   const sendPrompt = useSendPrompt(entityKey)
   // Chat runs are started from the dashboard, so no webhook ever targets them.
   const chatRepo = chatEntityRepo(entityKey)
@@ -811,6 +821,7 @@ export default function ContainerDetailPage() {
   // on phones, where a 224px rail would otherwise swallow the screen.
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [destroyOpen, setDestroyOpen] = useState(false)
+  const [recycleOpen, setRecycleOpen] = useState(false)
   const [draft, setDraft] = useState("")
   const [optimistic, setOptimistic] = useState<SessionMessage[]>([])
   const [renderLimit, setRenderLimit] = useState(80)
@@ -826,6 +837,8 @@ export default function ContainerDetailPage() {
   const chatError = detail?.chatError
   const cleanupPending = detail?.cleanupPending === true || detail?.status === "cleanup_pending"
   const chatAdmitted = detail?.chatAdmitted === true
+  const runIsActive =
+    detail?.status === "working" || Object.values(sessionStatus).some((status) => status.type === "busy")
 
   const orderedSessions = useMemo(() => {
     const rootSessions = sessions.filter((s) => !s.parentID)
@@ -892,12 +905,60 @@ export default function ContainerDetailPage() {
     })
   }
 
+  const handleRecycle = () => {
+    recycleSandbox.mutate(entityKey, {
+      onSuccess: () => setRecycleOpen(false),
+    })
+  }
+
   // Header action(s). No manual "Refresh": the transcript streams over SSE with a
   // busy-aware fallback poll, so the data stays current on its own. Explicit
   // retry lives where a stall is actionable — the "sync unavailable" banner, the
   // empty-state, and the not-found view below.
   const headerActions = (
     <div className="flex items-center gap-1">
+      <AlertDialog
+        open={recycleOpen}
+        onOpenChange={(open) => {
+          if (recycleSandbox.isPending) return
+          if (open) recycleSandbox.reset()
+          setRecycleOpen(open)
+        }}
+      >
+        <AlertDialogTrigger
+          render={
+            <Button variant="outline" size="xs" disabled={cleanupPending || runIsActive || recycleSandbox.isPending}>
+              <ArrowClockwise data-icon="inline-start" />
+              Restart sandbox
+              <span className="sr-only">preserves the durable conversation, event history, and queued work.</span>
+            </Button>
+          }
+        />
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restart this sandbox?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This replaces only the disposable sandbox. It preserves the durable conversation, event history, and
+              queued work. It does not resend an event, replay a command, or clear an uncertain workspace operation.
+            </AlertDialogDescription>
+            {recycleSandbox.isError && (
+              <AlertDialogDescription role="alert">{recycleSandbox.error.message}</AlertDialogDescription>
+            )}
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={recycleSandbox.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={recycleSandbox.isPending}
+              onClick={(e) => {
+                e.preventDefault()
+                handleRecycle()
+              }}
+            >
+              {recycleSandbox.isPending ? "Restarting…" : "Restart sandbox"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={destroyOpen}
         onOpenChange={(open) => {
@@ -1110,6 +1171,16 @@ export default function ContainerDetailPage() {
           <AlertTitle>{notice.title}</AlertTitle>
           <AlertDescription>{notice.description}</AlertDescription>
         </Alert>
+      )}
+
+      {workspaceHealth.data && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border/60 bg-muted/40 px-4 py-2 text-[11px] text-muted-foreground">
+          <span className="font-medium text-foreground">Sandbox lifecycle</span>
+          <span>Phase: {workspaceHealth.data.phase.replaceAll("_", " ")}</span>
+          <span>Checkpoint: {workspaceHealth.data.checkpoint}</span>
+          <span>Recovery attempts: {workspaceHealth.data.recoveries}</span>
+          {workspaceHealth.isFetching && <span>Refreshing…</span>}
+        </div>
       )}
 
       {/* Only alarm once the run is *derived* as sync-unavailable. A fresh working

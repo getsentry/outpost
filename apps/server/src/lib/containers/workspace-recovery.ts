@@ -25,6 +25,13 @@ export type WorkspaceState = {
   probeFailure?: WorkspaceProbeFailure
 }
 export type WorkspaceStore = { read(): WorkspaceState | undefined; write(state: WorkspaceState): void }
+
+export type WorkspaceHealth = {
+  phase: "ready" | "preparing" | "mutation_pending" | "blocked" | "unknown"
+  checkpoint: "available" | "missing"
+  recoveries: number
+  runId: string | null
+}
 type Options = {
   inspect(): Promise<WorkspaceSnapshot | null>
   prepare(
@@ -38,6 +45,24 @@ type Options = {
 
 function isUncertainMutation(inFlight: WorkspaceInFlight): boolean {
   return inFlight === true || inFlight === "mutation"
+}
+
+/** Safe operator diagnostics; deliberately excludes command, token, and repository data. */
+export function workspaceHealth(state: WorkspaceState | undefined): WorkspaceHealth {
+  return {
+    phase: !state
+      ? "unknown"
+      : state.blocked
+        ? "blocked"
+        : state.inFlight === "preparing"
+          ? "preparing"
+          : isUncertainMutation(state.inFlight)
+            ? "mutation_pending"
+            : "ready",
+    checkpoint: state?.checkpoint ? "available" : "missing",
+    recoveries: state?.recoveries ?? 0,
+    runId: state?.runId ?? null,
+  }
 }
 
 export class WorkspaceRecovery {

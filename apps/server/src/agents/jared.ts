@@ -34,6 +34,7 @@ import {
   type TraceHeaders,
 } from "@/lib/containers/session-controller"
 import { acknowledgeWorkspaceLoss, workspaceStore } from "@/lib/containers/workspace-checkpoint"
+import { workspaceHealth } from "@/lib/containers/workspace-recovery"
 import { assertWorkspaceUsable, currentWorkspace, recoverableSandbox } from "@/lib/containers/workspace-runtime"
 import type { DiscussionRecordInput } from "@/lib/github/discussion-store"
 import { cloudflareSentryOptions } from "@/lib/observability/cloudflare"
@@ -236,6 +237,11 @@ export const cloudflare = extend({
       /** Called only by the authenticated operator route after settlement. */
       acknowledgeWorkspaceLoss(runId: string) {
         return acknowledgeWorkspaceLoss(workspaceStore(this.ctx.storage.sql), runId, this.ctx.storage.sql)
+      }
+
+      /** Read-only lifecycle state for authenticated operator diagnostics. */
+      workspaceHealth() {
+        return workspaceHealth(workspaceStore(this.ctx.storage.sql).read())
       }
 
       /** One-shot follow-up (e.g. auto-merge quiet period). */

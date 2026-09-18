@@ -8,13 +8,22 @@ vi.mock("@/lib/containers/flue-dispatch", () => ({ readFlueHistoryInProcess: rea
 
 function fixture(authenticated = true) {
   const acknowledge = vi.fn(async () => true)
+  const workspaceHealth = vi.fn(() => ({
+    phase: "preparing",
+    checkpoint: "available",
+    recoveries: 1,
+    runId: "sub_one",
+  }))
   const app = new Hono<AuthEnv>()
     .use(async (c, next) => {
       if (authenticated) c.set("user", { id: "operator" } as AuthEnv["Variables"]["user"])
       await next()
     })
     .route("/", router)
-  const binding = { idFromName: vi.fn((id) => id), get: vi.fn(() => ({ acknowledgeWorkspaceLoss: acknowledge })) }
+  const binding = {
+    idFromName: vi.fn((id) => id),
+    get: vi.fn(() => ({ acknowledgeWorkspaceLoss: acknowledge, workspaceHealth })),
+  }
   read.mockResolvedValue({
     ok: true,
     history: {
@@ -28,10 +37,30 @@ function fixture(authenticated = true) {
       { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) },
       { FLUE_JARED_AGENT: binding } as unknown as BaseEnv["Bindings"],
     )
-  return { request, acknowledge, binding }
+  const health = () =>
+    app.request("/getsentry%2Fcli%231568/workspace/health", { method: "GET" }, {
+      FLUE_JARED_AGENT: binding,
+    } as unknown as BaseEnv["Bindings"])
+  return { request, health, acknowledge, workspaceHealth, binding }
 }
 
 describe("operator workspace acknowledgement", () => {
+  it("reports a sanitized durable workspace health snapshot", async () => {
+    const f = fixture()
+    const result = await f.health()
+
+    expect(result.status).toBe(200)
+    expect(await result.json()).toEqual({
+      entityKey: "getsentry/cli#1568",
+      phase: "preparing",
+      checkpoint: "available",
+      recoveries: 1,
+      runId: "sub_one",
+    })
+    expect(f.workspaceHealth).toHaveBeenCalledOnce()
+    expect(f.binding.idFromName).toHaveBeenCalledWith("getsentry-cli-1568")
+  })
+
   it.each([
     { type: "dynamic-tool", state: "input-available" },
     { type: "text", state: "streaming" },

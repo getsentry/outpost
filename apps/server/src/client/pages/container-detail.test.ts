@@ -70,6 +70,12 @@ describe("run transcript rendering", () => {
     expect(html).toContain("Cleanup incomplete")
   })
 
+  it("offers a non-destructive sandbox restart for a blocked run", () => {
+    const html = renderRun([], { status: "blocked" } as Partial<SessionDetailResponse>)
+    expect(html).toContain("Restart sandbox")
+    expect(html).toContain("preserves the durable conversation, event history, and queued work")
+  })
+
   it("does not show an empty settled assistant as working", () => {
     const html = renderRun([{ info: { role: "assistant" }, parts: [] }], {
       status: "failed",

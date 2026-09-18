@@ -114,6 +114,13 @@ export type SessionDetailResponse = {
   chatAdmitted?: boolean
 }
 
+export type WorkspaceHealth = {
+  phase: "ready" | "preparing" | "mutation_pending" | "blocked" | "unknown"
+  checkpoint: "available" | "missing"
+  recoveries: number
+  runId: string | null
+}
+
 export type EventStats = {
   total: number
   pending: number
@@ -253,6 +260,21 @@ export const api = {
       throw new Error(body?.error ?? "Could not finish deleting this run. Please retry Destroy.")
     }
     return res.json()
+  },
+
+  async recycleSandbox(entityKey: string) {
+    const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/recycle`, { method: "POST" })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null
+      throw new Error(body?.error ?? "Could not restart the sandbox. The run and its history were left intact.")
+    }
+    return res.json() as Promise<{ ok: true; entityKey: string; destroyed: boolean; purged: false }>
+  },
+
+  async getWorkspaceHealth(entityKey: string): Promise<WorkspaceHealth & { entityKey: string }> {
+    const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/workspace/health`)
+    if (!res.ok) throw new Error(`Failed to fetch workspace health: ${res.status}`)
+    return res.json() as Promise<WorkspaceHealth & { entityKey: string }>
   },
 
   async getChatRepos(): Promise<{ repos: string[] }> {
