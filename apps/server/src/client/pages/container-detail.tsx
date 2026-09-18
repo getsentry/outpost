@@ -914,7 +914,7 @@ export default function ContainerDetailPage() {
 
   const handleRestart = () => {
     restartSandbox.mutate(entityKey, {
-      onSuccess: () => setRecycleOpen(false),
+      onSuccess: () => setRestartOpen(false),
     })
   }
 
@@ -937,7 +937,7 @@ export default function ContainerDetailPage() {
             <Button variant="outline" size="xs" disabled={restartUnavailable}>
               <ArrowClockwise data-icon="inline-start" />
               Restart sandbox
-              <span className="sr-only">requires a settled workspace lifecycle.</span>
+              <span className="sr-only">preserves the durable conversation, event history, and queued work.</span>
             </Button>
           }
         />
@@ -945,8 +945,8 @@ export default function ContainerDetailPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Restart this sandbox?</AlertDialogTitle>
             <AlertDialogDescription>
-              This replaces only the disposable sandbox. It preserves the durable conversation and event history. It
-              does not resend an event, replay a command, or clear an uncertain workspace operation.
+              This replaces only the disposable sandbox. It preserves the durable conversation, event history, and
+              queued work. It does not resend an event, replay a command, or clear an uncertain workspace operation.
             </AlertDialogDescription>
             {restartSandbox.isError && (
               <AlertDialogDescription role="alert">{restartSandbox.error.message}</AlertDialogDescription>
