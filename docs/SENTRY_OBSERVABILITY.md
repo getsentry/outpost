@@ -27,9 +27,10 @@ synchronous trace. Join those surfaces using these tags instead:
 | `jared.lifecycle_status` | preparing, admitting, admitted, scheduled, dropped, settled, or failed |
 | `jared.sandbox_id` | thin Sandbox identity |
 | `jared.source` | Worker dispatch, reconciliation, cron, or Durable Object boundary |
-| `jared.workspace.phase` | safe workspace state: ready, preparing, mutation pending, blocked, or unknown |
+| `jared.workspace.phase` | safe workspace state: ready, preparing, mutation pending, restarting, blocked, or unknown |
 | `jared.workspace.checkpoint` | whether a recoverable checkpoint exists |
 | `jared.workspace.recoveries` | durable recovery attempts for the submission |
+| `jared.workspace.transition` | lifecycle change that produced a workspace span |
 
 `jared.sandbox.prepare` records duration, phase, identity, outcome, and a stable
 failure class only. `jared.flue.admit`, follow-up scheduling/admission, and
@@ -37,9 +38,11 @@ failure class only. `jared.flue.admit`, follow-up scheduling/admission, and
 also persists its existing `maintenance_runs` heartbeat in D1.
 
 Cloudflare logs emit a matching `jared: workspace lifecycle` record for guard
-claim, preparation, operation-completion, and block transitions. Join it to the
-Sentry preparation span using `run_id` / `flue.submission.id`; the log contains
-only transition, phase, checkpoint availability, and recovery count.
+claim, preparation, operation-completion, and block transitions. Every record
+also creates a metadata-only `jared.workspace.lifecycle` Sentry span, including
+recovery after the initial agent-start span has completed. Join the two using
+`run_id` / `flue.submission.id`; the log and span contain only transition,
+phase, checkpoint availability, and recovery count.
 
 ## Data policy
 
@@ -108,7 +111,7 @@ Then narrow to a lifecycle stall:
 jared.lifecycle_status:preparing OR jared.lifecycle_status:admitting
 ```
 
-Useful transaction/span names are `jared.sandbox.prepare`, `jared.flue.admit`,
+Useful transaction/span names are `jared.sandbox.prepare`, `jared.workspace.lifecycle`, `jared.flue.admit`,
 `jared.follow_up.schedule`, `jared.follow_up.admit`, and
 `jared.maintenance.heartbeat`. For a terminal failure, search
 `exception.type:FlueTerminalFailure` with `flue.submission.id`; there should be
