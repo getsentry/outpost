@@ -209,6 +209,24 @@ describe("workspace recovery", () => {
     expect(f.store.read()?.blocked).toBeUndefined()
   })
 
+  it("retries a legacy preparation failure that retained its blocker", async () => {
+    const f = fixture({
+      checkpoint: clean,
+      // Older deployments marked failed setup as both blocked and preparing.
+      // Setup only affects the disposable sandbox, so it is safe to retry.
+      inFlight: "preparing",
+      recoveries: 1,
+      runId: "old-run",
+      blocked: "The repository, skills, authentication, or saved Git checkpoint could not be restored.",
+    })
+
+    await expect(f.guard.start(true)).resolves.toBeUndefined()
+
+    expect(f.prepare).toHaveBeenCalledOnce()
+    expect(f.store.read()).toMatchObject({ runId: "run-1", inFlight: false })
+    expect(f.store.read()?.blocked).toBeUndefined()
+  })
+
   it("does not start preparation after a health probe is cancelled", async () => {
     const f = fixture()
     let finish!: () => void

@@ -50,25 +50,28 @@ export class WorkspaceRecovery {
     this.options = options
     const saved = options.store.read()
     // Claim ownership synchronously; abandoned continuations cannot overwrite
-    // this invocation. Only a possibly mutating operation retains a blocker:
-    // setup can safely be rerun after a Durable Object restart.
+    // this invocation. Preparation affects only the disposable sandbox, so
+    // older failed setup records may safely retry even if they kept a blocker.
+    // A possibly mutating operation always retains its blocker.
     options.store.write(
-      saved?.blocked || (saved && isUncertainMutation(saved.inFlight))
+      saved?.inFlight === "preparing"
         ? {
             ...saved,
             owner: this.owner,
-            blocked:
-              saved.blocked ||
-              (isUncertainMutation(saved.inFlight)
-                ? "An earlier operation has an unknown outcome. Inspect its effects before continuing."
-                : undefined),
+            inFlight: false,
+            runId: options.runId,
+            blocked: undefined,
+            probeFailure: undefined,
           }
-        : saved?.inFlight === "preparing"
+        : saved?.blocked || (saved && isUncertainMutation(saved.inFlight))
           ? {
               ...saved,
               owner: this.owner,
-              inFlight: false,
-              runId: options.runId,
+              blocked:
+                saved.blocked ||
+                (isUncertainMutation(saved.inFlight)
+                  ? "An earlier operation has an unknown outcome. Inspect its effects before continuing."
+                  : undefined),
             }
           : saved?.runId === options.runId
             ? { ...saved, owner: this.owner }
