@@ -97,7 +97,9 @@ function StatusIndicator({ status }: { status: string }) {
   }
   const c = config[status] ?? config.unknown
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${c.bg}`}>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[11px] font-medium ${c.bg}`}
+    >
       <span className={`inline-block size-1.5 rounded-full ${c.dot}`} />
       {c.label}
     </span>
