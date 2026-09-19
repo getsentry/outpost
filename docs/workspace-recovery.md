@@ -116,10 +116,11 @@ Sandbox lifecycle strip is backed by this authenticated, read-only endpoint:
 GET /api/containers/<URL-encoded-entity-key>/workspace/health
 ```
 
-It reports only the current phase (`ready`, `preparing`, `mutation_pending`,
-`restarting`, `blocked`, or `unknown`), whether a checkpoint is available, the recovery
-attempt count, and the submission id. It never returns commands, repository
-contents, credentials, or raw provider errors.
+It echoes the requested entity key and otherwise reports only the current phase
+(`ready`, `preparing`, `mutation_pending`, `restarting`, `blocked`, or
+`unknown`), whether a checkpoint is available, the recovery attempt count, and
+the submission id. It never returns commands, repository contents, credentials,
+or raw provider errors.
 
 **Restart sandbox** is available only when the dashboard indicates an inactive
 lifecycle state. That view can be stale: the server makes the authoritative

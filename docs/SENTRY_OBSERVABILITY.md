@@ -27,7 +27,7 @@ synchronous trace. Join those surfaces using these tags instead:
 | `jared.lifecycle_status` | preparing, admitting, admitted, scheduled, dropped, settled, or failed |
 | `jared.sandbox_id` | thin Sandbox identity |
 | `jared.source` | Worker dispatch, reconciliation, cron, or Durable Object boundary |
-| `jared.workspace.phase` | safe workspace state: ready, preparing, mutation pending, restarting, blocked, or unknown |
+| `jared.workspace.phase` | safe workspace state: ready, preparing, mutation_pending, restarting, blocked, or unknown |
 | `jared.workspace.checkpoint` | whether a recoverable checkpoint exists |
 | `jared.workspace.recoveries` | durable recovery attempts for the submission |
 | `jared.workspace.transition` | lifecycle change that produced a workspace span |
@@ -37,9 +37,10 @@ failure class only. `jared.flue.admit`, follow-up scheduling/admission, and
 `jared.maintenance.heartbeat` make lifecycle progress visible. The cron handler
 also persists its existing `maintenance_runs` heartbeat in D1.
 
-Cloudflare logs emit a matching `jared: workspace lifecycle` record for guard
-claim, preparation, operation-completion, and block transitions. Each record
-attempts a metadata-only `jared.workspace.lifecycle` Sentry span, including
+Cloudflare logs emit a matching `jared: workspace lifecycle` record for each
+lifecycle transition — guard claim, preparation start and completion, mutation
+start, operation completion, and block. Each record attempts a metadata-only
+`jared.workspace.lifecycle` Sentry span, including
 recovery after the initial agent-start span has completed; whether it is visible
 depends on trace sampling. Join the two using `run_id` / `flue.submission.id`.
 Use Cloudflare logs as the complete lifecycle source when no matching Sentry
