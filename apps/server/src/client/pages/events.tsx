@@ -1,5 +1,5 @@
 import { CaretLeft, CaretRight, Funnel, ListBullets, MagnifyingGlass, Trash, X } from "@phosphor-icons/react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { entityGitHubUrl, formatTimeAgo, repoGitHubUrl } from "@/client/lib/format"
 import { useClearEvents, useEventStats, useEvents, useEventsGrouped } from "@/client/lib/queries"
@@ -54,20 +54,16 @@ export default function EventsPage() {
   const repoFilter = searchParams.get("repo") ?? ""
   const timeRangeParam = searchParams.get("timeRange") ?? "all"
   const timeRange: TimeRangeValue = isTimeRangeValue(timeRangeParam) ? timeRangeParam : "all"
-
-  // Recompute the window boundary each render so "last hour" stays relative.
-  const from = useMemo(() => {
-    const range = TIME_RANGES.find((r) => r.value === timeRange)
-    if (!range || range.seconds === 0) return undefined
-    return Math.floor(Date.now() / 1000) - range.seconds
-  }, [timeRange])
+  const windowSeconds = TIME_RANGES.find((r) => r.value === timeRange)?.seconds || undefined
 
   const { data, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useEvents({
     page,
     limit,
     status: statusFilter !== "all" ? statusFilter : undefined,
     repo: repoFilter || undefined,
-    from,
+    // Pass the window size, not an absolute cutoff: `from` is derived at fetch
+    // time so each auto-refetch keeps the window relative to the current moment.
+    windowSeconds,
   })
 
   // Sync input with URL param when navigating
