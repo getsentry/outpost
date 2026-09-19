@@ -130,12 +130,16 @@ export default function EventsPage() {
               <AlertDialogFooter>
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => {
+                  disabled={clearEvents.isPending}
+                  onClick={(e) => {
+                    e.preventDefault()
                     clearEvents.mutate(undefined, {
-                      onSuccess: () => toast.success("All events cleared"),
+                      onSuccess: () => {
+                        toast.success("All events cleared")
+                        setClearDialogOpen(false)
+                      },
                       onError: () => toast.error("Failed to clear events"),
                     })
-                    setClearDialogOpen(false)
                   }}
                 >
                   Clear All Events
