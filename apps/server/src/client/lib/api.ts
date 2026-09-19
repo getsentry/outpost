@@ -12,6 +12,10 @@ export type EventsParams = {
   event?: string
   repo?: string
   entityKey?: string
+  from?: number
+  to?: number
+  /** Relative window in seconds; the caller derives `from` at fetch time. */
+  windowSeconds?: number
 }
 
 export type AgentWorkItem = {
@@ -164,6 +168,8 @@ export const api = {
     if (params.event) qs.set("event", params.event)
     if (params.repo) qs.set("repo", params.repo)
     if (params.entityKey) qs.set("entityKey", params.entityKey)
+    if (params.from != null) qs.set("from", String(params.from))
+    if (params.to != null) qs.set("to", String(params.to))
 
     const res = await fetch(`/api/events?${qs.toString()}`)
     if (!res.ok) throw new Error(`Failed to fetch events: ${res.status}`)

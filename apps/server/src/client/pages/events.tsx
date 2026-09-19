@@ -21,11 +21,24 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 const STATUS_OPTIONS = ["all", "pending", "admitted", "settled", "completed", "failed", "skipped", "d:boot"] as const
 const PAGE_SIZES = [10, 25, 50] as const
+
+const TIME_RANGES = [
+  { value: "all", label: "All time", seconds: 0 },
+  { value: "1h", label: "Last hour", seconds: 60 * 60 },
+  { value: "6h", label: "Last 6 hours", seconds: 6 * 60 * 60 },
+  { value: "24h", label: "Last 24 hours", seconds: 24 * 60 * 60 },
+  { value: "7d", label: "Last 7 days", seconds: 7 * 24 * 60 * 60 },
+] as const
+
+type TimeRangeValue = (typeof TIME_RANGES)[number]["value"]
+
+const isTimeRangeValue = (value: string): value is TimeRangeValue => TIME_RANGES.some((r) => r.value === value)
 
 export default function EventsPage() {
   const navigate = useNavigate()
@@ -41,12 +54,18 @@ export default function EventsPage() {
   const limit = Number(searchParams.get("limit")) || 25
   const statusFilter = searchParams.get("status") ?? "all"
   const repoFilter = searchParams.get("repo") ?? ""
+  const timeRangeParam = searchParams.get("timeRange") ?? "all"
+  const timeRange: TimeRangeValue = isTimeRangeValue(timeRangeParam) ? timeRangeParam : "all"
+  const windowSeconds = TIME_RANGES.find((r) => r.value === timeRange)?.seconds || undefined
 
   const { data, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useEvents({
     page,
     limit,
     status: statusFilter !== "all" ? statusFilter : undefined,
     repo: repoFilter || undefined,
+    // Pass the window size, not an absolute cutoff: `from` is derived at fetch
+    // time so each auto-refetch keeps the window relative to the current moment.
+    windowSeconds,
   })
 
   // Sync input with URL param when navigating
@@ -69,6 +88,7 @@ export default function EventsPage() {
   const setPage = (p: number) => updateParams({ page: String(p) })
   const setLimit = (l: number) => updateParams({ limit: String(l), page: "1" })
   const setStatus = (s: string) => updateParams({ status: s === "all" ? null : s, page: "1" })
+  const setTimeRange = (r: string) => updateParams({ timeRange: r === "all" ? null : r, page: "1" })
 
   const applyRepoFilter = () => {
     // No-op when the committed value is unchanged so a plain focus/blur doesn't
@@ -101,7 +121,7 @@ export default function EventsPage() {
   }
 
   const pagination = data?.pagination
-  const hasActiveFilters = statusFilter !== "all" || !!repoFilter
+  const hasActiveFilters = statusFilter !== "all" || !!repoFilter || timeRange !== "all"
 
   return (
     <div className="space-y-4">
@@ -193,13 +213,27 @@ export default function EventsPage() {
             </button>
           )}
         </div>
+        <Select value={timeRange} onValueChange={setTimeRange}>
+          <SelectTrigger size="sm" className="text-xs">
+            <SelectValue>{(value) => TIME_RANGES.find((r) => r.value === value)?.label}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {TIME_RANGES.map((r) => (
+                <SelectItem key={r.value} value={r.value} className="text-xs">
+                  {r.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         {hasActiveFilters && (
           <Button
             variant="ghost"
             size="xs"
             onClick={() => {
               setRepoInput("")
-              updateParams({ status: null, repo: null, page: "1" })
+              updateParams({ status: null, repo: null, timeRange: null, page: "1" })
             }}
           >
             Clear filters
@@ -308,7 +342,7 @@ export default function EventsPage() {
                   size="xs"
                   onClick={() => {
                     setRepoInput("")
-                    updateParams({ status: null, repo: null, page: "1" })
+                    updateParams({ status: null, repo: null, timeRange: null, page: "1" })
                   }}
                 >
                   Clear filters
