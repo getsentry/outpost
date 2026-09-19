@@ -426,12 +426,22 @@ export default function SessionsPage() {
                       const parsed = parseEntityKey(session.entityKey)
                       const chatRepo = chatEntityRepo(session.entityKey)
                       const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
+                      const openDetail = () =>
+                        navigate(`/containers/detail?key=${encodeURIComponent(session.entityKey)}`)
 
                       return (
                         <TableRow
                           key={session.entityKey}
-                          className="cursor-pointer"
-                          onClick={() => navigate(`/containers/detail?key=${encodeURIComponent(session.entityKey)}`)}
+                          role="button"
+                          tabIndex={0}
+                          className="cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50"
+                          onClick={openDetail}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault()
+                              openDetail()
+                            }
+                          }}
                         >
                           <TableCell>
                             <div className="space-y-0.5">
