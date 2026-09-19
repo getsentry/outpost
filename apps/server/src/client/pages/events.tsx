@@ -311,8 +311,21 @@ export default function EventsPage() {
               <TableBody>
                 {data.data.map((event) => {
                   const ghUrl = entityGitHubUrl(event.entityKey, event.event)
+                  const openDetail = () => navigate(`/events/${event.id}`)
                   return (
-                    <TableRow key={event.id} className="cursor-pointer" onClick={() => navigate(`/events/${event.id}`)}>
+                    <TableRow
+                      key={event.id}
+                      role="button"
+                      tabIndex={0}
+                      className="cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50"
+                      onClick={openDetail}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault()
+                          openDetail()
+                        }
+                      }}
+                    >
                       <TableCell className="font-medium">
                         {event.event}
                         {event.action ? <span className="text-muted-foreground">.{event.action}</span> : ""}
