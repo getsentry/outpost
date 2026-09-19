@@ -1,6 +1,7 @@
 import { CaretLeft, CaretRight, Funnel, ListBullets, MagnifyingGlass, Trash, X } from "@phosphor-icons/react"
 import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
+import { toast } from "sonner"
 import { entityGitHubUrl, formatTimeAgo, repoGitHubUrl } from "@/client/lib/format"
 import { useClearEvents, useEventStats, useEvents, useEventsGrouped } from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
@@ -130,7 +131,10 @@ export default function EventsPage() {
                 <AlertDialogCancel>Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   onClick={() => {
-                    clearEvents.mutate()
+                    clearEvents.mutate(undefined, {
+                      onSuccess: () => toast.success("All events cleared"),
+                      onError: () => toast.error("Failed to clear events"),
+                    })
                     setClearDialogOpen(false)
                   }}
                 >

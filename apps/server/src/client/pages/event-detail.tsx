@@ -1,6 +1,7 @@
 import { ArrowClockwise, ArrowLeft, CaretDown, CaretRight, Copy, Cube, PaperPlaneTilt } from "@phosphor-icons/react"
 import { useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
+import { toast } from "sonner"
 import { copyToClipboard } from "@/client/lib/clipboard"
 import { entityGitHubUrl, formatDate, repoGitHubUrl } from "@/client/lib/format"
 import { useEvent, useResendEvent } from "@/client/lib/queries"
@@ -65,7 +66,11 @@ export default function EventDetailPage() {
   const handleResend = () => {
     if (!id) return
     resendEvent.mutate(id, {
-      onSettled: () => setResendOpen(false),
+      onSuccess: () => {
+        toast.success("Event resent successfully")
+        setResendOpen(false)
+      },
+      onError: () => toast.error("Failed to resend event"),
     })
   }
 
