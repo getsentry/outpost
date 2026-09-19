@@ -109,12 +109,18 @@ type ClearMode = "all" | "idle"
 export default function SessionsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [searchInput, setSearchInput] = useState("")
+  const [searchInput, setSearchInput] = useState(searchParams.get("search") ?? "")
   const [clearMode, setClearMode] = useState<ClearMode | null>(null)
   const clearSessions = useClearSessions()
 
   const page = Number(searchParams.get("page")) || 1
   const limit = Number(searchParams.get("limit")) || 25
+  const searchFilter = searchParams.get("search") ?? ""
+
+  // Sync input with URL param when navigating (back/forward)
+  useEffect(() => {
+    setSearchInput(searchParams.get("search") ?? "")
+  }, [searchParams])
 
   const { data, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useSessions({ page, limit })
 
@@ -133,10 +139,29 @@ export default function SessionsPage() {
   const setPage = (p: number) => updateParams({ page: String(p) })
   const setLimit = (l: number) => updateParams({ limit: String(l), page: "1" })
 
+  const applySearchFilter = () => {
+    // No-op when the committed value is unchanged so a plain focus/blur doesn't
+    // reset the page or push a duplicate history entry.
+    if (searchInput === searchFilter) return
+    updateParams({ search: searchInput || null, page: "1" })
+  }
+
+  const clearSearchFilter = () => {
+    setSearchInput("")
+    // Only reset the page when a filter was actually active; clearing an empty
+    // input (e.g. Escape on a later page) should leave pagination untouched.
+    updateParams(searchFilter ? { search: null, page: "1" } : { search: null })
+  }
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") applySearchFilter()
+    if (e.key === "Escape") clearSearchFilter()
+  }
+
   const filtered = sortSessionsByCreatedAt(
     (data?.data ?? []).filter((session: SessionListItem) => {
-      if (!searchInput) return true
-      const q = searchInput.toLowerCase()
+      if (!searchFilter) return true
+      const q = searchFilter.toLowerCase()
       return (
         session.entityKey.toLowerCase().includes(q) ||
         (session.title ?? "").toLowerCase().includes(q) ||
@@ -260,12 +285,17 @@ export default function SessionsPage() {
             aria-label="Search agent runs"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            onBlur={applySearchFilter}
             className="h-7 w-full border border-input bg-background pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
           />
           {searchInput && (
             <button
               type="button"
-              onClick={() => setSearchInput("")}
+              // Prevent the input's onBlur from firing applySearchFilter before this
+              // click clears the filter, which would push an extra history entry.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={clearSearchFilter}
               aria-label="Clear agent-run search"
               className="absolute right-2 text-muted-foreground hover:text-foreground"
             >
@@ -297,11 +327,11 @@ export default function SessionsPage() {
             <div className="flex flex-col items-center gap-2 py-16">
               <Robot className="size-8 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground">
-                {searchInput
+                {searchFilter
                   ? "No runs match your search"
                   : "No agent runs yet. Runs start from a GitHub event — or you can start one yourself."}
               </p>
-              {!searchInput && (
+              {!searchFilter && (
                 <NewChatDialog
                   trigger={
                     <Button variant="outline" size="sm">
