@@ -33,7 +33,7 @@ export function LastUpdated({
   return (
     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
       <span>Updated {getRelativeTime(dataUpdatedAt)}</span>
-      <Button variant="ghost" size="icon-xs" onClick={onRefresh} disabled={isFetching}>
+      <Button variant="ghost" size="icon-xs" onClick={onRefresh} disabled={isFetching} aria-label="Refresh data">
         <ArrowClockwise className={`size-3 ${isFetching ? "animate-spin" : ""}`} />
       </Button>
     </div>
