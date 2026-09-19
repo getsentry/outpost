@@ -69,6 +69,9 @@ export default function EventsPage() {
   const setStatus = (s: string) => updateParams({ status: s === "all" ? null : s, page: "1" })
 
   const applyRepoFilter = () => {
+    // No-op when the committed value is unchanged so a plain focus/blur doesn't
+    // reset the page or push a duplicate history entry.
+    if (repoInput === repoFilter) return
     updateParams({ repo: repoInput || null, page: "1" })
   }
 
@@ -167,6 +170,9 @@ export default function EventsPage() {
           {repoInput && (
             <button
               type="button"
+              // Prevent the input's onBlur from firing applyRepoFilter before this
+              // click clears the filter, which would push an extra history entry.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={clearRepoFilter}
               className="absolute right-2 text-muted-foreground hover:text-foreground"
             >
