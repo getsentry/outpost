@@ -24,6 +24,7 @@
     "@flue/opentelemetry": "2.0.1",
     "@flue/runtime": "2.0.1",
     "@flue/sdk": "2.0.1",
+    "@fontsource-variable/inter": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@hono/standard-validator": "^0.2.2",
     "@hono/structured-logger": "^0.1.0",

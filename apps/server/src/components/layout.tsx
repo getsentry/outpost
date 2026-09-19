@@ -77,7 +77,7 @@ function AppSidebar() {
                 <List className="size-4" weight="bold" />
               </div>
               <div className="grid flex-1 text-left leading-tight">
-                <span className="truncate text-sm font-semibold">Outpost</span>
+                <span className="truncate font-mono text-sm font-semibold">Outpost</span>
                 <span className="truncate text-xs text-muted-foreground">Dashboard</span>
               </div>
             </SidebarMenuButton>
@@ -181,7 +181,7 @@ export default function Layout() {
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 !h-4" />
-          <span className="text-sm text-muted-foreground">Outpost</span>
+          <span className="font-mono text-sm text-muted-foreground">Outpost</span>
         </header>
         <div className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
           <Outlet />
