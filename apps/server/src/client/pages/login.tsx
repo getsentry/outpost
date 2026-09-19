@@ -2,6 +2,7 @@ import { CircleNotch, List } from "@phosphor-icons/react"
 import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useSession } from "@/client/lib/queries"
+import { Skeleton } from "@/components/ui/skeleton"
 import { authClient } from "@/lib/endpoint"
 
 export default function LoginPage() {
@@ -20,7 +21,20 @@ export default function LoginPage() {
   }, [session, navigate, redirect])
 
   if (sessionLoading) {
-    return null
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4 dark:bg-zinc-950">
+        <div className="w-full max-w-sm">
+          <section className="space-y-6 rounded-lg bg-card p-8 ring-1 ring-border">
+            <div className="flex flex-col items-center space-y-3 text-center">
+              <Skeleton className="size-10 rounded-none" />
+              <Skeleton className="h-6 w-40" />
+              <Skeleton className="h-4 w-56" />
+            </div>
+            <Skeleton className="h-11 w-full" />
+          </section>
+        </div>
+      </div>
+    )
   }
 
   const handleGoogleLogin = async () => {
