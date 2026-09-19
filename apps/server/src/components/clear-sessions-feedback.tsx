@@ -25,7 +25,7 @@ export function ClearSessionsFeedback({ result, error }: { result?: ClearSession
         <ul className="flex max-h-40 flex-col gap-1 overflow-y-auto">
           {result.failed.map((entityKey) => (
             <li key={entityKey}>
-              <Link className="break-all underline" to={`/containers/detail?key=${encodeURIComponent(entityKey)}`}>
+              <Link className="break-all underline" to={`/runs/detail?key=${encodeURIComponent(entityKey)}`}>
                 {entityKey}
               </Link>
             </li>

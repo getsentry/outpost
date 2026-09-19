@@ -61,7 +61,7 @@ export function NewChatDialog({ trigger }: { trigger?: ReactElement }) {
           setRepo("")
           setCustomRepo(false)
           setOpen(false)
-          navigate(`/containers/detail?key=${encodeURIComponent(entityKey)}`)
+          navigate(`/runs/detail?key=${encodeURIComponent(entityKey)}`)
         },
       },
     )

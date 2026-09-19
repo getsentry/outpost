@@ -111,7 +111,7 @@ export default function EventDetailPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => navigate(`/containers/detail?key=${encodeURIComponent(event.entityKey)}`)}
+              onClick={() => navigate(`/runs/detail?key=${encodeURIComponent(event.entityKey)}`)}
             >
               <Cube className="size-3.5" />
               Open run
