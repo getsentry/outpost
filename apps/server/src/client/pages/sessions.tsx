@@ -285,6 +285,9 @@ export default function SessionsPage() {
           {searchInput && (
             <button
               type="button"
+              // Prevent the input's onBlur from firing applySearchFilter before this
+              // click clears the filter, which would push an extra history entry.
+              onMouseDown={(e) => e.preventDefault()}
               onClick={clearSearchFilter}
               aria-label="Clear agent-run search"
               className="absolute right-2 text-muted-foreground hover:text-foreground"
