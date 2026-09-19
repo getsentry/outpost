@@ -177,7 +177,12 @@ export default function SessionsPage() {
     statusCounts[sessionStatusBucket(session.status)]++
   }
 
-  const applySearchFilter = () => updateParams({ search: searchInput || null, page: "1" })
+  const applySearchFilter = () => {
+    // No-op when the committed value is unchanged so a plain focus/blur doesn't
+    // reset the page or push a duplicate history entry.
+    if (searchInput === searchFilter) return
+    updateParams({ search: searchInput || null, page: "1" })
+  }
 
   const clearSearchFilter = () => {
     setSearchInput("")
