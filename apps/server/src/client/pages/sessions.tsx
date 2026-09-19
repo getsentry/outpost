@@ -39,6 +39,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { chatEntityRepo } from "@/lib/containers/chat-run"
@@ -254,13 +255,13 @@ export default function SessionsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex w-full items-center sm:w-72">
           <MagnifyingGlass className="absolute left-2 size-3.5 text-muted-foreground" />
-          <input
+          <Input
             type="text"
             placeholder="Search by entity, title, or agent..."
             aria-label="Search agent runs"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="h-7 w-full border border-input bg-background pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
+            className="h-7 w-full pl-7 pr-7"
           />
           {searchInput && (
             <button
