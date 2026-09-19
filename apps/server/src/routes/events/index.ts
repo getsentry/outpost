@@ -1,4 +1,4 @@
-import { and, desc, eq, like, or, sql } from "drizzle-orm"
+import { and, desc, eq, gte, like, lte, or, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import { agentWorkItems, githubDiscussionObligations, webhookEvents } from "@/db/schema"
 import { getSessionController } from "@/lib/containers/session-controller"
@@ -62,6 +62,8 @@ const router = new Hono<AuthEnv>()
     const event = c.req.query("event")
     const repo = c.req.query("repo")
     const entityKey = c.req.query("entityKey")
+    const from = Number(c.req.query("from")) || undefined
+    const to = Number(c.req.query("to")) || undefined
 
     const conditions = []
     if (status) {
@@ -85,6 +87,12 @@ const router = new Hono<AuthEnv>()
     }
     if (entityKey) {
       conditions.push(eq(webhookEvents.entityKey, entityKey))
+    }
+    if (from) {
+      conditions.push(gte(webhookEvents.createdAt, new Date(from * 1000)))
+    }
+    if (to) {
+      conditions.push(lte(webhookEvents.createdAt, new Date(to * 1000)))
     }
 
     const where = conditions.length > 0 ? and(...conditions) : undefined
