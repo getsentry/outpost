@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import ReactMarkdown from "react-markdown"
 import { useNavigate, useParams, useSearchParams } from "react-router-dom"
 import remarkGfm from "remark-gfm"
+import { toast } from "sonner"
 import type { MessagePart, SessionDetailResponse, SessionInfo, SessionMessage } from "@/client/lib/api"
 import { entityGitHubUrl, formatTime, formatTimeAgo, parseEntityKey, repoGitHubUrl } from "@/client/lib/format"
 import {
@@ -906,9 +907,11 @@ export default function ContainerDetailPage() {
   const handleDestroy = () => {
     destroyContainer.mutate(entityKey, {
       onSuccess: () => {
+        toast.success("Container destroyed")
         setDestroyOpen(false)
         navigate("/containers")
       },
+      onError: () => toast.error("Failed to destroy container"),
     })
   }
 
