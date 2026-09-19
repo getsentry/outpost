@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { Buffer } from "node:buffer"
 import type { FlueExecutionInterceptor, SandboxFactory, SessionEnv } from "@flue/runtime"
 import { getCloudflareContext } from "@flue/runtime/cloudflare"
+import * as Sentry from "@sentry/cloudflare"
+import { workspaceLifecycleAttributes } from "../observability/sentry"
 import type { DoPrepEnv } from "./do-prep"
 import type { JaredSandbox } from "./sandbox"
 import { getSandbox } from "./sandbox-client"
@@ -10,6 +12,22 @@ import { inspectWorkspace, prepareWorkspace, workspaceStore } from "./workspace-
 import { WorkspaceLostError, WorkspaceRecovery, withWorkspaceDeadline } from "./workspace-recovery"
 
 const activeWorkspace = new AsyncLocalStorage<WorkspaceRecovery>()
+
+function captureWorkspaceLifecycle(transition: string, health: Parameters<typeof workspaceLifecycleAttributes>[0]) {
+  // A missing exporter must not affect sandbox recovery or error preservation.
+  try {
+    Sentry.startSpan(
+      {
+        name: "jared.workspace.lifecycle",
+        op: "jared.workspace.lifecycle",
+        attributes: workspaceLifecycleAttributes(health, transition),
+      },
+      () => undefined,
+    )
+  } catch {
+    // Sentry instrumentation is strictly observational.
+  }
+}
 
 export function assertWorkspaceUsable() {
   activeWorkspace.getStore()?.assertUsable()
@@ -41,6 +59,7 @@ export const workspaceInterceptor: FlueExecutionInterceptor = async (operation, 
     inspect: () => inspectWorkspace(sandbox),
     prepare: (checkpoint, signal, inspect) =>
       prepareWorkspace(bindings, id, sandbox, inspect, checkpoint, signal, () => guard.assertUsable()),
+    onLifecycle: captureWorkspaceLifecycle,
   })
   const leaseId = `${ctx.submissionId}:${crypto.randomUUID()}`
   return activeWorkspace.run(guard, async () => {

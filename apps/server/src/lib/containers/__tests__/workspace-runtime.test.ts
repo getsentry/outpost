@@ -13,10 +13,16 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { acknowledgeWorkspaceLoss, workspaceStore } from "../workspace-checkpoint"
 import { assertWorkspaceUsable, currentWorkspace, recoverableSandbox, workspaceInterceptor } from "../workspace-runtime"
 
-const mocks = vi.hoisted(() => ({ context: vi.fn(), sandbox: vi.fn(), prep: vi.fn(async () => {}) }))
+const mocks = vi.hoisted(() => ({
+  context: vi.fn(),
+  sandbox: vi.fn(),
+  prep: vi.fn(async () => {}),
+  startSpan: vi.fn((_options: unknown, callback: () => unknown) => callback()),
+}))
 vi.mock("@cloudflare/sandbox", () => ({ getSandbox: mocks.sandbox }))
 vi.mock("@flue/runtime/cloudflare", () => ({ getCloudflareContext: mocks.context }))
 vi.mock("../do-prep", () => ({ ensureDoSandboxPrepped: mocks.prep }))
+vi.mock("@sentry/cloudflare", () => ({ startSpan: mocks.startSpan }))
 const databases: DatabaseSync[] = []
 // Pin this integration seam to the patched Flue release. An upgrade must rerun
 // these tests against the actual discovery/reconciliation implementation.
@@ -69,6 +75,28 @@ function fixture(id = "repo-1") {
 }
 
 describe("Flue workspace integration", () => {
+  it("records a safe Sentry lifecycle span when a running agent restores its workspace", async () => {
+    const f = fixture()
+
+    await f.invoke(async () => {
+      await currentWorkspace().start(false)
+      f.sandbox.exec.mockResolvedValueOnce({ success: false, exitCode: 44, stdout: "" })
+      await currentWorkspace().run(async () => "read", false)
+    })
+
+    expect(mocks.startSpan).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "jared.workspace.lifecycle",
+        attributes: expect.objectContaining({
+          "flue.submission.id": "sub-repo-1",
+          "jared.workspace.transition": "preparing",
+          "jared.workspace.phase": "preparing",
+        }),
+      }),
+      expect.any(Function),
+    )
+  })
+
   it("reconnects a broken Sandbox handle before retrying the read-only probe", async () => {
     vi.useFakeTimers()
     const f = fixture()

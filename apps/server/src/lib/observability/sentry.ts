@@ -38,6 +38,10 @@ const SAFE_LOG_ATTRIBUTE = new Set([
   "jared.sandbox.phase",
   "jared.sandbox.outcome",
   "jared.sandbox.failure_class",
+  "jared.workspace.phase",
+  "jared.workspace.checkpoint",
+  "jared.workspace.recoveries",
+  "jared.workspace.transition",
   "flue.submission.id",
   "flue.instance.id",
   "flue.agent.name",
@@ -153,6 +157,25 @@ export function terminalFailureCorrelationTags(
 
 export function sandboxPreparationAttributes(correlation: JaredCorrelation): Record<string, string | number> {
   return { ...workflowCorrelationTags(correlation), "jared.sandbox.phase": "thin_preparation" }
+}
+
+/** Metadata-only workspace state attached to a preparation span. */
+export function workspaceLifecycleAttributes(
+  health: {
+    phase: string
+    checkpoint: string
+    recoveries: number
+    runId: string | null
+  },
+  transition?: string,
+): Record<string, string | number> {
+  return {
+    ...(health.runId ? { "flue.submission.id": health.runId } : {}),
+    ...(transition ? { "jared.workspace.transition": transition } : {}),
+    "jared.workspace.phase": health.phase,
+    "jared.workspace.checkpoint": health.checkpoint,
+    "jared.workspace.recoveries": health.recoveries,
+  }
 }
 
 export function classifySandboxPreparationFailure(error: unknown): "transient_infrastructure" | "preparation_failed" {

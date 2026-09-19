@@ -43,6 +43,7 @@ type Options = {
   ): Promise<void>
   store: WorkspaceStore
   runId: string
+  onLifecycle?: (transition: string, health: WorkspaceHealth) => void
 }
 
 function isUncertainMutation(inFlight: WorkspaceInFlight): boolean {
@@ -114,6 +115,7 @@ export class WorkspaceRecovery {
                   recoveries: 0,
                 },
     )
+    this.lifecycle("claimed")
   }
 
   private state(): WorkspaceState {
@@ -128,7 +130,21 @@ export class WorkspaceRecovery {
 
   private block(reason: string, probeFailure?: WorkspaceProbeFailure): never {
     this.options.store.write({ ...this.state(), blocked: reason, ...(probeFailure ? { probeFailure } : {}) })
+    this.lifecycle("blocked")
     throw new WorkspaceLostError(reason, this.state().runId, this.state().probeFailure)
+  }
+
+  /** Correlates Cloudflare logs with Sentry's submission-scoped spans without leaking workspace contents. */
+  private lifecycle(transition: string) {
+    const health = this.health()
+    console.info("jared: workspace lifecycle", {
+      run_id: health.runId,
+      transition,
+      phase: health.phase,
+      checkpoint: health.checkpoint,
+      recoveries: health.recoveries,
+    })
+    this.options.onLifecycle?.(transition, health)
   }
 
   assertUsable() {
@@ -139,6 +155,10 @@ export class WorkspaceRecovery {
         state.runId,
       )
     if (state.blocked) throw new WorkspaceLostError(state.blocked, state.runId, state.probeFailure)
+  }
+
+  health(): WorkspaceHealth {
+    return workspaceHealth(this.state())
   }
 
   finish() {
@@ -216,6 +236,7 @@ export class WorkspaceRecovery {
         inFlight: "preparing",
         recoveries: state.recoveries + Number(recovering),
       })
+      this.lifecycle("preparing")
       try {
         await withWorkspaceDeadline(
           180_000,
@@ -233,6 +254,7 @@ export class WorkspaceRecovery {
       current = await this.inspect(signal)
       if (!current?.ready) this.block("Workspace preparation did not produce a usable repository and authentication.")
       this.options.store.write({ ...this.state(), inFlight: false })
+      this.lifecycle("prepared")
     }
     if (!current) this.block("The workspace is missing.")
     if (replaced && state.checkpoint && !sameCheckpoint(current, state.checkpoint)) {
@@ -253,7 +275,10 @@ export class WorkspaceRecovery {
         this.block("An earlier command has an unknown outcome. Inspect its effects before continuing.")
       const before = await this.ensureReady(false, activeSignal)
       activeSignal.throwIfAborted()
-      if (mutating) this.options.store.write({ ...this.state(), inFlight: "mutation" })
+      if (mutating) {
+        this.options.store.write({ ...this.state(), inFlight: "mutation" })
+        this.lifecycle("mutation_started")
+      }
       let result: T
       try {
         result = await operation()
@@ -282,6 +307,7 @@ export class WorkspaceRecovery {
         this.block("The workspace disappeared during an operation. Its result cannot be trusted.")
       }
       this.options.store.write({ ...this.state(), checkpoint: after, inFlight: false })
+      this.lifecycle("operation_completed")
       return result
     })
   }

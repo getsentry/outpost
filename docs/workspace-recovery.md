@@ -107,6 +107,40 @@ After inspection and acknowledgement, send explicit operator guidance or resend
 the desired event separately. Without acknowledgement, an uncertain mutation
 continues to block automatic work.
 
+## Operator panel
+
+The run-detail panel separates non-destructive recovery from **Destroy**. Its
+Sandbox lifecycle strip is backed by this authenticated, read-only endpoint:
+
+```http
+GET /api/containers/<URL-encoded-entity-key>/workspace/health
+```
+
+It echoes the requested entity key and otherwise reports only the current phase
+(`ready`, `preparing`, `mutation_pending`, `restarting`, `blocked`, or
+`unknown`), whether a checkpoint is available, the recovery attempt count, and
+the submission id. It never returns commands, repository contents, credentials,
+or raw provider errors.
+
+**Restart sandbox** is available only when the dashboard indicates an inactive
+lifecycle state. That view can be stale: the server makes the authoritative
+decision against Flue's submission table and puts a short durable maintenance
+fence in place before it destroys the disposable Sandbox, so an active or
+mutating run is rejected rather than interrupted. A restart is successful only
+after the API confirms the destruction; a failed destruction returns an error
+and leaves the dialog open.
+It preserves the Durable Object conversation and stored event history. It does
+not resend an event, replay a command, or clear a blocker. A `mutation_pending`
+or `blocked` state still requires effect inspection and, when appropriate,
+explicit acknowledgement. Internal maintenance callers must continue to avoid
+the legacy recycle endpoint during active work.
+
+Use **Destroy** only when a new conversation is intended: it deletes history,
+events, scheduled work, and the retained workspace state. Destruction is a
+fenced, staged cleanup rather than an all-or-nothing transaction. If it reports
+a cleanup error, some resources may already be gone; do not send new work.
+Inspect the retained state and retry **Destroy** until it succeeds.
+
 ## Validation and rollout
 
 Tests reproduce a missing cwd with a real shell, recover an exact Git branch and
