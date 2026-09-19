@@ -130,7 +130,7 @@ type ClearMode = "all" | "idle"
 export default function SessionsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [searchInput, setSearchInput] = useState("")
+  const [searchInput, setSearchInput] = useState(searchParams.get("search") ?? "")
   const [clearMode, setClearMode] = useState<ClearMode | null>(null)
   const clearSessions = useClearSessions()
 
@@ -140,6 +140,12 @@ export default function SessionsPage() {
   const statusFilter: SessionStatusFilter = STATUS_FILTERS.some((sf) => sf.value === statusParam)
     ? (statusParam as SessionStatusFilter)
     : "all"
+  const searchFilter = searchParams.get("search") ?? ""
+
+  // Sync input with URL param when navigating (back/forward)
+  useEffect(() => {
+    setSearchInput(searchParams.get("search") ?? "")
+  }, [searchParams])
 
   const { data, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useSessions({ page, limit })
 
@@ -171,11 +177,23 @@ export default function SessionsPage() {
     statusCounts[sessionStatusBucket(session.status)]++
   }
 
+  const applySearchFilter = () => updateParams({ search: searchInput || null, page: "1" })
+
+  const clearSearchFilter = () => {
+    setSearchInput("")
+    updateParams({ search: null, page: "1" })
+  }
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") applySearchFilter()
+    if (e.key === "Escape") clearSearchFilter()
+  }
+
   const filtered = sortSessionsByCreatedAt(
     allSessions.filter((session: SessionListItem) => {
       if (statusFilter !== "all" && sessionStatusBucket(session.status) !== statusFilter) return false
-      if (!searchInput) return true
-      const q = searchInput.toLowerCase()
+      if (!searchFilter) return true
+      const q = searchFilter.toLowerCase()
       return (
         session.entityKey.toLowerCase().includes(q) ||
         (session.title ?? "").toLowerCase().includes(q) ||
@@ -313,12 +331,14 @@ export default function SessionsPage() {
             aria-label="Search agent runs"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
+            onBlur={applySearchFilter}
             className="h-7 w-full pl-7 pr-7"
           />
           {searchInput && (
             <button
               type="button"
-              onClick={() => setSearchInput("")}
+              onClick={clearSearchFilter}
               aria-label="Clear agent-run search"
               className="absolute right-2 text-muted-foreground hover:text-foreground"
             >
@@ -350,11 +370,11 @@ export default function SessionsPage() {
             <div className="flex flex-col items-center gap-2 py-16">
               <Robot className="size-8 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground">
-                {searchInput || statusFilter !== "all"
+                {searchFilter || statusFilter !== "all"
                   ? "No runs match your filters"
                   : "No agent runs yet. Runs start from a GitHub event — or you can start one yourself."}
               </p>
-              {!searchInput && statusFilter === "all" && (
+              {!searchFilter && statusFilter === "all" && (
                 <NewChatDialog
                   trigger={
                     <Button variant="outline" size="sm">
