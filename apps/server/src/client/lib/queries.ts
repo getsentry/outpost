@@ -232,3 +232,27 @@ export function useDestroyContainer() {
     },
   })
 }
+
+export function useRestartSandbox() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (entityKey: string) => api.restartSandbox(entityKey),
+    onSuccess: async (_data, entityKey) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sessionDetail", entityKey], exact: true }),
+        queryClient.invalidateQueries({ queryKey: ["workspaceHealth", entityKey], exact: true }),
+        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+      ])
+    },
+  })
+}
+
+export function useWorkspaceHealth(entityKey: string, enabled = true) {
+  return useQuery({
+    queryKey: ["workspaceHealth", entityKey],
+    queryFn: () => api.getWorkspaceHealth(entityKey),
+    enabled: enabled && !!entityKey,
+    staleTime: 5_000,
+    refetchInterval: 10_000,
+  })
+}

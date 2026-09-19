@@ -33,7 +33,13 @@ import {
   sessionControllerId,
   type TraceHeaders,
 } from "@/lib/containers/session-controller"
-import { acknowledgeWorkspaceLoss, workspaceStore } from "@/lib/containers/workspace-checkpoint"
+import {
+  acknowledgeWorkspaceLoss,
+  beginWorkspaceRestart,
+  finishWorkspaceRestart,
+  workspaceStore,
+} from "@/lib/containers/workspace-checkpoint"
+import { workspaceHealth } from "@/lib/containers/workspace-recovery"
 import { assertWorkspaceUsable, currentWorkspace, recoverableSandbox } from "@/lib/containers/workspace-runtime"
 import type { DiscussionRecordInput } from "@/lib/github/discussion-store"
 import { cloudflareSentryOptions } from "@/lib/observability/cloudflare"
@@ -236,6 +242,28 @@ export const cloudflare = extend({
       /** Called only by the authenticated operator route after settlement. */
       acknowledgeWorkspaceLoss(runId: string) {
         return acknowledgeWorkspaceLoss(workspaceStore(this.ctx.storage.sql), runId, this.ctx.storage.sql)
+      }
+
+      /** Read-only lifecycle state for authenticated operator diagnostics. */
+      workspaceHealth() {
+        return workspaceHealth(workspaceStore(this.ctx.storage.sql).read())
+      }
+
+      /** Atomically fence submissions while replacing a disposable sandbox. */
+      restartWorkspaceSandbox() {
+        return this.ownerQueue.run(async () => {
+          const store = workspaceStore(this.ctx.storage.sql)
+          const restart = beginWorkspaceRestart(store, this.ctx.storage.sql)
+          if (!restart.ok) return { restarted: false, reason: restart.reason }
+          try {
+            await getSandbox((env as unknown as Env).Sandbox, this.name, SANDBOX_OPTS).destroy()
+            return { restarted: true }
+          } catch {
+            return { restarted: false, reason: "destroy_failed" as const }
+          } finally {
+            finishWorkspaceRestart(store, restart.restartId)
+          }
+        })
       }
 
       /** One-shot follow-up (e.g. auto-merge quiet period). */

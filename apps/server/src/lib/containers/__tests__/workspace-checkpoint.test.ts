@@ -5,13 +5,15 @@ import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  beginWorkspaceRestart,
+  finishWorkspaceRestart,
   inspectWorkspace,
   prepareWorkspace,
   restoreCheckpointCommand,
   WORKSPACE_CHECKPOINT_COMMAND,
   workspaceStore,
 } from "../workspace-checkpoint"
-import { WorkspaceRecovery } from "../workspace-recovery"
+import { WorkspaceRecovery, type WorkspaceState } from "../workspace-recovery"
 
 vi.mock("../do-prep", () => ({
   ensureDoSandboxPrepped: vi.fn(async () => {}),
@@ -95,6 +97,27 @@ function fixture() {
 }
 
 describe("real Git workspace checkpoints", () => {
+  it("fences a sandbox restart when a Flue submission is still active", () => {
+    let state: WorkspaceState | undefined = { runId: "old", inFlight: false, recoveries: 0 }
+    const store = { read: () => state, write: (next: WorkspaceState) => (state = next) }
+    const sql = { exec: () => ({ toArray: () => [{ status: "running" }] }) }
+
+    expect(beginWorkspaceRestart(store, sql)).toEqual({ ok: false, reason: "active_submission" })
+    expect(state?.maintenance).toBeUndefined()
+  })
+
+  it("holds a durable restart fence until sandbox destruction is resolved", () => {
+    let state: WorkspaceState | undefined = { runId: "old", inFlight: false, recoveries: 0 }
+    const store = { read: () => state, write: (next: WorkspaceState) => (state = next) }
+    const sql = { exec: () => ({ toArray: () => [] }) }
+
+    const restart = beginWorkspaceRestart(store, sql)
+    expect(restart).toEqual({ ok: true, restartId: expect.any(String) })
+    expect(state?.maintenance).toBe(restart.restartId)
+    expect(finishWorkspaceRestart(store, restart.restartId!)).toBe(true)
+    expect(state?.maintenance).toBeUndefined()
+  })
+
   it("preserves dangling untracked symlinks without dereferencing them", async () => {
     const f = fixture()
     symlinkSync("missing-target", join(f.repo, "link"))

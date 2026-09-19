@@ -1,9 +1,11 @@
 import type { ClearSessionsResult } from "@/lib/containers/clear-sessions-result"
 import type { DisplayRunStatus } from "@/lib/containers/run-status"
 import type { ActivityPreview } from "@/lib/containers/transcript-presentation"
+import type { WorkspaceHealth } from "@/lib/containers/workspace-recovery"
 import { endpoint } from "@/lib/endpoint"
 
 export type { DisplayRunStatus } from "@/lib/containers/run-status"
+export type { WorkspaceHealth } from "@/lib/containers/workspace-recovery"
 
 export type EventsParams = {
   page?: number
@@ -253,6 +255,21 @@ export const api = {
       throw new Error(body?.error ?? "Could not finish deleting this run. Please retry Destroy.")
     }
     return res.json()
+  },
+
+  async restartSandbox(entityKey: string) {
+    const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/workspace/restart`, { method: "POST" })
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null
+      throw new Error(body?.error ?? "Could not restart the sandbox. The run and its history were left intact.")
+    }
+    return res.json() as Promise<{ ok: true; entityKey: string; restarted: true }>
+  },
+
+  async getWorkspaceHealth(entityKey: string): Promise<WorkspaceHealth & { entityKey: string }> {
+    const res = await fetch(`/api/containers/${encodeURIComponent(entityKey)}/workspace/health`)
+    if (!res.ok) throw new Error(`Failed to fetch workspace health: ${res.status}`)
+    return res.json() as Promise<WorkspaceHealth & { entityKey: string }>
   },
 
   async getChatRepos(): Promise<{ repos: string[] }> {

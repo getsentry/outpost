@@ -43,6 +43,14 @@ function fixture(saved?: WorkspaceState) {
 }
 
 describe("workspace recovery", () => {
+  it("does not let a new submission use the sandbox while an operator restart is fenced", async () => {
+    const f = fixture({ runId: "old", inFlight: false, recoveries: 0, maintenance: "restart-1" })
+
+    await expect(f.guard.start(false)).rejects.toMatchObject({ type: "workspace_lost" })
+    expect(f.inspect).not.toHaveBeenCalled()
+    expect(f.prepare).not.toHaveBeenCalled()
+  })
+
   it("retries a transient preflight probe before starting a command exactly once", async () => {
     vi.useFakeTimers()
     const f = fixture()

@@ -70,6 +70,13 @@ describe("run transcript rendering", () => {
     expect(html).toContain("Cleanup incomplete")
   })
 
+  it("keeps sandbox restart disabled until authoritative lifecycle health is available", () => {
+    const html = renderRun([], { status: "blocked" } as Partial<SessionDetailResponse>)
+    expect(html).toContain("Restart sandbox")
+    expect(html).toContain("event history, and queued work")
+    expect(html).toMatch(/disabled=""[^>]*>[\s\S]*?Restart sandbox/)
+  })
+
   it("does not show an empty settled assistant as working", () => {
     const html = renderRun([{ info: { role: "assistant" }, parts: [] }], {
       status: "failed",
