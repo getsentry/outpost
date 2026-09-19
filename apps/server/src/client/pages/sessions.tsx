@@ -139,7 +139,12 @@ export default function SessionsPage() {
   const setPage = (p: number) => updateParams({ page: String(p) })
   const setLimit = (l: number) => updateParams({ limit: String(l), page: "1" })
 
-  const applySearchFilter = () => updateParams({ search: searchInput || null, page: "1" })
+  const applySearchFilter = () => {
+    // No-op when the committed value is unchanged so a plain focus/blur doesn't
+    // reset the page or push a duplicate history entry.
+    if (searchInput === searchFilter) return
+    updateParams({ search: searchInput || null, page: "1" })
+  }
 
   const clearSearchFilter = () => {
     setSearchInput("")
