@@ -1,9 +1,11 @@
 import type { ClearSessionsResult } from "@/lib/containers/clear-sessions-result"
 import type { DisplayRunStatus } from "@/lib/containers/run-status"
 import type { ActivityPreview } from "@/lib/containers/transcript-presentation"
+import type { WorkspaceHealth } from "@/lib/containers/workspace-recovery"
 import { endpoint } from "@/lib/endpoint"
 
 export type { DisplayRunStatus } from "@/lib/containers/run-status"
+export type { WorkspaceHealth } from "@/lib/containers/workspace-recovery"
 
 export type EventsParams = {
   page?: number
@@ -112,13 +114,6 @@ export type SessionDetailResponse = {
   chatError?: string | null
   /** True once the opening chat prompt was admitted (follow-ups are safe). */
   chatAdmitted?: boolean
-}
-
-export type WorkspaceHealth = {
-  phase: "ready" | "preparing" | "mutation_pending" | "restarting" | "blocked" | "unknown"
-  checkpoint: "available" | "missing"
-  recoveries: number
-  runId: string | null
 }
 
 export type EventStats = {
