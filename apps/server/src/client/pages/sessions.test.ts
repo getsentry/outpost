@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import type { SessionListItem } from "@/client/lib/api"
-import { sortSessionsByCreatedAt } from "./sessions.tsx"
+import { sessionStatusBucket, sortSessionsByCreatedAt } from "./sessions.tsx"
 
 const pageSource = readFileSync(new URL("./sessions.tsx", import.meta.url), "utf8")
 
@@ -30,5 +30,28 @@ describe("agent-runs ordering", () => {
   it("keeps the latest-activity column constrained", () => {
     expect(pageSource).toContain("w-[180px] min-w-[180px]")
     expect(pageSource).toContain('className="min-w-[940px] table-fixed"')
+  })
+})
+
+describe("agent-runs status buckets", () => {
+  it("maps working and its legacy busy value to the working bucket", () => {
+    expect(sessionStatusBucket("working")).toBe("working")
+    expect(sessionStatusBucket("busy")).toBe("working")
+  })
+
+  it("maps idle and historical to their own buckets", () => {
+    expect(sessionStatusBucket("idle")).toBe("idle")
+    expect(sessionStatusBucket("historical")).toBe("historical")
+  })
+
+  it("collapses unknown and attention states into offline", () => {
+    expect(sessionStatusBucket("unknown")).toBe("offline")
+    expect(sessionStatusBucket("failed")).toBe("offline")
+    expect(sessionStatusBucket("sync_unavailable")).toBe("offline")
+  })
+
+  it("syncs the status filter to a URL search param", () => {
+    expect(pageSource).toContain('searchParams.get("status")')
+    expect(pageSource).toContain("setStatus")
   })
 })

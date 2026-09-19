@@ -47,6 +47,26 @@ import { runStatusLabel, runStatusNotice } from "@/lib/containers/run-status"
 
 const PAGE_SIZES = [10, 25, 50] as const
 
+const STATUS_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "working", label: "Working" },
+  { value: "idle", label: "Idle" },
+  { value: "historical", label: "Historical" },
+  { value: "offline", label: "Offline" },
+] as const
+
+type SessionStatusFilter = (typeof STATUS_FILTERS)[number]["value"]
+
+// Collapse the raw run status into one of the operator-facing filter buckets.
+// Anything that isn't working/idle/historical (unknown plus the attention
+// notices) is surfaced as "Offline", matching the StatusIndicator fallback.
+export function sessionStatusBucket(status: string): Exclude<SessionStatusFilter, "all"> {
+  if (status === "working" || status === "busy") return "working"
+  if (status === "idle") return "idle"
+  if (status === "historical") return "historical"
+  return "offline"
+}
+
 export function sortSessionsByCreatedAt(sessions: SessionListItem[]): SessionListItem[] {
   return sessions.slice().sort((a, b) => {
     const byCreatedAt = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -116,6 +136,10 @@ export default function SessionsPage() {
 
   const page = Number(searchParams.get("page")) || 1
   const limit = Number(searchParams.get("limit")) || 25
+  const statusParam = searchParams.get("status") ?? "all"
+  const statusFilter: SessionStatusFilter = STATUS_FILTERS.some((sf) => sf.value === statusParam)
+    ? (statusParam as SessionStatusFilter)
+    : "all"
 
   const { data, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useSessions({ page, limit })
 
@@ -133,9 +157,23 @@ export default function SessionsPage() {
 
   const setPage = (p: number) => updateParams({ page: String(p) })
   const setLimit = (l: number) => updateParams({ limit: String(l), page: "1" })
+  const setStatus = (s: SessionStatusFilter) => updateParams({ status: s === "all" ? null : s })
+
+  const allSessions = data?.data ?? []
+  const statusCounts: Record<SessionStatusFilter, number> = {
+    all: allSessions.length,
+    working: 0,
+    idle: 0,
+    historical: 0,
+    offline: 0,
+  }
+  for (const session of allSessions) {
+    statusCounts[sessionStatusBucket(session.status)]++
+  }
 
   const filtered = sortSessionsByCreatedAt(
-    (data?.data ?? []).filter((session: SessionListItem) => {
+    allSessions.filter((session: SessionListItem) => {
+      if (statusFilter !== "all" && sessionStatusBucket(session.status) !== statusFilter) return false
       if (!searchInput) return true
       const q = searchInput.toLowerCase()
       return (
@@ -252,6 +290,20 @@ export default function SessionsPage() {
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-1">
+        {STATUS_FILTERS.map((sf) => (
+          <Button
+            key={sf.value}
+            variant={statusFilter === sf.value ? "default" : "outline"}
+            size="xs"
+            onClick={() => setStatus(sf.value)}
+          >
+            {sf.label}
+            <span className="ml-1 opacity-60 tabular-nums">{statusCounts[sf.value]}</span>
+          </Button>
+        ))}
+      </div>
+
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <div className="relative flex w-full items-center sm:w-72">
           <MagnifyingGlass className="absolute left-2 size-3.5 text-muted-foreground" />
@@ -298,11 +350,11 @@ export default function SessionsPage() {
             <div className="flex flex-col items-center gap-2 py-16">
               <Robot className="size-8 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground">
-                {searchInput
-                  ? "No runs match your search"
+                {searchInput || statusFilter !== "all"
+                  ? "No runs match your filters"
                   : "No agent runs yet. Runs start from a GitHub event — or you can start one yourself."}
               </p>
-              {!searchInput && (
+              {!searchInput && statusFilter === "all" && (
                 <NewChatDialog
                   trigger={
                     <Button variant="outline" size="sm">
