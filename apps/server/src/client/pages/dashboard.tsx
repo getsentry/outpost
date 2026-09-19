@@ -173,26 +173,37 @@ function RecentEvents() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.data.map((event) => (
-                <TableRow
-                  key={event.id}
-                  className={`cursor-pointer ${event.status === "skipped" ? "opacity-55" : ""}`}
-                  onClick={() => navigate(`/events/${event.id}`)}
-                >
-                  <TableCell className="font-medium">
-                    {event.event}
-                    {event.action ? `.${event.action}` : ""}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {event.repo ? <GitHubLink href={repoGitHubUrl(event.repo)}>{event.repo}</GitHubLink> : "-"}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{event.sender ?? "-"}</TableCell>
-                  <TableCell>
-                    <StatusBadge status={event.status} />
-                  </TableCell>
-                  <TableCell className="text-right text-muted-foreground">{formatTimeAgo(event.createdAt)}</TableCell>
-                </TableRow>
-              ))}
+              {data.data.map((event) => {
+                const openDetail = () => navigate(`/events/${event.id}`)
+                return (
+                  <TableRow
+                    key={event.id}
+                    role="button"
+                    tabIndex={0}
+                    className={`cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 ${event.status === "skipped" ? "opacity-55" : ""}`}
+                    onClick={openDetail}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault()
+                        openDetail()
+                      }
+                    }}
+                  >
+                    <TableCell className="font-medium">
+                      {event.event}
+                      {event.action ? `.${event.action}` : ""}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {event.repo ? <GitHubLink href={repoGitHubUrl(event.repo)}>{event.repo}</GitHubLink> : "-"}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">{event.sender ?? "-"}</TableCell>
+                    <TableCell>
+                      <StatusBadge status={event.status} />
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground">{formatTimeAgo(event.createdAt)}</TableCell>
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         )}
