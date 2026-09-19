@@ -324,7 +324,7 @@ export default function SessionsPage() {
                   const parsed = parseEntityKey(session.entityKey)
                   const chatRepo = chatEntityRepo(session.entityKey)
                   const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
-                  const detailHref = `/containers/detail?key=${encodeURIComponent(session.entityKey)}`
+                  const detailHref = `/runs/detail?key=${encodeURIComponent(session.entityKey)}`
                   const openDetail = () => navigate(detailHref)
 
                   return (
@@ -431,7 +431,7 @@ export default function SessionsPage() {
                         <TableRow
                           key={session.entityKey}
                           className="cursor-pointer"
-                          onClick={() => navigate(`/containers/detail?key=${encodeURIComponent(session.entityKey)}`)}
+                          onClick={() => navigate(`/runs/detail?key=${encodeURIComponent(session.entityKey)}`)}
                         >
                           <TableCell>
                             <div className="space-y-0.5">

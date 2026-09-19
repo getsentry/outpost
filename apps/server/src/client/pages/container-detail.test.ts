@@ -28,7 +28,7 @@ function renderRun(messages: SessionMessage[], extra: Partial<SessionDetailRespo
         { client },
         createElement(
           MemoryRouter,
-          { initialEntries: ["/containers/detail?key=acme%2Fapp%2342"] },
+          { initialEntries: ["/runs/detail?key=acme%2Fapp%2342"] },
           createElement(ContainerDetailPage),
         ),
       ),
