@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
@@ -163,7 +164,7 @@ export default function EventsPage() {
         </div>
         <div className="relative flex items-center">
           <MagnifyingGlass className="absolute left-2 size-3.5 text-muted-foreground" />
-          <input
+          <Input
             type="text"
             placeholder="Filter by repo..."
             aria-label="Search repositories"
@@ -171,7 +172,7 @@ export default function EventsPage() {
             onChange={(e) => setRepoInput(e.target.value)}
             onKeyDown={handleRepoKeyDown}
             onBlur={applyRepoFilter}
-            className="h-7 border border-input bg-background pl-7 pr-7 text-xs outline-none placeholder:text-muted-foreground focus:border-ring"
+            className="h-7 w-48 pl-7 pr-7"
           />
           {repoInput && (
             <button
