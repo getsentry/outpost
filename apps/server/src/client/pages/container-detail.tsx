@@ -803,8 +803,8 @@ function SessionSidebarItem({
 export default function ContainerDetailPage() {
   const { entityKey: rawKey } = useParams<{ entityKey: string }>()
   const [searchParams] = useSearchParams()
-  // Prefer the query-param form (/containers/detail?key=...) which is refresh-safe;
-  // the path-param form (/containers/:entityKey) breaks on reload because the
+  // Prefer the query-param form (/runs/detail?key=...) which is refresh-safe;
+  // the path-param form (/runs/:entityKey) breaks on reload because the
   // encoded slash (%2F) in the entity key isn't matched by SPA asset fallback.
   const entityKey = searchParams.get("key") ?? (rawKey ? decodeURIComponent(rawKey) : "")
   const navigate = useNavigate()
@@ -909,7 +909,7 @@ export default function ContainerDetailPage() {
       onSuccess: () => {
         toast.success("Container destroyed")
         setDestroyOpen(false)
-        navigate("/containers")
+        navigate("/runs")
       },
       onError: () => toast.error("Failed to destroy container"),
     })
@@ -1032,7 +1032,7 @@ export default function ContainerDetailPage() {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-2">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/containers")}>
+          <Button variant="ghost" size="sm" onClick={() => navigate("/runs")}>
             <ArrowLeft className="size-3.5" />
             Back to agent runs
           </Button>
@@ -1105,7 +1105,7 @@ export default function ContainerDetailPage() {
       <div className="shrink-0 border-b px-4 py-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
           <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-            <Button variant="ghost" size="sm" className="shrink-0 px-2" onClick={() => navigate("/containers")}>
+            <Button variant="ghost" size="sm" className="shrink-0 px-2" onClick={() => navigate("/runs")}>
               <ArrowLeft className="size-3.5" />
               <span className="hidden sm:inline">Back</span>
             </Button>
