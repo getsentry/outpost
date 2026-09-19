@@ -99,14 +99,14 @@ export default function EventsPage() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-lg font-semibold">Webhook Events</h1>
           <p className="text-sm text-muted-foreground">
             {pagination ? `${pagination.total} events` : "All incoming webhook events from GitHub"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant={groupByRepo ? "default" : "outline"} size="sm" onClick={() => setGroupByRepo(!groupByRepo)}>
             <ListBullets className="mr-1.5 size-4" />
             Group by Repo
