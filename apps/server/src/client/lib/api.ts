@@ -14,6 +14,8 @@ export type EventsParams = {
   entityKey?: string
   from?: number
   to?: number
+  /** Relative window in seconds; the caller derives `from` at fetch time. */
+  windowSeconds?: number
 }
 
 export type AgentWorkItem = {

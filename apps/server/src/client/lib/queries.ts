@@ -18,9 +18,16 @@ export function useSession() {
 }
 
 export function useEvents(params: EventsParams = {}, options: { enabled?: boolean } = {}) {
+  const { windowSeconds, ...rest } = params
   return useQuery({
     queryKey: ["events", params],
-    queryFn: () => api.getEvents(params),
+    // Derive `from` at fetch time so each auto-refetch keeps a window relative
+    // to the current moment rather than the timestamp captured at render.
+    queryFn: () =>
+      api.getEvents({
+        ...rest,
+        from: windowSeconds ? Math.floor(Date.now() / 1000) - windowSeconds : undefined,
+      }),
     enabled: options.enabled ?? true,
     placeholderData: keepPreviousData,
     refetchInterval: 10_000,
