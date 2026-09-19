@@ -23,7 +23,7 @@ it("shows partial counts and links only failed runs for deliberate per-run retry
     ),
   )
   expect(html).toContain("2 deleted; 1 could not be fully deleted")
-  expect(html).toContain("/containers/detail?key=acme%2Fapp%2342")
+  expect(html).toContain("/runs/detail?key=acme%2Fapp%2342")
   expect(html).not.toContain("deleted1")
   expect(html).toContain("Review each remaining run before retrying Destroy")
 })

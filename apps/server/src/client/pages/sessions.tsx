@@ -379,7 +379,7 @@ export default function SessionsPage() {
                   const parsed = parseEntityKey(session.entityKey)
                   const chatRepo = chatEntityRepo(session.entityKey)
                   const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
-                  const detailHref = `/containers/detail?key=${encodeURIComponent(session.entityKey)}`
+                  const detailHref = `/runs/detail?key=${encodeURIComponent(session.entityKey)}`
                   const openDetail = () => navigate(detailHref)
 
                   return (
@@ -482,7 +482,7 @@ export default function SessionsPage() {
                       const chatRepo = chatEntityRepo(session.entityKey)
                       const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
                       const openDetail = () =>
-                        navigate(`/containers/detail?key=${encodeURIComponent(session.entityKey)}`)
+                        navigate(`/runs/detail?key=${encodeURIComponent(session.entityKey)}`)
 
                       return (
                         <TableRow
