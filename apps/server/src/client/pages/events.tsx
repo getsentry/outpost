@@ -158,6 +158,7 @@ export default function EventsPage() {
           <input
             type="text"
             placeholder="Filter by repo..."
+            aria-label="Search repositories"
             value={repoInput}
             onChange={(e) => setRepoInput(e.target.value)}
             onKeyDown={handleRepoKeyDown}
@@ -168,6 +169,7 @@ export default function EventsPage() {
             <button
               type="button"
               onClick={clearRepoFilter}
+              aria-label="Clear repo filter"
               className="absolute right-2 text-muted-foreground hover:text-foreground"
             >
               <X className="size-3" />
