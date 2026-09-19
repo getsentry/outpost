@@ -1,11 +1,9 @@
 import type { ClearSessionsResult } from "@/lib/containers/clear-sessions-result"
 import type { DisplayRunStatus } from "@/lib/containers/run-status"
 import type { ActivityPreview } from "@/lib/containers/transcript-presentation"
-import type { WorkspaceHealth } from "@/lib/containers/workspace-recovery"
 import { endpoint } from "@/lib/endpoint"
 
 export type { DisplayRunStatus } from "@/lib/containers/run-status"
-export type { WorkspaceHealth } from "@/lib/containers/workspace-recovery"
 
 export type EventsParams = {
   page?: number
