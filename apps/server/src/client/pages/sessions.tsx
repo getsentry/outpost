@@ -186,7 +186,9 @@ export default function SessionsPage() {
 
   const clearSearchFilter = () => {
     setSearchInput("")
-    updateParams({ search: null, page: "1" })
+    // Only reset the page when a filter was actually active; clearing an empty
+    // input (e.g. Escape on a later page) should leave pagination untouched.
+    updateParams(searchFilter ? { search: null, page: "1" } : { search: null })
   }
 
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {

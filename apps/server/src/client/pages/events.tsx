@@ -79,7 +79,9 @@ export default function EventsPage() {
 
   const clearRepoFilter = () => {
     setRepoInput("")
-    updateParams({ repo: null, page: "1" })
+    // Only reset the page when a filter was actually active; clearing an empty
+    // input (e.g. Escape on a later page) should leave pagination untouched.
+    updateParams(repoFilter ? { repo: null, page: "1" } : { repo: null })
   }
 
   const handleRepoKeyDown = (e: React.KeyboardEvent) => {
