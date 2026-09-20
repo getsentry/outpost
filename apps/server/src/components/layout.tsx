@@ -1,7 +1,7 @@
 import { CaretUpDown, House, Lightning, List, Monitor, Moon, Robot, SignOut, Sun } from "@phosphor-icons/react"
 import { useQueryClient } from "@tanstack/react-query"
 import { useTheme } from "next-themes"
-import { NavLink, Outlet, useNavigate } from "react-router-dom"
+import { Link, NavLink, Outlet, useLocation, useNavigate, useSearchParams } from "react-router-dom"
 import { useSession } from "@/client/lib/queries"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -170,6 +170,57 @@ function AppSidebar() {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Breadcrumbs — derives segments from the current URL path.
+// ---------------------------------------------------------------------------
+
+function Breadcrumbs() {
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
+
+  const segments = location.pathname.split("/").filter(Boolean)
+
+  // Build crumb list: [{label, href}]
+  const crumbs: { label: string; href?: string }[] = [{ label: "Dashboard", href: "/" }]
+
+  if (segments[0] === "events") {
+    crumbs.push({ label: "Webhook Events", href: "/events" })
+    if (segments[1]) {
+      // /events/:id
+      const id = segments[1]
+      crumbs.push({ label: `Event ${id.slice(0, 8)}…` })
+    }
+  } else if (segments[0] === "runs") {
+    crumbs.push({ label: "Agent Runs", href: "/runs" })
+    if (segments.length > 1) {
+      // /runs/detail?key=... or /runs/:entityKey
+      const key = searchParams.get("key") ?? (segments[1] !== "detail" ? segments[1] : null)
+      crumbs.push({ label: key ?? "Run Detail" })
+    }
+  }
+
+  // Only the last segment is non-clickable
+  return (
+    <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-sm">
+      {crumbs.map((crumb, i) => {
+        const isLast = i === crumbs.length - 1
+        return (
+          <span key={crumb.href ?? crumb.label} className="flex items-center gap-1">
+            {i > 0 && <span className="text-muted-foreground/50">/</span>}
+            {isLast || !crumb.href ? (
+              <span className="max-w-48 truncate font-medium text-foreground">{crumb.label}</span>
+            ) : (
+              <Link to={crumb.href} className="text-muted-foreground transition-colors hover:text-foreground">
+                {crumb.label}
+              </Link>
+            )}
+          </span>
+        )
+      })}
+    </nav>
+  )
+}
+
 export default function Layout() {
   return (
     <SidebarProvider>
@@ -181,7 +232,7 @@ export default function Layout() {
         <header className="flex h-12 shrink-0 items-center gap-2 border-b px-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-2 !h-4" />
-          <span className="font-mono text-sm text-muted-foreground">Outpost</span>
+          <Breadcrumbs />
         </header>
         <div className="min-h-0 min-w-0 flex-1 overflow-auto p-6">
           <Outlet />

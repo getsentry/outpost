@@ -35,6 +35,7 @@ import {
   useWorkspaceHealth,
 } from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
+import { StatusDot } from "@/components/run-status"
 import { StatusBadge } from "@/components/status-badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -68,21 +69,6 @@ import {
 // ---------------------------------------------------------------------------
 // Status helpers
 // ---------------------------------------------------------------------------
-
-function StatusDot({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    working: "bg-yellow-500 animate-pulse",
-    busy: "bg-yellow-500 animate-pulse",
-    idle: "bg-green-500",
-    blocked: "bg-red-500",
-    failed: "bg-destructive",
-    interrupted: "bg-destructive",
-    cleanup_pending: "bg-destructive",
-    sync_unavailable: "bg-amber-500",
-    historical: "bg-muted-foreground/50",
-  }
-  return <span className={`inline-block size-2 rounded-full ${styles[status] ?? "bg-gray-400"}`} />
-}
 
 function modelLabel(model: string): string {
   if (model.includes("claude-opus-4.8")) return "Claude Opus 4.8"

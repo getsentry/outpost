@@ -1,4 +1,4 @@
-import { CaretLeft, CaretRight, Funnel, ListBullets, MagnifyingGlass, Trash, X } from "@phosphor-icons/react"
+import { Funnel, ListBullets, MagnifyingGlass, Trash, X } from "@phosphor-icons/react"
 import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
@@ -6,6 +6,8 @@ import { entityGitHubUrl, formatTimeAgo, repoGitHubUrl } from "@/client/lib/form
 import { useClearEvents, useEventStats, useEvents, useEventsGrouped } from "@/client/lib/queries"
 import { GitHubLink } from "@/components/github-link"
 import { LastUpdated } from "@/components/last-updated"
+import { PageSizeSelector, PaginationFooter } from "@/components/pagination"
+import { SortableTableHead, type SortDir, toggleSort } from "@/components/sortable-table-head"
 import { StatusBadge } from "@/components/status-badge"
 import {
   AlertDialog,
@@ -26,7 +28,6 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 const STATUS_OPTIONS = ["all", "pending", "admitted", "settled", "completed", "failed", "skipped", "d:boot"] as const
-const PAGE_SIZES = [10, 25, 50] as const
 
 const TIME_RANGES = [
   { value: "all", label: "All time", seconds: 0 },
@@ -57,12 +58,16 @@ export default function EventsPage() {
   const timeRangeParam = searchParams.get("timeRange") ?? "all"
   const timeRange: TimeRangeValue = isTimeRangeValue(timeRangeParam) ? timeRangeParam : "all"
   const windowSeconds = TIME_RANGES.find((r) => r.value === timeRange)?.seconds || undefined
+  const sortBy = searchParams.get("sortBy") ?? "time"
+  const sortDir = (searchParams.get("sortDir") as SortDir) ?? "desc"
 
   const { data, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useEvents({
     page,
     limit,
     status: statusFilter !== "all" ? statusFilter : undefined,
     repo: repoFilter || undefined,
+    sortBy: sortBy !== "time" ? sortBy : undefined,
+    sortDir: sortDir !== "desc" ? sortDir : undefined,
     // Pass the window size, not an absolute cutoff: `from` is derived at fetch
     // time so each auto-refetch keeps the window relative to the current moment.
     windowSeconds,
@@ -89,6 +94,10 @@ export default function EventsPage() {
   const setLimit = (l: number) => updateParams({ limit: String(l), page: "1" })
   const setStatus = (s: string) => updateParams({ status: s === "all" ? null : s, page: "1" })
   const setTimeRange = (r: string) => updateParams({ timeRange: r === "all" ? null : r, page: "1" })
+  const handleSort = (column: string) => {
+    const next = toggleSort({ sortBy, sortDir }, column, "desc")
+    updateParams({ sortBy: next.sortBy, sortDir: next.sortDir, page: "1" })
+  }
 
   const applyRepoFilter = () => {
     // No-op when the committed value is unchanged so a plain focus/blur doesn't
@@ -124,7 +133,7 @@ export default function EventsPage() {
   const hasActiveFilters = statusFilter !== "all" || !!repoFilter || timeRange !== "all"
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -239,14 +248,7 @@ export default function EventsPage() {
             Clear filters
           </Button>
         )}
-        <div className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span>Per page:</span>
-          {PAGE_SIZES.map((s) => (
-            <Button key={s} variant={limit === s ? "secondary" : "ghost"} size="xs" onClick={() => setLimit(s)}>
-              {s}
-            </Button>
-          ))}
-        </div>
+        <PageSizeSelector current={limit} onChange={setLimit} className="ml-auto" />
       </div>
 
       {/* Grouped view */}
@@ -353,12 +355,37 @@ export default function EventsPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Event</TableHead>
+                  <SortableTableHead
+                    column="event"
+                    label="Event"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
                   <TableHead>Entity</TableHead>
-                  <TableHead>Repo</TableHead>
-                  <TableHead>Sender</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Time</TableHead>
+                  <SortableTableHead column="repo" label="Repo" sortBy={sortBy} sortDir={sortDir} onSort={handleSort} />
+                  <SortableTableHead
+                    column="sender"
+                    label="Sender"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    column="status"
+                    label="Status"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                  />
+                  <SortableTableHead
+                    column="time"
+                    label="Time"
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
+                    className="text-right"
+                  />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -406,36 +433,14 @@ export default function EventsPage() {
       </Card>
 
       {/* Pagination */}
-      {pagination && pagination.totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
-            Showing {(pagination.page - 1) * pagination.limit + 1}–
-            {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={pagination.page <= 1}
-              onClick={() => setPage(pagination.page - 1)}
-            >
-              <CaretLeft className="size-3" />
-              Prev
-            </Button>
-            <span className="px-2 text-xs tabular-nums text-muted-foreground">
-              {pagination.page} / {pagination.totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={pagination.page >= pagination.totalPages}
-              onClick={() => setPage(pagination.page + 1)}
-            >
-              Next
-              <CaretRight className="size-3" />
-            </Button>
-          </div>
-        </div>
+      {pagination && (
+        <PaginationFooter
+          page={pagination.page}
+          limit={pagination.limit}
+          total={pagination.total}
+          totalPages={pagination.totalPages}
+          onPageChange={setPage}
+        />
       )}
     </div>
   )

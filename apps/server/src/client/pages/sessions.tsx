@@ -1,14 +1,4 @@
-import {
-  CaretDown,
-  CaretLeft,
-  CaretRight,
-  ChatsCircle,
-  MagnifyingGlass,
-  Robot,
-  Stack,
-  Trash,
-  X,
-} from "@phosphor-icons/react"
+import { CaretDown, ChatsCircle, MagnifyingGlass, Robot, Stack, Trash, X } from "@phosphor-icons/react"
 import { useEffect, useRef, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import type { SessionListItem } from "@/client/lib/api"
@@ -18,6 +8,9 @@ import { ClearSessionsFeedback } from "@/components/clear-sessions-feedback"
 import { GitHubLink } from "@/components/github-link"
 import { LastUpdated } from "@/components/last-updated"
 import { NewChatDialog } from "@/components/new-chat-dialog"
+import { PageSizeSelector, PaginationFooter } from "@/components/pagination"
+import { RunStatusIndicator } from "@/components/run-status"
+import { SortableTableHead, type SortDir, toggleSort } from "@/components/sortable-table-head"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -45,8 +38,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { chatEntityRepo } from "@/lib/containers/chat-run"
 import { runStatusLabel, runStatusNotice } from "@/lib/containers/run-status"
 
-const PAGE_SIZES = [10, 25, 50] as const
-
 const STATUS_FILTERS = [
   { value: "all", label: "All" },
   { value: "working", label: "Working" },
@@ -59,7 +50,7 @@ type SessionStatusFilter = (typeof STATUS_FILTERS)[number]["value"]
 
 // Collapse the raw run status into one of the operator-facing filter buckets.
 // Anything that isn't working/idle/historical (unknown plus the attention
-// notices) is surfaced as "Offline", matching the StatusIndicator fallback.
+// notices) is surfaced as "Offline", matching the RunStatusIndicator fallback.
 export function sessionStatusBucket(status: string): Exclude<SessionStatusFilter, "all"> {
   if (status === "working" || status === "busy") return "working"
   if (status === "idle") return "idle"
@@ -83,48 +74,6 @@ function activitySourceLabel(source: NonNullable<SessionListItem["activityPrevie
     default:
       return "Message"
   }
-}
-
-function StatusIndicator({ status }: { status: string }) {
-  const notice = runStatusNotice(status)
-  if (notice) return <Badge variant={status === "sync_unavailable" ? "outline" : "destructive"}>{notice.title}</Badge>
-  const config: Record<string, { bg: string; dot: string; label: string }> = {
-    working: {
-      bg: "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
-      dot: "bg-yellow-500 animate-pulse",
-      label: "Working",
-    },
-    // Legacy API value before display-status rollout
-    busy: {
-      bg: "bg-yellow-50 text-yellow-700 dark:bg-yellow-950/50 dark:text-yellow-300",
-      dot: "bg-yellow-500 animate-pulse",
-      label: "Working",
-    },
-    idle: {
-      bg: "bg-green-50 text-green-700 dark:bg-green-950/50 dark:text-green-300",
-      dot: "bg-green-500",
-      label: "Idle",
-    },
-    historical: {
-      bg: "bg-muted text-muted-foreground",
-      dot: "bg-muted-foreground/50",
-      label: "Historical",
-    },
-    unknown: {
-      bg: "bg-gray-50 text-gray-600 dark:bg-gray-900 dark:text-gray-400",
-      dot: "bg-gray-400",
-      label: "Offline",
-    },
-  }
-  const c = config[status] ?? config.unknown
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-mono text-[11px] font-medium ${c.bg}`}
-    >
-      <span className={`inline-block size-1.5 rounded-full ${c.dot}`} />
-      {c.label}
-    </span>
-  )
 }
 
 type ClearMode = "all" | "idle"
@@ -167,6 +116,13 @@ export default function SessionsPage() {
   const setLimit = (l: number) => updateParams({ limit: String(l), page: "1" })
   const setStatus = (s: SessionStatusFilter) => updateParams({ status: s === "all" ? null : s })
 
+  const sortBy = searchParams.get("sortBy") ?? "updatedAt"
+  const sortDir = (searchParams.get("sortDir") as SortDir) ?? "desc"
+  const handleSort = (column: string) => {
+    const next = toggleSort({ sortBy, sortDir }, column, "desc")
+    updateParams({ sortBy: next.sortBy, sortDir: next.sortDir, page: "1" })
+  }
+
   const allSessions = data?.data ?? []
   const statusCounts: Record<SessionStatusFilter, number> = {
     all: allSessions.length,
@@ -198,18 +154,34 @@ export default function SessionsPage() {
     if (e.key === "Escape") clearSearchFilter()
   }
 
-  const filtered = sortSessionsByCreatedAt(
-    allSessions.filter((session: SessionListItem) => {
-      if (statusFilter !== "all" && sessionStatusBucket(session.status) !== statusFilter) return false
-      if (!searchFilter) return true
-      const q = searchFilter.toLowerCase()
-      return (
-        session.entityKey.toLowerCase().includes(q) ||
-        (session.title ?? "").toLowerCase().includes(q) ||
-        (session.agent ?? "").toLowerCase().includes(q)
-      )
-    }),
-  )
+  const filteredUnsorted = allSessions.filter((session: SessionListItem) => {
+    if (statusFilter !== "all" && sessionStatusBucket(session.status) !== statusFilter) return false
+    if (!searchFilter) return true
+    const q = searchFilter.toLowerCase()
+    return (
+      session.entityKey.toLowerCase().includes(q) ||
+      (session.title ?? "").toLowerCase().includes(q) ||
+      (session.agent ?? "").toLowerCase().includes(q)
+    )
+  })
+
+  const filtered = filteredUnsorted.slice().sort((a, b) => {
+    const dir = sortDir === "asc" ? 1 : -1
+    switch (sortBy) {
+      case "entity":
+        return dir * a.entityKey.localeCompare(b.entityKey)
+      case "status":
+        return dir * sessionStatusBucket(a.status).localeCompare(sessionStatusBucket(b.status))
+      case "agent":
+        return dir * (a.agent ?? "").localeCompare(b.agent ?? "")
+      case "sessions":
+        return dir * (a.sessionCount - b.sessionCount)
+      case "messages":
+        return dir * (a.messageCount - b.messageCount)
+      default:
+        return dir * (new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime())
+    }
+  })
 
   const pagination = data?.pagination
   const clearing = clearSessions.isPending
@@ -225,7 +197,7 @@ export default function SessionsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-lg font-semibold">Agent runs</h1>
@@ -358,14 +330,7 @@ export default function SessionsPage() {
             </button>
           )}
         </div>
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:ml-auto">
-          <span>Per page:</span>
-          {PAGE_SIZES.map((s) => (
-            <Button key={s} variant={limit === s ? "secondary" : "ghost"} size="xs" onClick={() => setLimit(s)}>
-              {s}
-            </Button>
-          ))}
-        </div>
+        <PageSizeSelector current={limit} onChange={setLimit} className="sm:ml-auto" />
       </div>
 
       <Card>
@@ -443,7 +408,7 @@ export default function SessionsPage() {
                               </Badge>
                             )}
                           </div>
-                          <StatusIndicator status={session.status} />
+                          <RunStatusIndicator status={session.status} />
                         </div>
                         {session.title && <p className="line-clamp-2 text-xs text-muted-foreground">{session.title}</p>}
                         {(session.agent || session.model) && (
@@ -488,21 +453,63 @@ export default function SessionsPage() {
                 <Table className="min-w-[940px] table-fixed">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[240px] min-w-[240px]">Entity</TableHead>
+                      <SortableTableHead
+                        column="entity"
+                        label="Entity"
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        className="w-[240px] min-w-[240px]"
+                      />
                       <TableHead className="w-[180px] min-w-[180px]">Latest activity</TableHead>
-                      <TableHead className="w-[140px] min-w-[140px]">Agent</TableHead>
-                      <TableHead className="w-[90px] text-center">Status</TableHead>
-                      <TableHead className="w-[80px] text-center">
-                        <span className="inline-flex items-center gap-1">
-                          <Stack className="size-3" /> Sessions
-                        </span>
-                      </TableHead>
-                      <TableHead className="w-[80px] text-center">
-                        <span className="inline-flex items-center gap-1">
-                          <ChatsCircle className="size-3" /> Msgs
-                        </span>
-                      </TableHead>
-                      <TableHead className="w-[100px] text-right">Updated</TableHead>
+                      <SortableTableHead
+                        column="agent"
+                        label="Agent"
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        className="w-[140px] min-w-[140px]"
+                      />
+                      <SortableTableHead
+                        column="status"
+                        label="Status"
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        className="w-[90px] text-center"
+                      />
+                      <SortableTableHead
+                        column="sessions"
+                        label={
+                          <span className="inline-flex items-center gap-1">
+                            <Stack className="size-3" /> Sessions
+                          </span>
+                        }
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        className="w-[80px] text-center"
+                      />
+                      <SortableTableHead
+                        column="messages"
+                        label={
+                          <span className="inline-flex items-center gap-1">
+                            <ChatsCircle className="size-3" /> Msgs
+                          </span>
+                        }
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        className="w-[80px] text-center"
+                      />
+                      <SortableTableHead
+                        column="updatedAt"
+                        label="Updated"
+                        sortBy={sortBy}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        className="w-[100px] text-right"
+                      />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -511,8 +518,7 @@ export default function SessionsPage() {
                       const parsed = parseEntityKey(session.entityKey)
                       const chatRepo = chatEntityRepo(session.entityKey)
                       const repoName = parsed ? `${parsed.owner}/${parsed.repo}` : chatRepo
-                      const openDetail = () =>
-                        navigate(`/runs/detail?key=${encodeURIComponent(session.entityKey)}`)
+                      const openDetail = () => navigate(`/runs/detail?key=${encodeURIComponent(session.entityKey)}`)
 
                       return (
                         <TableRow
@@ -595,7 +601,7 @@ export default function SessionsPage() {
                             </div>
                           </TableCell>
                           <TableCell className="text-center">
-                            <StatusIndicator status={session.status} />
+                            <RunStatusIndicator status={session.status} />
                           </TableCell>
                           <TableCell className="text-center font-mono text-sm tabular-nums">
                             {session.sessionCount}
@@ -617,36 +623,14 @@ export default function SessionsPage() {
         </CardContent>
       </Card>
 
-      {pagination && pagination.totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">
-            Showing {(pagination.page - 1) * pagination.limit + 1}–
-            {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={pagination.page <= 1}
-              onClick={() => setPage(pagination.page - 1)}
-            >
-              <CaretLeft className="size-3" />
-              Prev
-            </Button>
-            <span className="px-2 text-xs tabular-nums text-muted-foreground">
-              {pagination.page} / {pagination.totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={pagination.page >= pagination.totalPages}
-              onClick={() => setPage(pagination.page + 1)}
-            >
-              Next
-              <CaretRight className="size-3" />
-            </Button>
-          </div>
-        </div>
+      {pagination && (
+        <PaginationFooter
+          page={pagination.page}
+          limit={pagination.limit}
+          total={pagination.total}
+          totalPages={pagination.totalPages}
+          onPageChange={setPage}
+        />
       )}
     </div>
   )
