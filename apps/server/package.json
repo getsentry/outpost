@@ -10,7 +10,7 @@
     "db:generate": "drizzle-kit generate",
     "db:cleanup:dev": "tsx ./scripts/cleanup.ts",
     "db:migrate:dev": "wrangler d1 migrations apply --local jared",
-    "db:migrate:prod": "NODE_ENV=production wrangler d1 migrations apply --remote jared",
+    "db:migrate:prod": "tsx ./scripts/migrate-prod-d1.ts",
     "db:studio:dev": "drizzle-kit studio",
     "db:studio:prod": "NODE_ENV=production drizzle-kit studio",
     "sync:skills": "node container/scripts/sync-skills.mjs",
