@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, like, lte, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gte, like, lte, or, sql } from "drizzle-orm"
 import { Hono } from "hono"
 import { agentWorkItems, githubDiscussionObligations, webhookEvents } from "@/db/schema"
 import { getSessionController } from "@/lib/containers/session-controller"
@@ -64,6 +64,18 @@ const router = new Hono<AuthEnv>()
     const entityKey = c.req.query("entityKey")
     const from = Number(c.req.query("from")) || undefined
     const to = Number(c.req.query("to")) || undefined
+    const sortByParam = c.req.query("sortBy")
+    const sortDirParam = c.req.query("sortDir") === "asc" ? "asc" : "desc"
+
+    const SORTABLE_COLUMNS: Record<string, typeof webhookEvents.createdAt> = {
+      time: webhookEvents.createdAt,
+      status: webhookEvents.status,
+      repo: webhookEvents.repo,
+      sender: webhookEvents.sender,
+      event: webhookEvents.event,
+    }
+    const sortColumn = (sortByParam && SORTABLE_COLUMNS[sortByParam]) ?? webhookEvents.createdAt
+    const orderFn = sortDirParam === "asc" ? asc : desc
 
     const conditions = []
     if (status) {
@@ -116,7 +128,7 @@ const router = new Hono<AuthEnv>()
         })
         .from(webhookEvents)
         .where(where)
-        .orderBy(desc(webhookEvents.createdAt))
+        .orderBy(orderFn(sortColumn))
         .limit(limit)
         .offset(offset),
       db.select({ count: sql<number>`count(*)` }).from(webhookEvents).where(where),
@@ -139,8 +151,9 @@ const router = new Hono<AuthEnv>()
 
     const now = new Date()
     const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    const twoDaysAgo = new Date(now.getTime() - 48 * 60 * 60 * 1000)
 
-    const [totals, recentCount] = await Promise.all([
+    const [totals, recentCount, previousCount] = await Promise.all([
       db
         .select({
           status: webhookEvents.status,
@@ -152,6 +165,15 @@ const router = new Hono<AuthEnv>()
         .select({ count: sql<number>`count(*)` })
         .from(webhookEvents)
         .where(sql`${webhookEvents.createdAt} >= ${Math.floor(oneDayAgo.getTime() / 1000)}`),
+      db
+        .select({ count: sql<number>`count(*)` })
+        .from(webhookEvents)
+        .where(
+          and(
+            sql`${webhookEvents.createdAt} >= ${Math.floor(twoDaysAgo.getTime() / 1000)}`,
+            sql`${webhookEvents.createdAt} < ${Math.floor(oneDayAgo.getTime() / 1000)}`,
+          ),
+        ),
     ])
     // A deployment can briefly run newer code before its D1 migration. The
     // heartbeat is observability only; never make the Events page unavailable
@@ -191,6 +213,7 @@ const router = new Hono<AuthEnv>()
       stuck,
       skipped,
       last24h: recentCount[0]?.count ?? 0,
+      previous24h: previousCount[0]?.count ?? 0,
       maintenance: maintenance
         ? {
             cron: maintenance.cron,

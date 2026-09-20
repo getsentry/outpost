@@ -14,6 +14,8 @@ export type EventsParams = {
   entityKey?: string
   from?: number
   to?: number
+  sortBy?: string
+  sortDir?: "asc" | "desc"
   /** Relative window in seconds; the caller derives `from` at fetch time. */
   windowSeconds?: number
 }
@@ -135,6 +137,7 @@ export type EventStats = {
   stuck: number
   skipped: number
   last24h: number
+  previous24h: number
   maintenance: {
     cron: string
     scheduledAt: string
@@ -170,6 +173,8 @@ export const api = {
     if (params.entityKey) qs.set("entityKey", params.entityKey)
     if (params.from != null) qs.set("from", String(params.from))
     if (params.to != null) qs.set("to", String(params.to))
+    if (params.sortBy) qs.set("sortBy", params.sortBy)
+    if (params.sortDir) qs.set("sortDir", params.sortDir)
 
     const res = await fetch(`/api/events?${qs.toString()}`)
     if (!res.ok) throw new Error(`Failed to fetch events: ${res.status}`)

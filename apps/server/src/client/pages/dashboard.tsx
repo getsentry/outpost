@@ -1,4 +1,13 @@
-import { ArrowRight, CheckCircle, CircleDashed, Clock, Hourglass, Warning } from "@phosphor-icons/react"
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  CheckCircle,
+  CircleDashed,
+  Clock,
+  Hourglass,
+  Warning,
+} from "@phosphor-icons/react"
 import { Link, useNavigate } from "react-router-dom"
 import { formatTimeAgo, repoGitHubUrl } from "@/client/lib/format"
 import { useEventStats, useEvents } from "@/client/lib/queries"
@@ -9,6 +18,26 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+
+function TrendBadge({ current, previous }: { current: number; previous: number }) {
+  if (previous === 0 && current === 0) return null
+  const delta = current - previous
+  if (delta === 0) return null
+  const pct = previous > 0 ? Math.round((Math.abs(delta) / previous) * 100) : null
+  const rising = delta > 0
+  return (
+    <span
+      className={`inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+        rising
+          ? "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300"
+          : "bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300"
+      }`}
+    >
+      {rising ? <ArrowUp className="size-2.5" weight="bold" /> : <ArrowDown className="size-2.5" weight="bold" />}
+      {pct !== null ? `${pct}%` : `+${Math.abs(delta)}`}
+    </span>
+  )
+}
 
 function StatsCards() {
   const { data: stats, isLoading, isError, dataUpdatedAt, isFetching, refetch } = useEventStats()
@@ -118,8 +147,9 @@ function StatsCards() {
         <span>
           <strong className="font-medium text-foreground">{stats?.skipped ?? 0}</strong> skipped
         </span>
-        <span>
+        <span className="inline-flex items-center gap-1">
           <strong className="font-medium text-foreground">{stats?.last24h ?? 0}</strong> events in the last 24h
+          <TrendBadge current={stats?.last24h ?? 0} previous={stats?.previous24h ?? 0} />
         </span>
         <span>
           <strong className="font-medium text-foreground">{stats?.total ?? 0}</strong> total retained events
