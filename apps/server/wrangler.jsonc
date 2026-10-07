@@ -16,7 +16,7 @@
     {
       "binding": "DB",
       "database_name": "jared",
-      "database_id": "d52c2301-5a23-4bb1-a15b-225725900001"
+      "database_id": "3a9c53da-5800-4ad9-8429-7efabbb9d37c"
     }
   ],
   "containers": [
@@ -97,6 +97,6 @@
     // Public base URL of this Worker. Required so the in-container session
     // reporter can POST conversation history back (startSessionReporter early
     // returns without it) and for auth/CORS/OAuth callbacks.
-    "APP_URL": "https://jared.getsentry.workers.dev"
+    "APP_URL": "https://jared.sentry-internal.workers.dev"
   }
 }
