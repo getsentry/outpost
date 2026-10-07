@@ -197,8 +197,8 @@ importers:
         specifier: ^0.17.0
         version: 0.17.3
       '@sentry/vite-plugin':
-        specifier: 5.4.0
-        version: 5.4.0(rollup@4.60.4)
+        specifier: 5.4.1
+        version: 5.4.1(rollup@4.60.4)
       '@tailwindcss/vite':
         specifier: ^4.3.0
         version: 4.3.0(vite@8.0.16(@types/node@24.13.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
@@ -2343,8 +2343,8 @@ packages:
     resolution: {integrity: sha512-80X3NmsGB6tLmfzXYdjzWWdVAdL5CRukGKLcRWIcNhgGjtskOmnzaGb93egEZGI5bUTbtONJ0oyscQ3Z9yoAtQ==}
     engines: {node: '>=18'}
 
-  '@sentry/bundler-plugins@10.73.0':
-    resolution: {integrity: sha512-4X5m2hoqgKO6SxHR7MF9QnvxPNk0hwTJFixDJ/pzQGVM+C34j/rSabouBqd0M+ZdxFeAt/9kA5X0TyeceNo9YQ==}
+  '@sentry/bundler-plugins@10.76.0':
+    resolution: {integrity: sha512-xDcvwDk3WlvK67wtuHzNdaJit7z9dmp5urftgAtH2sIt8YmpdV68J8crFh6W4TEulYdhJHvSogLEnX+UoFl01A==}
     engines: {node: '>= 18'}
     peerDependencies:
       rollup: '>=3.2.0'
@@ -2424,8 +2424,8 @@ packages:
     resolution: {integrity: sha512-L+u1dIz5SANrmST5jhIwETtt4apILgKrylv12X4hKJU0PvZl+NorjeV/ty3MwzpKQPg6b6q6qMOSLc1rLpy3iQ==}
     engines: {node: '>=18'}
 
-  '@sentry/core@10.73.0':
-    resolution: {integrity: sha512-FLO1UgH19RyasVpofu612WCOgb2nEH0dZy+R72d7p65XU9i0wxlMKm3+sgfwKmiSJp1Qhilaaxs4Jg6BbiM5HA==}
+  '@sentry/core@10.76.0':
+    resolution: {integrity: sha512-H9irBNXHdkgvl86EKlQrPTGYyzvI8GUZ8eoWLay9IuqqZC6pWesf0nH7z/glxKBo7BEw3PIG+unQByHugBnsCg==}
     engines: {node: '>=18'}
 
   '@sentry/react@10.56.0':
@@ -2434,8 +2434,8 @@ packages:
     peerDependencies:
       react: ^16.14.0 || 17.x || 18.x || 19.x
 
-  '@sentry/vite-plugin@5.4.0':
-    resolution: {integrity: sha512-fFJgCxs5hDyAm9BbZJ+LbA+LK2tjX5OoD0v0ARU4StR6KQmGUduoPs69yJ9AfqZ0om3Rlp5JDliiwFcNkasORA==}
+  '@sentry/vite-plugin@5.4.1':
+    resolution: {integrity: sha512-poFfn3sQbSFaZpXH8CG27D0eNtDD64wFEniQCb853e7huko9vOl4UP3BjT3vsrnmVuRqagnbxItza10MOC7ysA==}
     engines: {node: '>= 18'}
 
   '@sindresorhus/is@7.2.0':
@@ -7591,11 +7591,11 @@ snapshots:
       '@sentry-internal/replay-canvas': 10.56.0
       '@sentry/core': 10.56.0
 
-  '@sentry/bundler-plugins@10.73.0(rollup@4.60.4)':
+  '@sentry/bundler-plugins@10.76.0(rollup@4.60.4)':
     dependencies:
       '@babel/core': 7.29.7
       '@sentry/cli': 2.58.6
-      '@sentry/core': 10.73.0
+      '@sentry/core': 10.76.0
       dotenv: 17.4.2
       find-up: 5.0.0
       glob: 13.0.6
@@ -7661,7 +7661,7 @@ snapshots:
 
   '@sentry/core@10.56.0': {}
 
-  '@sentry/core@10.73.0':
+  '@sentry/core@10.76.0':
     dependencies:
       '@sentry/conventions': 0.16.0
 
@@ -7671,9 +7671,9 @@ snapshots:
       '@sentry/core': 10.56.0
       react: 19.2.6
 
-  '@sentry/vite-plugin@5.4.0(rollup@4.60.4)':
+  '@sentry/vite-plugin@5.4.1(rollup@4.60.4)':
     dependencies:
-      '@sentry/bundler-plugins': 10.73.0(rollup@4.60.4)
+      '@sentry/bundler-plugins': 10.76.0(rollup@4.60.4)
     transitivePeerDependencies:
       - encoding
       - rollup
